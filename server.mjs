@@ -80,16 +80,17 @@ const S1_PROVIDERS = {
   jev: { label: "TypeSafe Jev", baseUrl: "https://api.typesafe.ai", models: ["jev-latest", "jev-1.13.0"], keyEnv: "TYPESAFE_API_KEY", keyUrl: "https://console.typesafe.ai/settings/keys" },
   // OpenRouter serves the same typed endpoint (POST /api/v1/systemone) with an OpenRouter key
   jev_openrouter: { label: "TypeSafe Jev via OpenRouter", baseUrl: "https://openrouter.ai/api", models: ["typesafe/jev-1.13"], keyEnv: "OPENROUTER_API_KEY", keyUrl: "https://openrouter.ai/keys" },
-  ...Object.fromEntries(LOCAL_S1.map((m) => [m.id, { get label() { return existsSync(modelPath(m)) ? `${m.label} (local)` : `${m.label} (local), not downloaded`; }, local: true, baseUrl: "", models: [m.modelId], keyEnv: "" }])),
+  ...Object.fromEntries(LOCAL_S1.map((m) => [m.id, { get label() { return modelReady(m) ? `${m.label} (local)` : `${m.label} (local), not downloaded`; }, local: true, baseUrl: "", models: [m.modelId], keyEnv: "" }])),
   custom: { label: "Custom System One endpoint", baseUrl: "", models: [], keyEnv: "", keyUrl: "" },
 };
 const RUNTIMES = CATALOG.runtimes;
-const runtimeAssets = (name) => RUNTIMES[name].assets[`${process.platform}-${process.arch}`] || [];
+const runtimeAssets = (name) => RUNTIMES[name].assets?.[`${process.platform}-${process.arch}`] || [];
 const runtimeDir = (name) => join(DATA_DIR, "runtime", name);
 const runtimeBin = (name) => join(runtimeDir(name), process.platform === "win32" ? `${RUNTIMES[name].bin}.exe` : RUNTIMES[name].bin);
-const modelPath = (m) => join(DATA_DIR, "models", m.file);
+const modelPath = (m) => join(DATA_DIR, "models", m.dir || m.file); // a single GGUF, or a directory of checkpoint files
+const modelReady = (m) => (m.files ? m.files.every((f) => existsSync(join(modelPath(m), f))) : existsSync(modelPath(m)));
 // Local language models (models.json, kind "llm") served by llama-server as a sidecar; same OpenAI chat shape.
-for (const m of LOCAL_LLM) PROVIDERS[`local_${m.id}`] = { get label() { return existsSync(modelPath(m)) ? `${m.label} (local)` : `${m.label} (local), not downloaded`; }, api: "openai", local: m, baseUrl: "", models: [m.modelId], noKey: true };
+for (const m of LOCAL_LLM) PROVIDERS[`local_${m.id}`] = { get label() { return modelReady(m) ? `${m.label} (local)` : `${m.label} (local), not downloaded`; }, api: m.api || "openai", local: m, baseUrl: "", models: [m.modelId], noKey: true };
 const fileSize = (p) => (existsSync(p) ? statSync(p).size : 0);
 
 // Downloads with progress and resume. One at a time per target; state readable by the settings page.
@@ -119,7 +120,51 @@ async function downloadFile(url, dest, key) {
 }
 // Runtimes: tried in catalog order per platform (e.g. a GPU build first, a CPU build as fallback).
 const TAR = process.platform === "win32" && existsSync(join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe")) ? join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe") : "tar";
+function findPython() {
+  for (const cand of [process.env.PR_SCORER_PYTHON, "python3", "python", "py"].filter(Boolean)) {
+    const r = spawnSync(cand, cand === "py" ? ["-3", "-c", "import sys;print(sys.version_info[:2]>=(3,10))"] : ["-c", "import sys;print(sys.version_info[:2]>=(3,10))"], { encoding: "utf8", timeout: 20000, windowsHide: true });
+    if (r.status === 0 && /True/.test(r.stdout)) return cand;
+  }
+  return "";
+}
+const pyReady = new Set();
+const venvPython = (name) => join(runtimeDir(name), "venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
 async function ensureRuntime(name) {
+  const rt = RUNTIMES[name];
+  if (rt.kind === "python") {
+    // Python runtime: a private venv with the packages from the catalog. The install shows as a "download" on the page.
+    const py = venvPython(name);
+    if (pyReady.has(name)) return py;
+    if (existsSync(py) && spawnSync(py, ["-c", "import torch, transformers"], { timeout: 120000, windowsHide: true }).status === 0) { pyReady.add(name); return py; }
+    const sys = findPython();
+    if (!sys) throw new Error("Python 3.10+ is needed for this model and was not found on PATH (set PR_SCORER_PYTHON)");
+    const key = `runtime:${name}`;
+    if (downloads.get(key)?.active) throw new Error("Runtime install already in progress");
+    const st = { active: true, done: 0, total: 0, error: "", label: "Installing Python packages" };
+    downloads.set(key, st);
+    try {
+      mkdirSync(runtimeDir(name), { recursive: true });
+      const run = (cmd, args) => new Promise((resolve, reject) => {
+        const p = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+        let log = "";
+        p.stdout.on("data", (d) => { log = (log + d).slice(-2000); });
+        p.stderr.on("data", (d) => { log = (log + d).slice(-2000); });
+        p.on("error", reject);
+        p.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${args.slice(0, 3).join(" ")} failed: ${log.trim().split("\n").pop()}`))));
+      });
+      if (!existsSync(py)) await run(sys, sys === "py" ? ["-3", "-m", "venv", join(runtimeDir(name), "venv")] : ["-m", "venv", join(runtimeDir(name), "venv")]);
+      st.label = "Installing Python packages (PyTorch, Transformers)";
+      await run(py, ["-m", "pip", "install", "--quiet", "--upgrade", "pip"]);
+      await run(py, ["-m", "pip", "install", "--quiet", ...rt.pip, ...(rt.pipIndex ? ["--extra-index-url", rt.pipIndex] : [])]);
+      pyReady.add(name);
+      return py;
+    } catch (e) {
+      st.error = e.message;
+      throw e;
+    } finally {
+      st.active = false;
+    }
+  }
   const bin = runtimeBin(name);
   if (existsSync(bin)) return bin;
   const assets = runtimeAssets(name);
@@ -144,12 +189,38 @@ async function ensureRuntime(name) {
   }
   throw new Error(`Could not install the ${name} runtime: ${last}`);
 }
+async function downloadModel(m) {
+  if (!m.files) return downloadFile(`https://huggingface.co/${m.repo}/resolve/main/${m.file}`, modelPath(m), m.id);
+  // several files: one progress entry, files in catalog order (the big one last)
+  const st = { active: true, done: 0, total: m.sizeMB * 1e6, error: "" };
+  downloads.set(m.id, st);
+  try {
+    for (const f of m.files) {
+      const dest = join(modelPath(m), f);
+      if (existsSync(dest)) { st.done += fileSize(dest); continue; }
+      const sub = `${m.id}/${f}`;
+      const before = st.done;
+      const tick = setInterval(() => { const d = downloads.get(sub); if (d) st.done = before + d.done; }, 500);
+      await downloadFile(`https://huggingface.co/${m.repo}/resolve/main/${f}`, dest, sub);
+      clearInterval(tick);
+      const d = downloads.get(sub);
+      if (d?.error) throw new Error(d.error);
+      st.done = before + fileSize(dest);
+    }
+  } catch (e) {
+    st.error = e.message;
+  } finally {
+    st.active = false;
+  }
+}
 const localStatus = (m) => {
   const d = downloads.get(m.id);
+  const rd = downloads.get(`runtime:${m.runtime}`);
   const sc = sidecars[m.kind];
   if (d?.active) return { state: "downloading", text: `Downloading ${d.total ? Math.round((d.done / d.total) * 100) : 0}% (${Math.round(d.done / 1e6)} of ${d.total ? Math.round(d.total / 1e6) : m.sizeMB} MB)` };
+  if (rd?.active && modelReady(m)) return { state: "downloading", text: rd.label || "Installing runtime" };
   if (d?.error) return { state: "error", text: `Download failed: ${d.error}` };
-  if (existsSync(modelPath(m))) return { state: "ready", text: sc.proc && sc.id === m.id ? `Ready · running on ${sc.device || "local"}` : "Ready" };
+  if (modelReady(m)) return { state: "ready", text: sc.proc && sc.id === m.id ? `Ready · running on ${sc.device || "local"}` : "Ready" };
   return { state: "missing", text: `Not downloaded (${m.sizeMB} MB, ${m.license})` };
 };
 
@@ -187,6 +258,7 @@ function discreteGpuLlama(bin) {
   return gpuIndex;
 }
 function sidecarArgs(m, bin, port) {
+  if (RUNTIMES[m.runtime].kind === "python") return [join(import.meta.dirname, RUNTIMES[m.runtime].script), "--model", modelPath(m), "--port", String(port), "--device", process.env.LLM_DEVICE || "auto"];
   if (m.runtime === "laya") {
     const dev = process.env.S1_DEVICE || (discreteGpu(bin, m) >= 0 ? `vulkan:${gpuIndex}` : "auto");
     return ["serve", modelPath(m), "--port", String(port), "--device", dev];
@@ -204,10 +276,10 @@ async function ensureSidecar(m) {
   if (sc.starting && sc.id === m.id) return sc.starting;
   stopSidecar(m.kind);
   const bin = await ensureRuntime(m.runtime);
-  if (!existsSync(modelPath(m))) throw new Error(`${m.label} is not downloaded: open Settings / Local models`);
+  if (!modelReady(m)) throw new Error(`${m.label} is not downloaded: open Settings / Local models`);
   sc.id = m.id;
   sc.starting = (async () => {
-    const proc = spawn(bin, sidecarArgs(m, bin, sc.port), { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: runtimeDir(m.runtime) });
+    const proc = spawn(bin, sidecarArgs(m, bin, sc.port), { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: RUNTIMES[m.runtime].kind === "python" ? import.meta.dirname : runtimeDir(m.runtime) });
     sc.proc = proc;
     let log = "";
     proc.stderr.on("data", (d) => { log = (log + d).slice(-4000); });
@@ -236,7 +308,7 @@ async function s1Config() {
   if (!p) return { provider: "none", model: "", baseUrl: "", apiKey: "", enabled: false };
   if (p.local) {
     const m = LOCAL[provider];
-    return { provider, local: m, model: m.modelId, baseUrl: "", apiKey: "", contextChars: m.contextChars, enabled: existsSync(modelPath(m)) };
+    return { provider, local: m, model: m.modelId, baseUrl: "", apiKey: "", contextChars: m.contextChars, enabled: modelReady(m) };
   }
   const apiKey = saved.apiKey || (p.keyEnv && process.env[p.keyEnv]) || "";
   const baseUrl = saved.baseUrl || p.baseUrl;
@@ -271,7 +343,7 @@ async function llmConfig() {
   const provider = saved.provider || ENV_DEFAULTS.provider;
   const p = PROVIDERS[provider] || PROVIDERS.custom;
   const isEnv = provider === ENV_DEFAULTS.provider;
-  if (p.local) return { provider, api: "openai", local: p.local, baseUrl: "", model: p.local.modelId, apiKey: "", contextChars: p.local.contextChars, enabled: existsSync(modelPath(p.local)), source: "settings" };
+  if (p.local) return { provider, api: p.local.api || "openai", local: p.local, baseUrl: "", model: p.local.modelId, apiKey: "", contextChars: p.local.contextChars, enabled: modelReady(p.local), source: "settings" };
   return {
     provider,
     api: p.api,
@@ -505,7 +577,50 @@ async function scoreWithSystemOne(pr, diff, c, guide) {
   return { scores, gates };
 }
 
+// Unified diff -> [{ file, header, diff }] hunks, largest first, capped. CodeReviewer reads one hunk at a time (512 tokens).
+function splitHunks(diff, maxHunks = 40, maxChars = 2000) {
+  const out = [];
+  let file = "";
+  let cur = null;
+  const push = () => { if (cur && cur.diff.trim()) out.push(cur); cur = null; };
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git")) { push(); file = (line.match(/ b\/(.+)$/) || [])[1] || file; continue; }
+    if (line.startsWith("+++ ")) { file = line.slice(4).replace(/^b\//, "") || file; continue; }
+    if (line.startsWith("--- ") || line.startsWith("index ") || line.startsWith("new file") || line.startsWith("deleted file") || line.startsWith("similarity") || line.startsWith("rename ")) continue;
+    if (line.startsWith("@@")) { push(); cur = { file, header: line, diff: "" }; continue; }
+    if (cur && cur.diff.length < maxChars) cur.diff += line + "\n";
+  }
+  push();
+  return out.filter((h) => !/\.(lock|min\.js|map|snap)$/.test(h.file)).sort((a, b) => b.diff.length - a.diff.length).slice(0, maxHunks);
+}
+async function reviewWithCodeReviewer(pr, diff, c) {
+  const hunks = splitHunks(diff);
+  const port = await ensureSidecar(c.local);
+  const res = await fetch(`http://127.0.0.1:${port}/v1/review`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hunks: hunks.map((h) => ({ file: h.file, diff: h.diff })) }), signal: AbortSignal.timeout(900000) });
+  if (!res.ok) throw new Error(`CodeReviewer ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const { comments } = await res.json();
+  const seen = new Set();
+  const findings = [];
+  for (const cm of comments || []) {
+    const text = String(cm.comment || "").trim();
+    const h = hunks[cm.index];
+    if (!h || text.length < 12 || seen.has(text.toLowerCase())) continue;
+    seen.add(text.toLowerCase());
+    const first = text.split(/(?<=[.!?])\s/)[0];
+    findings.push({ file: h.file, severity: /bug|wrong|incorrect|leak|crash|null|undefined|security|inject|unsafe|race|deadlock|error/i.test(text) ? "medium" : "low", title: first.length > 90 ? first.slice(0, 87) + "…" : first, detail: `${text}\n\n${h.header}` });
+  }
+  const files = [...new Set(hunks.map((h) => h.file))];
+  return {
+    summary: `${c.local.label} commented on ${findings.length} of ${hunks.length} hunks across ${files.length} files. Scores and gates come from the System One model.`,
+    verdict: findings.some((f) => f.severity === "medium") ? "comment" : findings.length ? "comment" : "approve",
+    scores: { quality: 0, correctness_risk: 0, test_coverage: 0, readability: 0, pr_hygiene: 0 },
+    findings: findings.slice(0, 20),
+    walkthrough: files.map((f) => ({ file: f, change: `${hunks.filter((h) => h.file === f).length} hunk(s) reviewed` })),
+  };
+}
+
 async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true) {
+  if (c.api === "codereviewer") return reviewWithCodeReviewer(pr, diff, c);
   const prompt = `You are a strict senior code reviewer. Review this pull request and reply with ONLY a JSON object:
 {"summary":"2-3 sentence walkthrough","verdict":"approve|comment|request_changes",
 ${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},\n` : ""} "findings":[{"file":"path","severity":"high|medium|low|nit","title":"short","detail":"why + what to do"}],
@@ -573,6 +688,7 @@ async function score(ref, force, repo) {
   const llmReady = c.local ? c.enabled : !!c.model && (!!c.apiKey || !!PROVIDERS[c.provider]?.noKey || /localhost|127\.0\.0\.1/.test(c.baseUrl));
   if (!llmReady && !s1.enabled) throw new Error("No model configured: open Settings / Model provider");
   // Language model writes the narrative; System One model scores and gates. Both in parallel when both are configured.
+  if (llmReady && c.api === "codereviewer" && !s1.enabled) throw new Error(`${c.local.label} writes review comments only. Configure a System One model for scores (Settings / Model provider; Laya runs on CPU next to it).`);
   const [narrative, typed] = await Promise.all([llmReady ? judge(pr, diff, c, rc, guide, !s1.enabled) : null, s1.enabled ? scoreWithSystemOne(pr, diff, s1, guide) : null]);
   // Every score comes from the typed engine when it is configured: the five review scores and blast radius.
   // The deterministic file/line/hotspot facts stay as facts; only the number is scored.
@@ -1022,7 +1138,9 @@ SETTINGS_PAGES.models = {
     const runtime = Object.keys(RUNTIMES).map((name) => {
       const sc = Object.values(sidecars).find((x) => x.proc && x.ready && LOCAL[x.id]?.runtime === name);
       const assets = runtimeAssets(name);
-      return existsSync(runtimeBin(name)) ? `${name} ${RUNTIMES[name].version} installed${sc ? ` · running ${LOCAL[sc.id].label} on ${sc.device}` : ""}` : assets.length ? `${name} ${RUNTIMES[name].version} fetched with the first download` : `${name}: no build for ${process.platform}-${process.arch}`;
+      const running = sc ? ` · running ${LOCAL[sc.id].label} on ${sc.device}` : "";
+      if (RUNTIMES[name].kind === "python") return existsSync(venvPython(name)) ? `${name} (Python venv) installed${running}` : findPython() ? `${name}: Python venv created with the first download` : `${name}: needs Python 3.10+ on PATH`;
+      return existsSync(runtimeBin(name)) ? `${name} ${RUNTIMES[name].version} installed${running}` : assets.length ? `${name} ${RUNTIMES[name].version} fetched with the first download` : `${name}: no build for ${process.platform}-${process.arch}`;
     }).join(" · ");
     const sections = [
       {
@@ -1049,14 +1167,15 @@ SETTINGS_PAGES.models = {
     async download(_req, _res, body) {
       const m = LOCAL[body?.item];
       if (!m) throw new Error("Unknown model");
-      if (!existsSync(modelPath(m)) && !downloads.get(m.id)?.active) downloadFile(`https://huggingface.co/${m.repo}/resolve/main/${m.file}`, modelPath(m), m.id);
+      const haveModel = modelReady(m);
+      if (!haveModel && !downloads.get(m.id)?.active) downloadModel(m);
       ensureRuntime(m.runtime).catch(() => {});
-      return { message: `Downloading ${m.label} (${m.sizeMB} MB)…` };
+      return { message: haveModel ? `Installing the ${m.runtime} runtime…` : `Downloading ${m.label} (${m.sizeMB} MB)…` };
     },
     async use(_req, _res, body) {
       const m = LOCAL[body?.item];
       if (!m) throw new Error("Unknown model");
-      if (!existsSync(modelPath(m))) throw new Error(`${m.label} is not downloaded`);
+      if (!modelReady(m)) throw new Error(`${m.label} is not downloaded`);
       if (sidecars[m.kind].id && sidecars[m.kind].id !== m.id) stopSidecar(m.kind);
       if (m.kind === "s1") await store.setSetting("s1", { provider: m.id });
       else await store.setSetting("llm", { provider: `local_${m.id}` });
@@ -1067,7 +1186,7 @@ SETTINGS_PAGES.models = {
       const m = LOCAL[body?.item];
       if (!m) throw new Error("Unknown model");
       if (sidecars[m.kind].id === m.id) stopSidecar(m.kind);
-      rmSync(modelPath(m), { force: true });
+      rmSync(modelPath(m), { force: true, recursive: true });
       rmSync(`${modelPath(m)}.part`, { force: true });
       downloads.delete(m.id);
       if (m.kind === "s1") { const s1 = (await store.getSetting("s1")) || {}; if (s1.provider === m.id) await store.setSetting("s1", { provider: "none" }); }
@@ -1308,4 +1427,5 @@ http
       json({ error: e.message });
     }
   })
+  .setTimeout(0) // Node cuts requests at 300 s by default; a cold local sidecar plus a long review can take longer
   .listen(PORT, async () => console.log(`PR Scorer on http://localhost:${PORT} (repo ${REPO}, model ${(await llmConfig()).model}, store ${PB_URL ? `PocketBase ${PB_URL}` : "scores/"})`));

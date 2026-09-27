@@ -6,9 +6,15 @@
       "license": "MIT",
       "bin": "laya",
       "assets": {
-        "win32-x64": ["laya-windows-x86_64-vulkan.zip"],
-        "darwin-arm64": ["laya-macos-arm64-metal.tar.gz"],
-        "linux-x64": ["laya-linux-x86_64-vulkan.tar.gz"]
+        "win32-x64": [
+          "laya-windows-x86_64-vulkan.zip"
+        ],
+        "darwin-arm64": [
+          "laya-macos-arm64-metal.tar.gz"
+        ],
+        "linux-x64": [
+          "laya-linux-x86_64-vulkan.tar.gz"
+        ]
       }
     },
     "llama": {
@@ -17,13 +23,41 @@
       "license": "MIT",
       "bin": "llama-server",
       "assets": {
-        "win32-x64": ["llama-b11215-bin-win-vulkan-x64.zip", "llama-b11215-bin-win-cpu-x64.zip"],
-        "win32-arm64": ["llama-b11215-bin-win-cpu-arm64.zip"],
-        "darwin-arm64": ["llama-b11215-bin-macos-arm64.tar.gz"],
-        "darwin-x64": ["llama-b11215-bin-macos-x64.tar.gz"],
-        "linux-x64": ["llama-b11215-bin-ubuntu-vulkan-x64.tar.gz", "llama-b11215-bin-ubuntu-x64.tar.gz"],
-        "linux-arm64": ["llama-b11215-bin-ubuntu-arm64.tar.gz"]
+        "win32-x64": [
+          "llama-b11215-bin-win-vulkan-x64.zip",
+          "llama-b11215-bin-win-cpu-x64.zip"
+        ],
+        "win32-arm64": [
+          "llama-b11215-bin-win-cpu-arm64.zip"
+        ],
+        "darwin-arm64": [
+          "llama-b11215-bin-macos-arm64.tar.gz"
+        ],
+        "darwin-x64": [
+          "llama-b11215-bin-macos-x64.tar.gz"
+        ],
+        "linux-x64": [
+          "llama-b11215-bin-ubuntu-vulkan-x64.tar.gz",
+          "llama-b11215-bin-ubuntu-x64.tar.gz"
+        ],
+        "linux-arm64": [
+          "llama-b11215-bin-ubuntu-arm64.tar.gz"
+        ]
       }
+    },
+    "codereviewer": {
+      "version": "1",
+      "license": "Apache-2.0",
+      "kind": "python",
+      "script": "runtimes/codereviewer/serve.py",
+      "pip": [
+        "torch",
+        "transformers>=4.40",
+        "sentencepiece",
+        "protobuf"
+      ],
+      "pipIndex": "https://download.pytorch.org/whl/cpu",
+      "notes": "Needs Python 3.10+ on PATH. Installs CPU PyTorch and Transformers into a private virtual environment (about 250 MB)."
     }
   },
   "models": [
@@ -88,6 +122,58 @@
       "contextChars": 60000,
       "license": "Apache-2.0",
       "notes": "Best local review quality, Q4_K_M. Wants a GPU with 6 GB or 8 GB of RAM on CPU."
+    },
+    {
+      "id": "codereviewer",
+      "kind": "llm",
+      "runtime": "codereviewer",
+      "api": "codereviewer",
+      "label": "CodeReviewer (Microsoft)",
+      "maker": "Microsoft Research",
+      "repo": "microsoft/codereviewer",
+      "files": [
+        "config.json",
+        "generation_config.json",
+        "added_tokens.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "pytorch_model.bin"
+      ],
+      "dir": "microsoft__codereviewer",
+      "sizeMB": 895,
+      "modelId": "microsoft/codereviewer",
+      "contextTokens": 512,
+      "contextChars": 90000,
+      "license": "Apache-2.0",
+      "notes": "CodeT5-based, pre-trained on code review data (arXiv:2203.09095). Writes a comment per hunk, no summary or scores: needs a System One model alongside. CPU is fine."
+    },
+    {
+      "id": "codereviewer-msg",
+      "kind": "llm",
+      "runtime": "codereviewer",
+      "api": "codereviewer",
+      "label": "CodeReviewer, comment fine-tune",
+      "maker": "waleko (on Microsoft's checkpoint)",
+      "repo": "waleko/codereviewer-finetuned-msg",
+      "files": [
+        "config.json",
+        "generation_config.json",
+        "added_tokens.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "pytorch_model.bin"
+      ],
+      "dir": "waleko__codereviewer-finetuned-msg",
+      "sizeMB": 895,
+      "modelId": "waleko/codereviewer-finetuned-msg",
+      "contextTokens": 512,
+      "contextChars": 90000,
+      "license": "Apache-2.0",
+      "notes": "Same model fine-tuned on the paper's comment-generation set. Chattier, question-style comments. Also needs a System One model."
     }
   ]
 }
