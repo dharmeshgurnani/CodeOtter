@@ -1115,26 +1115,28 @@ SETTINGS_PAGES.accounts = {
 // Local models page: what is downloaded, what is available, one action per row. Nothing downloads by itself.
 SETTINGS_PAGES.models = {
   title: "Local models",
-  group: "settings",
+  group: "admin",
   access: "admin",
   async load() {
     const s1 = await s1Config();
     const llm = await llmConfig();
-    const rows = CATALOG.models.map((m) => {
+    const row = (m) => {
       const st = localStatus(m);
       const d = downloads.get(m.id);
       const active = m.kind === "s1" ? s1.provider === m.id : llm.provider === `local_${m.id}`;
-      const facts = [m.kind === "llm" ? "Language model" : "System One model", m.maker, `${m.sizeMB} MB`, m.license, `${m.contextTokens}-token context`, m.notes].join(" · ");
+      const facts = [m.maker, `${m.sizeMB} MB`, m.license, `${m.contextTokens}-token context`, m.notes].join(" · ");
       return {
         id: m.id,
         label: m.label.replace(" (local)", ""),
-        badge: active ? "Active" : undefined,
-        meta: st.state === "ready" ? facts : `${facts}${st.state === "missing" ? "" : ` · ${st.text}`}`,
+        badge: active ? "Active" : st.state === "ready" ? "Downloaded" : undefined,
+        meta: st.state === "ready" || st.state === "missing" ? facts : `${facts} · ${st.text}`,
         progress: st.state === "downloading" && d?.total ? Math.round((d.done / d.total) * 100) : undefined,
         actions: st.state === "ready" ? [...(active ? [] : [{ id: "use", label: "Use" }]), { id: "delete", label: "Delete", variant: "outline" }] : st.state === "downloading" ? [] : [{ id: "download", label: `Download ${m.sizeMB} MB` }],
         state: st.state,
       };
-    });
+    };
+    const llmRows = LOCAL_LLM.map(row);
+    const s1Rows = LOCAL_S1.map(row);
     const runtime = Object.keys(RUNTIMES).map((name) => {
       const sc = Object.values(sidecars).find((x) => x.proc && x.ready && LOCAL[x.id]?.runtime === name);
       const assets = runtimeAssets(name);
@@ -1142,25 +1144,30 @@ SETTINGS_PAGES.models = {
       if (RUNTIMES[name].kind === "python") return existsSync(venvPython(name)) ? `${name} (Python venv) installed${running}` : findPython() ? `${name}: Python venv created with the first download` : `${name}: needs Python 3.10+ on PATH`;
       return existsSync(runtimeBin(name)) ? `${name} ${RUNTIMES[name].version} installed${running}` : assets.length ? `${name} ${RUNTIMES[name].version} fetched with the first download` : `${name}: no build for ${process.platform}-${process.arch}`;
     }).join(" · ");
+    const poll = (rows) => (rows.some((r) => r.state === "downloading") ? 2000 : 0);
+    // Same two engines as Model provider: both are used together. Download / Use / Delete per row; nothing downloads by itself.
     const sections = [
       {
-        id: "downloaded",
-        title: "Downloaded",
-        description: "On this machine. Use makes one the active language model or System One model; Delete frees the disk.",
-        fields: [
-          { key: "list", label: "Models", type: "list", removable: false },
-          { key: "runtime", label: "Runtime", type: "readonly", hint: `Data directory ${DATA_DIR}` },
-        ],
+        id: "llm",
+        title: "Language models",
+        description: "Writes the summary, walkthrough and findings. Use makes one the active language model.",
+        fields: [{ key: "list", label: "Models", type: "list", removable: false }],
+        poll: poll(llmRows),
       },
       {
-        id: "available",
-        title: "Available to download",
-        description: "Optional. Only for scoring offline; API providers need nothing here.",
+        id: "s1",
+        title: "System One models",
+        description: "Answers scores and gates. Use makes one the active System One model.",
         fields: [{ key: "list", label: "Models", type: "list", removable: false }],
-        poll: rows.some((r) => r.state === "downloading") ? 2000 : 0,
+        poll: poll(s1Rows),
+      },
+      {
+        id: "runtime",
+        title: "Runtimes",
+        fields: [{ key: "runtime", label: "Runtime", type: "readonly", hint: `Data directory ${DATA_DIR}` }],
       },
     ];
-    return { sections, values: { downloaded: { list: rows.filter((r) => r.state === "ready"), runtime }, available: { list: rows.filter((r) => r.state !== "ready") } } };
+    return { sections, values: { llm: { list: llmRows }, s1: { list: s1Rows }, runtime: { runtime } } };
   },
   async save() {},
   actions: {
