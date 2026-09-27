@@ -1,0 +1,5 @@
+node_modules/
+web/dist/
+scores/
+server.log
+.env
