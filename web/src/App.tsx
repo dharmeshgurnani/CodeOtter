@@ -8,6 +8,7 @@ import { HomePage } from "./home-page";
 import { LoginPage } from "./login-page";
 import { TableSkeleton } from "@/components/skeletons";
 import { Link } from "@/components/link";
+import { ReviewDialog } from "@/components/review-dialog";
 import { type Board, type Review, type User, VERDICT, effort, tone } from "./types";
 
 const useRoute = () => {
@@ -107,11 +108,6 @@ export default function App() {
       : repoPage
         ? `${repoPage} / ${repoView === "open" ? "Open pull requests" : "Reviews"}`
         : org ? `Home / ${org}` : "Home";
-  const submit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const pr = new FormData(e.currentTarget).get("pr")?.toString().trim();
-    if (pr) go(`/review?pr=${encodeURIComponent(pr)}${repoPage && /^\d+$/.test(pr) ? `&repo=${encodeURIComponent(repoPage)}` : ""}`);
-  };
 
   if (path === "/login") return <LoginPage error={loginError} onLogin={login} go={go} />;
   return (
@@ -127,7 +123,7 @@ export default function App() {
                 {/^https?:/.test(prRef) && <Button asChild><a href={prRef} target="_blank" rel="noreferrer">Open in GitHub</a></Button>}
               </>
             )}
-            {repoPage && <Button form="review-form" type="submit">Review pull request</Button>}
+            {path !== "/review" && <ReviewDialog repo={repoPage} go={go} />}
           </span>
         </div>
         <div className="w-full px-10 py-7">
@@ -138,11 +134,6 @@ export default function App() {
             <SettingsPage page={settingsPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onSaved={load} />
           ) : (
             <>
-              {repoPage && (
-                <form id="review-form" onSubmit={submit} className="mb-4">
-                  <input name="pr" autoFocus placeholder={`Paste a pull request URL or number in ${repoPage}`} className="w-full max-w-[420px] rounded-lg border border-border px-3 py-2 text-[15px] outline-none focus:ring-2 focus:ring-black" />
-                </form>
-              )}
               {!repoPage ? (
                 <HomePage go={go} version={version} org={org} />
               ) : repoView === "open" ? (
