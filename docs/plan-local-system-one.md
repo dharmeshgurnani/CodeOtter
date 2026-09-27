@@ -1,6 +1,6 @@
 # Plan: downloadable and local System One models
 
-Status: proposed, not started. Goal: one click in Settings → Model provider → System One model downloads a model that runs on the user's machine and answers the same typed questions Jev does, with no API key and no data leaving the box. Reference experience: Handy (voice to text) — pick a model, click download, watch progress, use it.
+Status: phases 0 to 2 shipped 2026-09-27 (custom endpoint provider, Laya and Kev 0.8B via the ggmlc `laya` sidecar, one-click download with resume, settings page with status polling, discrete-GPU selection). Remaining: Docker bake of the Linux runtime, GPU builds as an option, the calibration run. Goal: one click in Settings → Model provider → System One model downloads a model that runs on the user's machine and answers the same typed questions Jev does, with no API key and no data leaving the box. Reference experience: Handy (voice to text) — pick a model, click download, watch progress, use it.
 
 ## What exists (verified 2026-09-27)
 

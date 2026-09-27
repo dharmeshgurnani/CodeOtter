@@ -19,10 +19,10 @@ RUN apk add --no-cache git ca-certificates curl unzip \
     | tar -xz -C /usr/local/bin --strip-components=2 "gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" \
  && apk del unzip
 WORKDIR /app
-COPY server.mjs start.sh showcase.json ./
+COPY server.mjs start.sh showcase.json models.json ./
 COPY pb_migrations ./pb_migrations
 COPY --from=web /app/web/dist ./web/dist
-ENV PB_URL=http://127.0.0.1:8090 PORT=4747
+ENV PB_URL=http://127.0.0.1:8090 PORT=4747 PR_SCORER_DATA=/app/pb_data/local S1_DEVICE=cpu
 EXPOSE 4747 8090
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- http://127.0.0.1:4747/api/me >/dev/null || exit 1
 VOLUME ["/app/pb_data"]

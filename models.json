@@ -1,0 +1,43 @@
+{
+  "runtime": {
+    "name": "laya",
+    "version": "0.9.5",
+    "source": "https://github.com/monatis/ggmlc/releases/download/v0.9.5/",
+    "license": "MIT",
+    "assets": {
+      "win32-x64": "laya-windows-x86_64-vulkan.zip",
+      "darwin-arm64": "laya-macos-arm64-metal.tar.gz",
+      "linux-x64": "laya-linux-x86_64-vulkan.tar.gz"
+    }
+  },
+  "models": [
+    {
+      "id": "laya",
+      "label": "Laya typed-decisions (local)",
+      "maker": "Convai Innovations",
+      "repo": "mys/laya-typed-decisions-GGUF",
+      "file": "laya_typed_decisions_q8_0.gguf",
+      "sizeMB": 435,
+      "modelId": "typed-decisions",
+      "contextTokens": 1024,
+      "contextChars": 2500,
+      "license": "Apache-2.0",
+      "notes": "421M encoder, one pass per question. Fastest; smallest context.",
+      "maxQuestions": 8
+    },
+    {
+      "id": "kev",
+      "label": "Kev 0.8B (local)",
+      "maker": "Jared Palmer",
+      "repo": "mys/kev-0.8b-GGUF",
+      "file": "kev_0.8b_q8_0.gguf",
+      "sizeMB": 790,
+      "modelId": "kev-0.8b",
+      "contextTokens": 2048,
+      "contextChars": 5500,
+      "license": "Apache-2.0",
+      "notes": "Qwen3.5-0.8B decision model. Slower; twice the context.",
+      "maxQuestions": 8
+    }
+  ]
+}

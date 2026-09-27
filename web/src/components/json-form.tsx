@@ -28,7 +28,7 @@ export type Field = {
   step?: number;
 };
 export type Action = { id: string; label: string; variant?: "default" | "outline"; needsSaved?: boolean; always?: boolean };
-export type Section = { id: string; title: string; description?: string; readonly?: boolean; fields: Field[]; actions?: Action[] };
+export type Section = { id: string; title: string; description?: string; readonly?: boolean; fields: Field[]; actions?: Action[]; poll?: number }; // poll: refetch interval in ms while something is in progress
 export type Values = Record<string, Record<string, unknown>>;
 
 // Apply a change plus its knock-on effects (dependent defaults and option lists) inside one section.

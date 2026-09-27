@@ -42,6 +42,13 @@ export function SettingsPage({ page, org, setOrg, user, onLogin, onSaved }: { pa
     call(url()).then((d) => alive && apply(d)).catch((e) => alive && setMsg({ ok: false, text: e.message, status: e.status }));
     return () => { alive = false; };
   }, [page, org]);
+  // A section in progress (e.g. a model download) asks to be refetched; stop when it no longer asks.
+  const pollMs = Math.max(0, ...(sections ?? []).map((s) => s.poll ?? 0));
+  useEffect(() => {
+    if (!pollMs) return;
+    const t = setInterval(() => call(url()).then(apply).catch(() => {}), pollMs);
+    return () => clearInterval(t);
+  }, [pollMs, page, org]);
 
   const onAction = async (sectionId: string, actionId: string) => {
     setBusy(`${sectionId}:${actionId}`);
