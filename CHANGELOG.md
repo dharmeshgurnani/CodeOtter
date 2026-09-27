@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- System One models: a second engine next to the language model. TypeSafe Jev scores pull requests from fixed rubrics and answers merge gates (security, complexity, tests, docs, scope, repository guidelines), shown under Pre-merge checks. Runs in parallel with the language model; either engine works alone.
+- Removed the "Review pull request" header button; open pull requests are reviewed from their repository page.
+- The UI no longer names the storage backend.
+
 ## 0.1.0 (2026-09-27)
 
 First release.

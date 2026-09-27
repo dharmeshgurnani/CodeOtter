@@ -30,6 +30,32 @@ const PROVIDERS = {
 const ENV_DEFAULTS = process.env.LLM_BASE_URL
   ? { provider: "custom", baseUrl: process.env.LLM_BASE_URL, model: process.env.LLM_MODEL || "", apiKey: process.env.LLM_API_KEY || "" }
   : { provider: "minimax", baseUrl: PROVIDERS.minimax.baseUrl, model: process.env.LLM_MODEL || "MiniMax-M3", apiKey: process.env.LLM_API_KEY || "" };
+// System One models answer typed questions (scores, yes/no gates) in one fast pass; they cannot write prose.
+// When one is configured it owns the scores and the merge gates; the language model keeps the narrative
+// (summary, walkthrough, findings). Both run in parallel when both are configured.
+const S1_PROVIDERS = {
+  jev: { label: "TypeSafe Jev", baseUrl: "https://api.typesafe.ai", models: ["jev-latest", "jev-1.13.0"], keyEnv: "TYPESAFE_API_KEY", keyUrl: "https://console.typesafe.ai/settings/keys" },
+};
+async function s1Config() {
+  const saved = (await store.getSetting("s1")) || {};
+  const provider = saved.provider || (process.env.TYPESAFE_API_KEY ? "jev" : "none");
+  const p = S1_PROVIDERS[provider];
+  if (!p) return { provider: "none", model: "", baseUrl: "", apiKey: "", enabled: false };
+  const apiKey = saved.apiKey || process.env[p.keyEnv] || "";
+  return { provider, model: saved.model || p.models[0], baseUrl: saved.baseUrl || p.baseUrl, apiKey, enabled: !!apiKey };
+}
+async function askSystemOne(state, questions, c) {
+  if (!c.enabled) throw new Error("No System One model configured: open Settings");
+  const res = await fetch(`${c.baseUrl.replace(/\/+$/, "")}/v1/systemone`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${c.apiKey}` },
+    body: JSON.stringify({ model: c.model, state, questions }),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!res.ok) throw new Error(`${S1_PROVIDERS[c.provider]?.label || c.provider} ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return (await res.json()).answers || {};
+}
+
 async function llmConfig() {
   const saved = (await store.getSetting("llm")) || {};
   const provider = saved.provider || ENV_DEFAULTS.provider;
@@ -232,6 +258,37 @@ async function guideFor(repo) {
   return { file: files.join(" + "), text: files.map((f) => `--- ${f} ---\n${guideText(repo, f).slice(0, per)}`).join("\n\n") };
 }
 
+// Score rubrics (5 levels, index 0..4, mapped to 0..100) and merge gates (yes/no). `risk` gates pass when the answer is no.
+const S1_SCORES = {
+  quality: ["Broken or wrong", "Works but sloppy", "Acceptable", "Clean and idiomatic", "Exemplary"],
+  correctness_risk: ["No realistic way to break anything", "Low risk", "Moderate risk of regressions", "High risk of regressions", "Very likely to break production"],
+  test_coverage: ["No tests for the change", "Minimal tests", "Partial coverage", "Good coverage", "Thorough coverage"],
+  readability: ["Hard to follow", "Below average", "Readable", "Clear", "Very clear"],
+  pr_hygiene: ["Unclear title and description, mixed concerns", "Weak description or scope", "Adequate", "Well described and focused", "Exemplary title, description and scope"],
+};
+const S1_GATES = [
+  { id: "security", label: "Security", q: "The change introduces a security risk (injection, auth bypass, secrets, unsafe deserialisation, SSRF, XSS).", risk: true },
+  { id: "complexity", label: "Complexity", q: "The change is more complex than the problem requires.", risk: true },
+  { id: "tests", label: "Tests", q: "The change is adequately covered by tests for its risk.", risk: false },
+  { id: "docs", label: "Documentation", q: "Documentation is updated wherever behaviour visible to users or developers changed.", risk: false },
+  { id: "scope", label: "Scope", q: "The pull request does one focused thing.", risk: false },
+  { id: "guidelines", label: "Repository guidelines", q: "The change violates the repository's review guidelines.", risk: true, needsGuide: true },
+];
+async function scoreWithSystemOne(pr, diff, c, guide) {
+  const state = {
+    pull_request: { title: pr.title, description: (pr.body || "").slice(0, 3000), author: pr.author.login, base: pr.baseRefName, files: pr.files.map((f) => `${f.path} +${f.additions} -${f.deletions}`).slice(0, 200) },
+    ...(guide ? { review_guidelines: guide.text.slice(0, 12000) } : {}),
+    diff: diff.slice(0, 80000),
+  };
+  const questions = {};
+  for (const [k, levels] of Object.entries(S1_SCORES)) questions[`score_${k}`] = { type: "score", instructions: `Rate the pull request's ${k.replace("_", " ")}.`, criteria: levels };
+  for (const g of S1_GATES) if (!g.needsGuide || guide) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
+  const a = await askSystemOne(state, questions, c);
+  const scores = Object.fromEntries(Object.keys(S1_SCORES).map((k) => [k, Math.max(0, Math.min(100, Math.round((Number(a[`score_${k}`]?.score) || 0) / 4 * 100)))]));
+  const gates = S1_GATES.filter((g) => a[`gate_${g.id}`]).map((g) => { const yes = Number(a[`gate_${g.id}`].noul) || 0; return { id: g.id, label: g.label, yes: Math.round(yes * 100) / 100, pass: g.risk ? yes < 0.5 : yes >= 0.5 }; });
+  return { scores, gates };
+}
+
 async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null) {
   const prompt = `You are a strict senior code reviewer. Review this pull request and reply with ONLY a JSON object:
 {"summary":"2-3 sentence walkthrough","verdict":"approve|comment|request_changes",
@@ -297,9 +354,19 @@ async function score(ref, force, repo) {
     if (cached) return cached;
   }
   const diff = gh("pr", "diff", ...spec);
-  const c = await llmConfig();
-  const guide = await guideFor(repoOf(pr));
-  const result = { pr, blast: blastRadius(pr.files), review: await judge(pr, diff, c, await reviewConfig(), guide), model: `${c.provider}/${c.model}`, guide: guide?.file || null, at: new Date().toISOString() };
+  const [c, s1, guide, rc] = await Promise.all([llmConfig(), s1Config(), guideFor(repoOf(pr)), reviewConfig()]);
+  const llmReady = !!c.model && (!!c.apiKey || !!PROVIDERS[c.provider]?.noKey || /localhost|127\.0\.0\.1/.test(c.baseUrl));
+  if (!llmReady && !s1.enabled) throw new Error("No model configured: open Settings / Model provider");
+  // Language model writes the narrative; System One model scores and gates. Both in parallel when both are configured.
+  const [narrative, typed] = await Promise.all([llmReady ? judge(pr, diff, c, rc, guide) : null, s1.enabled ? scoreWithSystemOne(pr, diff, s1, guide) : null]);
+  let review = narrative;
+  if (!review) {
+    const g = typed.gates;
+    const bad = g.some((x) => x.id === "security" && !x.pass) || typed.scores.quality < 40;
+    review = { summary: "Scored by the System One model. Configure a language model for a walkthrough and findings.", verdict: bad ? "request_changes" : typed.scores.quality >= 70 && g.every((x) => x.pass) ? "approve" : "comment", scores: typed.scores, findings: [], walkthrough: [] };
+  } else if (typed) review = { ...review, scores: typed.scores };
+  const engines = { llm: llmReady ? `${c.provider}/${c.model}` : null, s1: s1.enabled ? `${s1.provider}/${s1.model}` : null };
+  const result = { pr, blast: blastRadius(pr.files), review, gates: typed?.gates || [], engines, model: [engines.llm, engines.s1].filter(Boolean).join(" + "), guide: guide?.file || null, at: new Date().toISOString() };
   await store.put(result);
   return result;
 }
@@ -445,7 +512,8 @@ function renderScore(r) {
       <details><summary>Pre-merge checks</summary><table class="md"><tr><th>Check</th><th>Status</th></tr>
         <tr><td>Title check</td><td>${v.scores.pr_hygiene >= 60 ? "✅ Passed" : "⚠️ Warning"}</td></tr>
         <tr><td>Description check</td><td>${(pr.body || "").length > 80 ? "✅ Passed" : "⚠️ Warning"}</td></tr>
-        <tr><td>Tests touched</td><td>${blast.testFiles ? "✅ Passed" : "⚠️ Warning"}</td></tr></table></details>
+        <tr><td>Tests touched</td><td>${blast.testFiles ? "✅ Passed" : "⚠️ Warning"}</td></tr>
+        ${(r.gates || []).map((g) => `<tr><td>${esc(g.label)}</td><td>${g.pass ? "✅ Passed" : "⚠️ Warning"} <span class="mut">(${Math.round(g.yes * 100)}% yes)</span></td></tr>`).join("")}</table></details>
       <div class="ft"><span>Model ${esc(r.model)}</span><span>Reviewed ${esc(when)}</span></div>
     </div></div>
 
@@ -530,13 +598,14 @@ const SETTINGS_PAGES = {
     access: "admin",
     async load() {
       const c = await llmConfig();
+      const s1 = await s1Config();
       const r = await reviewConfig();
       const p = PROVIDERS[c.provider] || PROVIDERS.custom;
       const sections = [
         {
           id: "llm",
-          title: "Provider",
-          description: "Which model reviews pull requests. Applies to the next review, no restart.",
+          title: "Language model",
+          description: "Writes the walkthrough and findings. Also scores when no System One model is configured.",
           fields: [
             { key: "provider", label: "Provider", type: "select", options: Object.entries(PROVIDERS).map(([value, x]) => ({ value, label: x.label })) },
             { key: "model", label: "Model", type: "combo", hint: "Pick one or type any model id the provider accepts.", optionsBy: { field: "provider", map: byProvider((x) => x.models) } },
@@ -544,6 +613,18 @@ const SETTINGS_PAGES = {
             { key: "baseUrl", label: "Base URL", type: "text", hint: "Prefilled per provider. Change only for proxies or self-hosted gateways.", defaultBy: { field: "provider", map: byProvider((x) => x.baseUrl) } },
           ],
           actions: [{ id: "save", label: "Save" }, { id: "test", label: "Test connection", variant: "outline", needsSaved: true }],
+        },
+        {
+          id: "s1",
+          title: "System One model",
+          description: "Typed scores and merge gates in one fast pass. Owns scoring when configured; runs alongside the language model.",
+          fields: [
+            { key: "provider", label: "Provider", type: "select", options: [{ value: "none", label: "None" }, ...Object.entries(S1_PROVIDERS).map(([value, x]) => ({ value, label: x.label }))] },
+            { key: "model", label: "Model", type: "combo", hideWhen: { field: "provider", in: ["none"] }, optionsBy: { field: "provider", map: { none: [], ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.models])) } } },
+            { key: "apiKey", label: "API key", type: "password", hideWhen: { field: "provider", in: ["none"] }, hint: s1.apiKey ? `Saved key ${mask(s1.apiKey)}. Leave blank to keep it.` : "No key saved yet.", placeholder: mask(s1.apiKey) || "paste key", linkBy: { field: "provider", map: Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
+            { key: "baseUrl", label: "Base URL", type: "text", hideWhen: { field: "provider", in: ["none"] }, defaultBy: { field: "provider", map: { none: "", ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.baseUrl])) } } },
+          ],
+          actions: [{ id: "save", label: "Save" }, { id: "probe", label: "Test connection", variant: "outline", needsSaved: true }],
         },
         {
           id: "review",
@@ -557,7 +638,7 @@ const SETTINGS_PAGES = {
           actions: [{ id: "save", label: "Save" }],
         },
       ];
-      return { sections, values: { llm: { provider: c.provider, model: c.model, apiKey: "", baseUrl: c.baseUrl }, review: r } };
+      return { sections, values: { llm: { provider: c.provider, model: c.model, apiKey: "", baseUrl: c.baseUrl }, s1: { provider: s1.provider, model: s1.model, apiKey: "", baseUrl: s1.baseUrl }, review: r } };
     },
     async save(body) {
       if (body.llm) {
@@ -567,10 +648,25 @@ const SETTINGS_PAGES = {
         const apiKey = v.apiKey || (prev.provider === v.provider && (v.baseUrl || "") === (prev.baseUrl || "") ? prev.apiKey : "") || "";
         await store.setSetting("llm", { provider: v.provider, model: v.model || "", baseUrl: v.baseUrl || "", apiKey });
       }
+      if (body.s1) {
+        const v = body.s1;
+        if (v.provider !== "none" && !S1_PROVIDERS[v.provider]) throw new Error(`Unknown System One provider ${v.provider}`);
+        const prev = (await store.getSetting("s1")) || {};
+        const apiKey = v.apiKey || (prev.provider === v.provider && (v.baseUrl || "") === (prev.baseUrl || "") ? prev.apiKey : "") || "";
+        await store.setSetting("s1", v.provider === "none" ? { provider: "none" } : { provider: v.provider, model: v.model || "", baseUrl: v.baseUrl || "", apiKey });
+      }
       if (body.review) {
         const v = body.review;
         await store.setSetting("review", { maxFindings: Math.min(12, Math.max(3, Number(v.maxFindings) || 8)), diffChars: Number(v.diffChars) || 90000, temperature: Math.min(1, Math.max(0, Number(v.temperature) || 0)) });
       }
+    },
+    actions: {
+      async probe() {
+        const t = Date.now();
+        const a = await askSystemOne({ document: "The function returns the sum of two integers." }, { ok: { type: "noul", instructions: "The document describes an addition." } }, await s1Config());
+        const yes = Number(a.ok?.noul) || 0;
+        return { message: `Connected, answered in ${Date.now() - t} ms (${Math.round(yes * 100)}% yes).` };
+      },
     },
     async test() {
       const t = Date.now();

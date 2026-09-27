@@ -25,6 +25,8 @@ export type Review = {
     walkthrough: { file: string; change: string }[];
   };
   model: string;
+  gates?: { id: string; label: string; yes: number; pass: boolean }[];
+  engines?: { llm: string | null; s1: string | null };
   at: string;
 };
 export type User = { id: string; name: string; email: string; role: string; avatar: string };
