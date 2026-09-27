@@ -487,6 +487,13 @@ async function askModel(prompt, c) {
   if (c.local && !c.enabled) throw new Error(`${c.local.label} is not downloaded: open Settings / Local models`);
   if (!c.local && !c.apiKey && !PROVIDERS[c.provider]?.noKey && !/localhost|127\.0\.0\.1/.test(c.baseUrl)) throw new Error(`No API key for ${PROVIDERS[c.provider]?.label || c.provider}: open Settings`);
   const base = c.local ? `http://127.0.0.1:${await ensureSidecar(c.local)}/v1` : c.baseUrl.replace(/\/+$/, "");
+  if (c.api === "codereviewer") {
+    // No chat endpoint: the test sends one hunk through /v1/review and reports the comment.
+    const res = await fetch(`${base}/review`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hunks: [{ file: "src/math.js", diff: [" function add(a, b) {", "-  return a + b;", "+  return a - b;", " }", ""].join("\n") }] }), signal: AbortSignal.timeout(300000) });
+    if (!res.ok) throw new Error(`CodeReviewer ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const { comments } = await res.json();
+    return `OK: ${String(comments?.[0]?.comment || "").trim() || "(no comment)"}`;
+  }
   if (c.api === "anthropic") {
     const res = await fetch(`${base}/v1/messages`, {
       method: "POST",
