@@ -1,19 +1,37 @@
 {
-  "runtime": {
-    "name": "laya",
-    "version": "0.9.5",
-    "source": "https://github.com/monatis/ggmlc/releases/download/v0.9.5/",
-    "license": "MIT",
-    "assets": {
-      "win32-x64": "laya-windows-x86_64-vulkan.zip",
-      "darwin-arm64": "laya-macos-arm64-metal.tar.gz",
-      "linux-x64": "laya-linux-x86_64-vulkan.tar.gz"
+  "runtimes": {
+    "laya": {
+      "version": "0.9.5",
+      "source": "https://github.com/monatis/ggmlc/releases/download/v0.9.5/",
+      "license": "MIT",
+      "bin": "laya",
+      "assets": {
+        "win32-x64": ["laya-windows-x86_64-vulkan.zip"],
+        "darwin-arm64": ["laya-macos-arm64-metal.tar.gz"],
+        "linux-x64": ["laya-linux-x86_64-vulkan.tar.gz"]
+      }
+    },
+    "llama": {
+      "version": "b11215",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/download/b11215/",
+      "license": "MIT",
+      "bin": "llama-server",
+      "assets": {
+        "win32-x64": ["llama-b11215-bin-win-vulkan-x64.zip", "llama-b11215-bin-win-cpu-x64.zip"],
+        "win32-arm64": ["llama-b11215-bin-win-cpu-arm64.zip"],
+        "darwin-arm64": ["llama-b11215-bin-macos-arm64.tar.gz"],
+        "darwin-x64": ["llama-b11215-bin-macos-x64.tar.gz"],
+        "linux-x64": ["llama-b11215-bin-ubuntu-vulkan-x64.tar.gz", "llama-b11215-bin-ubuntu-x64.tar.gz"],
+        "linux-arm64": ["llama-b11215-bin-ubuntu-arm64.tar.gz"]
+      }
     }
   },
   "models": [
     {
       "id": "laya",
-      "label": "Laya typed-decisions (local)",
+      "kind": "s1",
+      "runtime": "laya",
+      "label": "Laya typed-decisions",
       "maker": "Convai Innovations",
       "repo": "mys/laya-typed-decisions-GGUF",
       "file": "laya_typed_decisions_q8_0.gguf",
@@ -21,13 +39,15 @@
       "modelId": "typed-decisions",
       "contextTokens": 1024,
       "contextChars": 2500,
+      "maxQuestions": 8,
       "license": "Apache-2.0",
-      "notes": "421M encoder, one pass per question. Fastest; smallest context.",
-      "maxQuestions": 8
+      "notes": "421M encoder, one pass per question. Fastest; smallest context."
     },
     {
       "id": "kev",
-      "label": "Kev 0.8B (local)",
+      "kind": "s1",
+      "runtime": "laya",
+      "label": "Kev 0.8B",
       "maker": "Jared Palmer",
       "repo": "mys/kev-0.8b-GGUF",
       "file": "kev_0.8b_q8_0.gguf",
@@ -35,9 +55,39 @@
       "modelId": "kev-0.8b",
       "contextTokens": 2048,
       "contextChars": 5500,
+      "maxQuestions": 8,
       "license": "Apache-2.0",
-      "notes": "Qwen3.5-0.8B decision model. Slower; twice the context.",
-      "maxQuestions": 8
+      "notes": "Qwen3.5-0.8B decision model. Slower; twice the context."
+    },
+    {
+      "id": "qwen-coder-1.5b",
+      "kind": "llm",
+      "runtime": "llama",
+      "label": "Qwen2.5-Coder 1.5B",
+      "maker": "Alibaba Qwen",
+      "repo": "Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF",
+      "file": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+      "sizeMB": 1117,
+      "modelId": "qwen2.5-coder-1.5b-instruct",
+      "contextTokens": 16384,
+      "contextChars": 40000,
+      "license": "Apache-2.0",
+      "notes": "Small code model, Q4_K_M. Runs on CPU; short findings, plain walkthroughs."
+    },
+    {
+      "id": "qwen-coder-7b",
+      "kind": "llm",
+      "runtime": "llama",
+      "label": "Qwen2.5-Coder 7B",
+      "maker": "Alibaba Qwen",
+      "repo": "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+      "file": "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+      "sizeMB": 4683,
+      "modelId": "qwen2.5-coder-7b-instruct",
+      "contextTokens": 16384,
+      "contextChars": 60000,
+      "license": "Apache-2.0",
+      "notes": "Best local review quality, Q4_K_M. Wants a GPU with 6 GB or 8 GB of RAM on CPU."
     }
   ]
 }

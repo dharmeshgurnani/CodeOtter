@@ -73,17 +73,23 @@ const ENV_DEFAULTS = process.env.LLM_BASE_URL
 // downloaded with one click into DATA_DIR. Same /v1/systemone contract as Jev, so scoring code does not change.
 const CATALOG = JSON.parse(readFileSync(join(import.meta.dirname, "models.json"), "utf8"));
 const DATA_DIR = process.env.PR_SCORER_DATA || join(import.meta.dirname, ".local");
-const LOCAL = Object.fromEntries(CATALOG.models.map((m) => [m.id, m]));
+const LOCAL = Object.fromEntries(CATALOG.models.map((m) => [m.id, m])); // both kinds: "s1" (typed) and "llm" (chat)
+const LOCAL_S1 = CATALOG.models.filter((m) => m.kind === "s1");
+const LOCAL_LLM = CATALOG.models.filter((m) => m.kind === "llm");
 const S1_PROVIDERS = {
   jev: { label: "TypeSafe Jev", baseUrl: "https://api.typesafe.ai", models: ["jev-latest", "jev-1.13.0"], keyEnv: "TYPESAFE_API_KEY", keyUrl: "https://console.typesafe.ai/settings/keys" },
   // OpenRouter serves the same typed endpoint (POST /api/v1/systemone) with an OpenRouter key
   jev_openrouter: { label: "TypeSafe Jev via OpenRouter", baseUrl: "https://openrouter.ai/api", models: ["typesafe/jev-1.13"], keyEnv: "OPENROUTER_API_KEY", keyUrl: "https://openrouter.ai/keys" },
-  ...Object.fromEntries(CATALOG.models.map((m) => [m.id, { get label() { return existsSync(modelPath(m)) ? m.label : `${m.label}, not downloaded`; }, local: true, baseUrl: "", models: [m.modelId], keyEnv: "" }])),
+  ...Object.fromEntries(LOCAL_S1.map((m) => [m.id, { get label() { return existsSync(modelPath(m)) ? `${m.label} (local)` : `${m.label} (local), not downloaded`; }, local: true, baseUrl: "", models: [m.modelId], keyEnv: "" }])),
   custom: { label: "Custom System One endpoint", baseUrl: "", models: [], keyEnv: "", keyUrl: "" },
 };
-const runtimeAsset = () => CATALOG.runtime.assets[`${process.platform}-${process.arch}`];
-const runtimeBin = () => join(DATA_DIR, "runtime", process.platform === "win32" ? "laya.exe" : "laya");
+const RUNTIMES = CATALOG.runtimes;
+const runtimeAssets = (name) => RUNTIMES[name].assets[`${process.platform}-${process.arch}`] || [];
+const runtimeDir = (name) => join(DATA_DIR, "runtime", name);
+const runtimeBin = (name) => join(runtimeDir(name), process.platform === "win32" ? `${RUNTIMES[name].bin}.exe` : RUNTIMES[name].bin);
 const modelPath = (m) => join(DATA_DIR, "models", m.file);
+// Local language models (models.json, kind "llm") served by llama-server as a sidecar; same OpenAI chat shape.
+for (const m of LOCAL_LLM) PROVIDERS[`local_${m.id}`] = { get label() { return existsSync(modelPath(m)) ? `${m.label} (local)` : `${m.label} (local), not downloaded`; }, api: "openai", local: m, baseUrl: "", models: [m.modelId], noKey: true };
 const fileSize = (p) => (existsSync(p) ? statSync(p).size : 0);
 
 // Downloads with progress and resume. One at a time per target; state readable by the settings page.
@@ -111,76 +117,117 @@ async function downloadFile(url, dest, key) {
     st.active = false;
   }
 }
-async function ensureRuntime() {
-  const bin = runtimeBin();
+// Runtimes: tried in catalog order per platform (e.g. a GPU build first, a CPU build as fallback).
+const TAR = process.platform === "win32" && existsSync(join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe")) ? join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe") : "tar";
+async function ensureRuntime(name) {
+  const bin = runtimeBin(name);
   if (existsSync(bin)) return bin;
-  const asset = runtimeAsset();
-  if (!asset) throw new Error(`No local runtime for ${process.platform}-${process.arch}; use a hosted System One model`);
-  const archive = join(DATA_DIR, "runtime", asset);
-  if (!existsSync(archive)) await downloadFile(`${CATALOG.runtime.source}${asset}`, archive, "runtime");
-  if (downloads.get("runtime")?.error) throw new Error(downloads.get("runtime").error);
-  // bsdtar reads zip and tar.gz alike; run from the directory with a relative name so drive letters never look like hosts
-  const tar = process.platform === "win32" && existsSync(join(process.env.SystemRoot || "C:\Windows", "System32", "tar.exe")) ? join(process.env.SystemRoot || "C:\Windows", "System32", "tar.exe") : "tar";
-  execFileSync(tar, ["-xf", asset], { cwd: join(DATA_DIR, "runtime") });
-  if (!existsSync(bin)) throw new Error("Runtime archive did not contain the laya binary");
-  return bin;
+  const assets = runtimeAssets(name);
+  if (!assets.length) throw new Error(`No ${name} runtime for ${process.platform}-${process.arch}; use a hosted model`);
+  mkdirSync(runtimeDir(name), { recursive: true });
+  let last = "";
+  for (const asset of assets) {
+    const archive = join(runtimeDir(name), asset);
+    try {
+      if (!existsSync(archive)) await downloadFile(`${RUNTIMES[name].source}${asset}`, archive, `runtime:${name}`);
+      if (downloads.get(`runtime:${name}`)?.error) throw new Error(downloads.get(`runtime:${name}`).error);
+      // bsdtar reads zip and tar.gz alike; run from the directory with a relative name so drive letters never look like hosts
+      execFileSync(TAR, ["-xf", asset], { cwd: runtimeDir(name) });
+      // some archives unpack into a subfolder; hoist the binary and its libraries
+      if (!existsSync(bin)) for (const d of readdirSync(runtimeDir(name))) { const inner = join(runtimeDir(name), d, process.platform === "win32" ? `${RUNTIMES[name].bin}.exe` : RUNTIMES[name].bin); if (existsSync(inner)) for (const f of readdirSync(join(runtimeDir(name), d))) renameSync(join(runtimeDir(name), d, f), join(runtimeDir(name), f)); }
+      if (existsSync(bin)) return bin;
+      last = `${asset} did not contain ${RUNTIMES[name].bin}`;
+    } catch (e) {
+      last = e.message;
+      rmSync(archive, { force: true });
+    }
+  }
+  throw new Error(`Could not install the ${name} runtime: ${last}`);
 }
 const localStatus = (m) => {
   const d = downloads.get(m.id);
+  const sc = sidecars[m.kind];
   if (d?.active) return { state: "downloading", text: `Downloading ${d.total ? Math.round((d.done / d.total) * 100) : 0}% (${Math.round(d.done / 1e6)} of ${d.total ? Math.round(d.total / 1e6) : m.sizeMB} MB)` };
   if (d?.error) return { state: "error", text: `Download failed: ${d.error}` };
-  if (existsSync(modelPath(m))) return { state: "ready", text: sidecar.proc && sidecar.id === m.id ? `Ready · running on ${sidecar.device || "local"}` : "Ready" };
+  if (existsSync(modelPath(m))) return { state: "ready", text: sc.proc && sc.id === m.id ? `Ready · running on ${sc.device || "local"}` : "Ready" };
   return { state: "missing", text: `Not downloaded (${m.sizeMB} MB, ${m.license})` };
 };
 
-// One sidecar at a time: `laya serve <gguf> --port N`. Started on first use, stopped after 15 idle minutes.
-const sidecar = { proc: null, id: null, port: 47110, ready: false, device: "", lastUse: 0, starting: null };
-function stopSidecar() {
-  if (sidecar.proc) { try { sidecar.proc.kill(); } catch {} }
-  Object.assign(sidecar, { proc: null, id: null, ready: false, device: "", starting: null });
+// One sidecar per kind (typed engine on 47110, language model on 47120). Started on first use, stopped after 15 idle minutes.
+const sidecars = {
+  s1: { proc: null, id: null, port: 47110, ready: false, device: "", lastUse: 0, starting: null },
+  llm: { proc: null, id: null, port: 47120, ready: false, device: "", lastUse: 0, starting: null },
+};
+function stopSidecar(kind) {
+  const sc = sidecars[kind];
+  if (sc.proc) { try { sc.proc.kill(); } catch {} }
+  Object.assign(sc, { proc: null, id: null, ready: false, device: "", starting: null });
 }
+const stopSidecars = () => { stopSidecar("s1"); stopSidecar("llm"); };
 // The runtime's "auto" device takes Vulkan device 0, which on laptops is often the integrated GPU. Read the device list
 // from `laya info` once and prefer a discrete GPU. S1_DEVICE overrides (cpu, vulkan:1, cuda, metal ...).
-let pickedDevice = "";
-function pickDevice(bin, m) {
-  if (process.env.S1_DEVICE) return process.env.S1_DEVICE;
-  if (pickedDevice) return pickedDevice;
+// Vulkan device index of a discrete GPU (laptops list the integrated one first). Cached; S1_DEVICE / LLM_DEVICE override.
+let gpuIndex = null;
+function discreteGpu(bin, m) {
+  if (gpuIndex !== null) return gpuIndex;
   const r = spawnSync(bin, ["info", modelPath(m), "--device", "auto"], { encoding: "utf8", timeout: 120000, windowsHide: true });
   const out = String(r.stdout || "") + String(r.stderr || "");
   const devs = [...out.matchAll(/ggml_vulkan: (\d+) = ([^|\n]+)/g)].map((x) => ({ i: Number(x[1]), name: x[2].trim() }));
   const discrete = devs.find((d) => /nvidia|geforce|radeon|amd|\barc\b/i.test(d.name) && !/intel\(r\) (uhd|iris)/i.test(d.name));
-  pickedDevice = discrete ? `vulkan:${discrete.i}` : "auto";
-  return pickedDevice;
+  gpuIndex = discrete ? discrete.i : -1;
+  return gpuIndex;
+}
+function discreteGpuLlama(bin) {
+  if (gpuIndex !== null) return gpuIndex;
+  const r = spawnSync(bin, ["--list-devices"], { encoding: "utf8", timeout: 60000, windowsHide: true });
+  const out = String(r.stdout || "") + String(r.stderr || "");
+  const devs = [...out.matchAll(/Vulkan(\d+): ([^(\n]+)/g)].map((x) => ({ i: Number(x[1]), name: x[2].trim() }));
+  const discrete = devs.find((d) => /nvidia|geforce|radeon|amd|\barc\b/i.test(d.name) && !/intel\(r\) (uhd|iris)/i.test(d.name));
+  gpuIndex = discrete ? discrete.i : -1;
+  return gpuIndex;
+}
+function sidecarArgs(m, bin, port) {
+  if (m.runtime === "laya") {
+    const dev = process.env.S1_DEVICE || (discreteGpu(bin, m) >= 0 ? `vulkan:${gpuIndex}` : "auto");
+    return ["serve", modelPath(m), "--port", String(port), "--device", dev];
+  }
+  // llama-server: OpenAI-compatible chat at /v1/chat/completions
+  const args = ["-m", modelPath(m), "--host", "127.0.0.1", "--port", String(port), "-c", String(m.contextTokens || 8192), "-ngl", "99"];
+  const dev = process.env.LLM_DEVICE || (discreteGpuLlama(bin) >= 0 ? `Vulkan${gpuIndex}` : "");
+  if (dev === "cpu") args.push("-ngl", "0");
+  else if (dev) args.push("--device", dev);
+  return args;
 }
 async function ensureSidecar(m) {
-  if (sidecar.proc && sidecar.id === m.id && sidecar.ready) { sidecar.lastUse = Date.now(); return sidecar.port; }
-  if (sidecar.starting && sidecar.id === m.id) return sidecar.starting;
-  stopSidecar();
-  const bin = await ensureRuntime();
-  if (!existsSync(modelPath(m))) throw new Error(`${m.label} is not downloaded: open Settings / Model provider`);
-  sidecar.id = m.id;
-  sidecar.starting = (async () => {
-    const proc = spawn(bin, ["serve", modelPath(m), "--port", String(sidecar.port), "--device", pickDevice(bin, m)], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-    sidecar.proc = proc;
+  const sc = sidecars[m.kind];
+  if (sc.proc && sc.id === m.id && sc.ready) { sc.lastUse = Date.now(); return sc.port; }
+  if (sc.starting && sc.id === m.id) return sc.starting;
+  stopSidecar(m.kind);
+  const bin = await ensureRuntime(m.runtime);
+  if (!existsSync(modelPath(m))) throw new Error(`${m.label} is not downloaded: open Settings / Local models`);
+  sc.id = m.id;
+  sc.starting = (async () => {
+    const proc = spawn(bin, sidecarArgs(m, bin, sc.port), { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: runtimeDir(m.runtime) });
+    sc.proc = proc;
     let log = "";
     proc.stderr.on("data", (d) => { log = (log + d).slice(-4000); });
     proc.stdout.on("data", (d) => { log = (log + d).slice(-4000); });
-    proc.on("exit", () => { if (sidecar.proc === proc) Object.assign(sidecar, { proc: null, ready: false, starting: null }); });
-    for (let i = 0; i < 180; i++) {
-      if (!sidecar.proc) throw new Error(`Local model runtime exited: ${log.trim().split("\n").pop() || "no output"}`);
+    proc.on("exit", () => { if (sc.proc === proc) Object.assign(sc, { proc: null, ready: false, starting: null }); });
+    for (let i = 0; i < 300; i++) {
+      if (!sc.proc) throw new Error(`Local model runtime exited: ${log.trim().split("\n").pop() || "no output"}`);
       try {
-        const h = await (await fetch(`http://127.0.0.1:${sidecar.port}/health`, { signal: AbortSignal.timeout(2000) })).json();
-        if (h.status === "ok") { sidecar.ready = true; sidecar.device = h.device || ""; sidecar.lastUse = Date.now(); sidecar.starting = null; return sidecar.port; }
+        const h = await (await fetch(`http://127.0.0.1:${sc.port}/health`, { signal: AbortSignal.timeout(2000) })).json();
+        if (h.status === "ok") { sc.ready = true; sc.device = h.device || (m.runtime === "llama" ? (gpuIndex >= 0 ? `Vulkan${gpuIndex}` : "cpu") : ""); sc.lastUse = Date.now(); sc.starting = null; return sc.port; }
       } catch {}
       await new Promise((r) => setTimeout(r, 1000));
     }
-    stopSidecar();
+    stopSidecar(m.kind);
     throw new Error("Local model runtime did not become ready in time");
   })();
-  return sidecar.starting;
+  return sc.starting;
 }
-setInterval(() => { if (sidecar.proc && sidecar.ready && Date.now() - sidecar.lastUse > 15 * 60e3) stopSidecar(); }, 60e3).unref();
-process.on("exit", stopSidecar);
+setInterval(() => { for (const k of ["s1", "llm"]) { const sc = sidecars[k]; if (sc.proc && sc.ready && Date.now() - sc.lastUse > 15 * 60e3) stopSidecar(k); } }, 60e3).unref();
+process.on("exit", stopSidecars);
 
 async function s1Config() {
   const saved = (await store.getSetting("s1")) || {};
@@ -224,6 +271,7 @@ async function llmConfig() {
   const provider = saved.provider || ENV_DEFAULTS.provider;
   const p = PROVIDERS[provider] || PROVIDERS.custom;
   const isEnv = provider === ENV_DEFAULTS.provider;
+  if (p.local) return { provider, api: "openai", local: p.local, baseUrl: "", model: p.local.modelId, apiKey: "", contextChars: p.local.contextChars, enabled: existsSync(modelPath(p.local)), source: "settings" };
   return {
     provider,
     api: p.api,
@@ -364,8 +412,9 @@ function blastRadius(files) {
 // One prompt in, text out. Anthropic uses the Messages API; everyone else is OpenAI chat/completions.
 async function askModel(prompt, c) {
   if (!c.model) throw new Error("No model configured: open Settings");
-  if (!c.apiKey && !PROVIDERS[c.provider]?.noKey && !/localhost|127\.0\.0\.1/.test(c.baseUrl)) throw new Error(`No API key for ${PROVIDERS[c.provider]?.label || c.provider}: open Settings`);
-  const base = c.baseUrl.replace(/\/+$/, "");
+  if (c.local && !c.enabled) throw new Error(`${c.local.label} is not downloaded: open Settings / Local models`);
+  if (!c.local && !c.apiKey && !PROVIDERS[c.provider]?.noKey && !/localhost|127\.0\.0\.1/.test(c.baseUrl)) throw new Error(`No API key for ${PROVIDERS[c.provider]?.label || c.provider}: open Settings`);
+  const base = c.local ? `http://127.0.0.1:${await ensureSidecar(c.local)}/v1` : c.baseUrl.replace(/\/+$/, "");
   if (c.api === "anthropic") {
     const res = await fetch(`${base}/v1/messages`, {
       method: "POST",
@@ -382,7 +431,7 @@ async function askModel(prompt, c) {
     method: "POST",
     headers: { "content-type": "application/json", ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) },
     body: JSON.stringify({ model: c.model, temperature: c.temperature ?? 0.2, messages: [{ role: "user", content: prompt }] }),
-    signal: AbortSignal.timeout(180000),
+    signal: AbortSignal.timeout(c.local ? 900000 : 180000),
   });
   if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return (await res.json()).choices[0].message.content.replace(/<think>[\s\S]*?<\/think>/g, "");
@@ -466,10 +515,10 @@ Be concrete; cite files. Max ${r.maxFindings} findings, most severe first. Today
 PR #${pr.number}: ${pr.title}
 Author: ${pr.author.login}  Base: ${pr.baseRefName}  Files: ${pr.changedFiles}  +${pr.additions} -${pr.deletions}
 Description:
-${(pr.body || "(none)").slice(0, 3000)}
+${(pr.body || "(none)").slice(0, c.contextChars ? Math.min(3000, Math.floor(c.contextChars / 10)) : 3000)}
 ${guide ? `\nRepository review guidelines from ${guide.file} (follow these; flag violations as findings):\n${guide.text}\n` : ""}
 Diff (may be truncated):
-${diff.slice(0, r.diffChars)}`;
+${diff.slice(0, Math.min(r.diffChars, c.contextChars || Infinity))}`;
   const text = await askModel(prompt, { ...c, temperature: r.temperature });
   let out;
   try {
@@ -521,7 +570,7 @@ async function score(ref, force, repo) {
   }
   const diff = gh("pr", "diff", ...spec);
   const [c, s1, guide, rc] = await Promise.all([llmConfig(), s1Config(), guideFor(repoOf(pr)), reviewConfig()]);
-  const llmReady = !!c.model && (!!c.apiKey || !!PROVIDERS[c.provider]?.noKey || /localhost|127\.0\.0\.1/.test(c.baseUrl));
+  const llmReady = c.local ? c.enabled : !!c.model && (!!c.apiKey || !!PROVIDERS[c.provider]?.noKey || /localhost|127\.0\.0\.1/.test(c.baseUrl));
   if (!llmReady && !s1.enabled) throw new Error("No model configured: open Settings / Model provider");
   // Language model writes the narrative; System One model scores and gates. Both in parallel when both are configured.
   const [narrative, typed] = await Promise.all([llmReady ? judge(pr, diff, c, rc, guide, !s1.enabled) : null, s1.enabled ? scoreWithSystemOne(pr, diff, s1, guide) : null]);
@@ -776,7 +825,7 @@ const SETTINGS_PAGES = {
       const r = await reviewConfig();
       const p = PROVIDERS[c.provider] || PROVIDERS.custom;
       const localIds = Object.keys(LOCAL);
-      const llmCanList = c.baseUrl && (c.apiKey || p.noKey || c.provider === "openrouter" || /localhost|127\.0\.0\.1/.test(c.baseUrl));
+      const llmCanList = !c.local && c.baseUrl && (c.apiKey || p.noKey || c.provider === "openrouter" || /localhost|127\.0\.0\.1/.test(c.baseUrl));
       const [llmLive, s1Live] = await Promise.all([
         llmCanList ? listModels(p.api === "anthropic" ? "anthropic" : "openai", c) : [],
         s1.provider === "jev" && s1.apiKey ? listModels("s1-typesafe", s1) : s1.provider === "jev_openrouter" ? listModels("s1-openrouter", s1) : [],
@@ -790,7 +839,8 @@ const SETTINGS_PAGES = {
             { key: "provider", label: "Provider", type: "select", options: Object.entries(PROVIDERS).map(([value, x]) => ({ value, label: x.label })) },
             { key: "model", label: "Model", type: "select", hint: llmLive.length ? `${llmLive.length} models listed by ${p.label}.` : c.provider === "custom" ? "Type the model id your endpoint serves." : "Save a key to list the provider's models.", optionsBy: { field: "provider", map: { ...byProvider((x) => x.models.map((value) => ({ value, label: value }))), ...(llmLive.length ? { [c.provider]: llmLive } : {}) } } },
             { key: "apiKey", label: "API key", type: "password", hint: c.apiKey ? `Saved key ${mask(c.apiKey)}. Leave blank to keep it.` : p.noKey ? "" : "No key saved yet.", placeholder: mask(c.apiKey) || "paste key", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => PROVIDERS[k].noKey) }, linkBy: { field: "provider", map: Object.fromEntries(Object.entries(PROVIDERS).filter(([, x]) => x.keyUrl).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
-            { key: "baseUrl", label: "Base URL", type: "text", hint: "Prefilled per provider. Change only for proxies or self-hosted gateways.", defaultBy: { field: "provider", map: byProvider((x) => x.baseUrl) } },
+            { key: "baseUrl", label: "Base URL", type: "text", hint: "Prefilled per provider. Change only for proxies or self-hosted gateways.", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => PROVIDERS[k].local) }, defaultBy: { field: "provider", map: byProvider((x) => x.baseUrl) } },
+            { key: "llmStatus", label: "Status", type: "readonly", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => !PROVIDERS[k].local) }, hint: c.local ? "Download, switch or delete local models under Settings / Local models." : "" },
           ],
           actions: [{ id: "save", label: "Save" }, { id: "test", label: "Test connection", variant: "outline", needsSaved: true }],
         },
@@ -819,7 +869,7 @@ const SETTINGS_PAGES = {
           actions: [{ id: "save", label: "Save" }],
         },
       ];
-      return { sections, values: { llm: { provider: c.provider, model: c.model, apiKey: "", baseUrl: c.baseUrl }, s1: { provider: s1.provider, model: s1.model, apiKey: "", baseUrl: s1.baseUrl, status: s1.local ? localStatus(s1.local).text : "" }, review: r } };
+      return { sections, values: { llm: { provider: c.provider, model: c.model, apiKey: "", baseUrl: c.baseUrl, llmStatus: c.local ? localStatus(c.local).text : "" }, s1: { provider: s1.provider, model: s1.model, apiKey: "", baseUrl: s1.baseUrl, status: s1.local ? localStatus(s1.local).text : "" }, review: r } };
     },
     async save(body) {
       if (body.llm) {
@@ -827,7 +877,8 @@ const SETTINGS_PAGES = {
         if (!PROVIDERS[v.provider]) throw new Error(`Unknown provider ${v.provider}`);
         const prev = (await store.getSetting("llm")) || {};
         const apiKey = v.apiKey || (prev.provider === v.provider && (v.baseUrl || "") === (prev.baseUrl || "") ? prev.apiKey : "") || "";
-        await store.setSetting("llm", { provider: v.provider, model: v.model || "", baseUrl: v.baseUrl || "", apiKey });
+        await store.setSetting("llm", PROVIDERS[v.provider].local ? { provider: v.provider } : { provider: v.provider, model: v.model || "", baseUrl: v.baseUrl || "", apiKey });
+        if (PROVIDERS[v.provider].local && sidecars.llm.id && sidecars.llm.id !== PROVIDERS[v.provider].local.id) stopSidecar("llm");
         modelCache.clear();
       }
       if (body.s1) {
@@ -837,7 +888,7 @@ const SETTINGS_PAGES = {
         const prev = (await store.getSetting("s1")) || {};
         const apiKey = v.apiKey || (prev.provider === v.provider && (v.baseUrl || "") === (prev.baseUrl || "") ? prev.apiKey : "") || "";
         await store.setSetting("s1", v.provider === "none" ? { provider: "none" } : S1_PROVIDERS[v.provider].local ? { provider: v.provider } : { provider: v.provider, model: v.model || "", baseUrl: v.baseUrl || "", apiKey });
-        if (S1_PROVIDERS[v.provider]?.local && sidecar.id && sidecar.id !== v.provider) stopSidecar();
+        if (S1_PROVIDERS[v.provider]?.local && sidecars.s1.id && sidecars.s1.id !== v.provider) stopSidecar("s1");
         modelCache.clear();
       }
       if (body.review) {
@@ -952,11 +1003,12 @@ SETTINGS_PAGES.models = {
   access: "admin",
   async load() {
     const s1 = await s1Config();
+    const llm = await llmConfig();
     const rows = CATALOG.models.map((m) => {
       const st = localStatus(m);
       const d = downloads.get(m.id);
-      const active = s1.provider === m.id;
-      const facts = [m.maker, `${m.sizeMB} MB`, m.license, `${m.contextTokens}-token context`, m.notes].join(" · ");
+      const active = m.kind === "s1" ? s1.provider === m.id : llm.provider === `local_${m.id}`;
+      const facts = [m.kind === "llm" ? "Language model" : "System One model", m.maker, `${m.sizeMB} MB`, m.license, `${m.contextTokens}-token context`, m.notes].join(" · ");
       return {
         id: m.id,
         label: m.label.replace(" (local)", ""),
@@ -967,13 +1019,16 @@ SETTINGS_PAGES.models = {
         state: st.state,
       };
     });
-    const asset = runtimeAsset();
-    const runtime = existsSync(runtimeBin()) ? `${CATALOG.runtime.name} ${CATALOG.runtime.version} · installed${sidecar.proc && sidecar.ready ? ` · running ${LOCAL[sidecar.id]?.label.replace(" (local)", "")} on ${sidecar.device}` : ""}` : asset ? `${CATALOG.runtime.name} ${CATALOG.runtime.version} · fetched with the first download (${asset})` : `no runtime for ${process.platform}-${process.arch}`;
+    const runtime = Object.keys(RUNTIMES).map((name) => {
+      const sc = Object.values(sidecars).find((x) => x.proc && x.ready && LOCAL[x.id]?.runtime === name);
+      const assets = runtimeAssets(name);
+      return existsSync(runtimeBin(name)) ? `${name} ${RUNTIMES[name].version} installed${sc ? ` · running ${LOCAL[sc.id].label} on ${sc.device}` : ""}` : assets.length ? `${name} ${RUNTIMES[name].version} fetched with the first download` : `${name}: no build for ${process.platform}-${process.arch}`;
+    }).join(" · ");
     const sections = [
       {
         id: "downloaded",
         title: "Downloaded",
-        description: "On this machine. Use makes one the System One model; Delete frees the disk.",
+        description: "On this machine. Use makes one the active language model or System One model; Delete frees the disk.",
         fields: [
           { key: "list", label: "Models", type: "list", removable: false },
           { key: "runtime", label: "Runtime", type: "readonly", hint: `Data directory ${DATA_DIR}` },
@@ -995,27 +1050,29 @@ SETTINGS_PAGES.models = {
       const m = LOCAL[body?.item];
       if (!m) throw new Error("Unknown model");
       if (!existsSync(modelPath(m)) && !downloads.get(m.id)?.active) downloadFile(`https://huggingface.co/${m.repo}/resolve/main/${m.file}`, modelPath(m), m.id);
-      ensureRuntime().catch(() => {});
-      return { message: `Downloading ${m.label.replace(" (local)", "")} (${m.sizeMB} MB)…` };
+      ensureRuntime(m.runtime).catch(() => {});
+      return { message: `Downloading ${m.label} (${m.sizeMB} MB)…` };
     },
     async use(_req, _res, body) {
       const m = LOCAL[body?.item];
       if (!m) throw new Error("Unknown model");
       if (!existsSync(modelPath(m))) throw new Error(`${m.label} is not downloaded`);
-      if (sidecar.id && sidecar.id !== m.id) stopSidecar();
-      await store.setSetting("s1", { provider: m.id });
-      return { message: `${m.label.replace(" (local)", "")} is now the System One model.` };
+      if (sidecars[m.kind].id && sidecars[m.kind].id !== m.id) stopSidecar(m.kind);
+      if (m.kind === "s1") await store.setSetting("s1", { provider: m.id });
+      else await store.setSetting("llm", { provider: `local_${m.id}` });
+      modelCache.clear();
+      return { message: `${m.label} is now the ${m.kind === "s1" ? "System One" : "language"} model.` };
     },
     async delete(_req, _res, body) {
       const m = LOCAL[body?.item];
       if (!m) throw new Error("Unknown model");
-      if (sidecar.id === m.id) stopSidecar();
+      if (sidecars[m.kind].id === m.id) stopSidecar(m.kind);
       rmSync(modelPath(m), { force: true });
       rmSync(`${modelPath(m)}.part`, { force: true });
       downloads.delete(m.id);
-      const s1 = (await store.getSetting("s1")) || {};
-      if (s1.provider === m.id) await store.setSetting("s1", { provider: "none" });
-      return { message: `${m.label.replace(" (local)", "")} deleted.` };
+      if (m.kind === "s1") { const s1 = (await store.getSetting("s1")) || {}; if (s1.provider === m.id) await store.setSetting("s1", { provider: "none" }); }
+      else { const l = (await store.getSetting("llm")) || {}; if (l.provider === `local_${m.id}`) await store.setSetting("llm", { provider: "minimax" }); }
+      return { message: `${m.label} deleted.` };
     },
   },
 };
