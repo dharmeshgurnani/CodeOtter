@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Pill } from "./App";
 import { type Finding, type Review, VERDICT, effort, tone } from "./types";
+import { ReviewSkeleton } from "@/components/skeletons";
 
 const KIND: Record<Finding["severity"], [string, string, string]> = {
   high: ["⚠️", "Potential issue", "Major"],
@@ -29,7 +30,8 @@ const Md = ({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) => (
   </table>
 );
 
-const Ring = ({ label, value, invert }: { label: string; value: number; invert?: boolean }) => {
+const Ring = ({ label, value: raw, invert }: { label: string; value: number; invert?: boolean }) => {
+  const value = Math.max(0, Math.min(100, Number(raw) || 0));
   const c = { ok: "#15803d", warn: "#b45309", bad: "#b91c1c" }[tone(value, invert)];
   return (
     <div className="relative flex size-[88px] flex-col items-center justify-center rounded-full" style={{ background: `conic-gradient(${c} ${value}%, #e9e9e9 0)` }}>
@@ -54,25 +56,36 @@ const FindingCard = ({ f }: { f: Finding }) => {
   );
 };
 
-export function ReviewPage({ pr, force, onDone }: { pr: string; force: boolean; onDone: () => void }) {
+export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; repo: string; force: string; onDone: () => void }) {
   const [r, setR] = useState<Review | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
+    let alive = true;
     setR(null);
     setErr("");
-    fetch(`/api/score?pr=${encodeURIComponent(pr)}${force ? "&force=1" : ""}`)
-      .then(async (res) => (res.ok ? res.json() : Promise.reject(new Error((await res.json()).error))))
-      .then((d) => { setR(d); onDone(); })
-      .catch((e) => setErr(e.message));
-  }, [pr, force]);
+    const plain = `/review?pr=${encodeURIComponent(pr)}${repoHint ? `&repo=${encodeURIComponent(repoHint)}` : ""}`;
+    fetch(`/api/score?pr=${encodeURIComponent(pr)}${repoHint ? `&repo=${encodeURIComponent(repoHint)}` : ""}${force ? "&force=1" : ""}`)
+      .then(async (res) => (res.ok ? res.json() : Promise.reject(new Error((await res.json().catch(() => ({}))).error || `${res.status}`))))
+      .then((d) => {
+        if (!alive) return;
+        setR(d);
+        onDone();
+        // drop force from the URL so a refresh or Back does not pay for another review
+        if (force) history.replaceState(null, "", plain);
+      })
+      .catch((e) => alive && setErr(e.message));
+    return () => { alive = false; };
+  }, [pr, repoHint, force]);
 
   if (err) return <pre className="whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{err}</pre>;
-  if (!r) return <div className="animate-pulse space-y-3"><div className="h-6 w-2/3 rounded bg-neutral-200" /><div className="h-40 rounded bg-neutral-100" /><div className="h-64 rounded bg-neutral-100" /><p className="text-sm text-muted-foreground">Reviewing with the model, usually 10 to 30 seconds.</p></div>;
+  if (!r) return <ReviewSkeleton note="Reviewing with the model, usually 10 to 30 seconds." />;
 
-  const { pr: p, blast: b, review: v } = r;
+  const { pr: p, blast: b, review: v0 } = r;
+  // stored reviews from older versions may lack fields; the server normalises new ones
+  const v = { ...v0, findings: Array.isArray(v0.findings) ? v0.findings : [], walkthrough: Array.isArray(v0.walkthrough) ? v0.walkthrough.filter((w) => w && typeof w.file === "string") : [], scores: Object.assign({ quality: 0, correctness_risk: 0, test_coverage: 0, readability: 0, pr_hygiene: 0 }, v0.scores ?? {}) };
   const [vl, vt] = VERDICT[v.verdict] ?? VERDICT.comment;
   const e = effort(b.score, b.lines);
-  const when = new Date(r.at).toLocaleString("en-NZ", { dateStyle: "medium", timeStyle: "short" });
+  const when = new Date(r.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   const repo = p.url.split("/").slice(3, 5).join("/");
   const cohorts = new Map<string, typeof v.walkthrough>();
   for (const w of v.walkthrough ?? []) {

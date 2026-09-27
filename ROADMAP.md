@@ -1,6 +1,6 @@
 # PR Scorer roadmap
 
-What works today: paste a PR URL or number, or click Review on an open PR, get a CodeRabbit-style report (walkthrough, changes by cohort, effort estimate, six scores, blast radius, pre-merge checks, actionable comments, nitpicks, review details). Results cache in `scores/`. Dependency-free Node backend, React + Animate UI front-end, any OpenAI-compatible model. Sidebar, routing, open PR list, and Settings all work; the CodeRabbit nav items with nothing behind them are gone.
+What works today: paste a PR URL or number, or click Review on an open PR, get a full report (walkthrough, changes by cohort, effort estimate, six scores, blast radius, pre-merge checks, actionable comments, nitpicks, review details). Results are stored in PocketBase (or `scores/` JSON files without it), and the whole thing ships as one Docker image with a Compose file. Dependency-free Node backend, React + Animate UI front-end, any OpenAI-compatible model. Sidebar, routing, open PR list, Settings, sign-in, roles and an Admin section all work; nav items with nothing behind them are gone.
 
 Everything below was removed from the UI because nothing was behind it. Ordered by value per hour. Each item says what to build and the laziest way to build it.
 
@@ -12,13 +12,13 @@ The report only lives on localhost. Add a "Post to PR" button that runs `gh pr c
 
 A `--watch` flag: every 5 minutes call `gh pr list`, score anything new, post the comment. No webhook, no server exposure. Upgrade path: GitHub webhook via a Cloudflare tunnel, or a GitHub Action that runs `node server.mjs --once <pr>` on `pull_request`.
 
-## 3. Multiple repositories (Connected repositories)
+## 3. Multiple repositories (done 2026-09-27)
 
-`REPOS=owner/a,owner/b` env, sidebar lists them, home page tabs by repo. Open PR list loops `gh pr list -R`. Later: `gh repo list <org>` with a toggle per repo, persisted in `config.json`.
+Repositories settings page (list + add from `gh repo list` or free text), sidebar link per repository showing its reviewed and open PRs, open list loops `gh pr list -R`. Persisted in PocketBase. Still to do: org repositories in the picker (`gh repo list <org>`).
 
 ## 4. Path instructions (Scopes)
 
-CodeRabbit's path-based review instructions. A `.pr-scorer.yml` in the target repo with `path: instructions` pairs, read via `gh api repos/:owner/:repo/contents/.pr-scorer.yml`, appended to the prompt for matching files. Our own CLAUDE.md rules (Mgr-only reads, tests under test-suite, docs with the change) are the first entries.
+Path-based review instructions, like hosted bots offer. A `.pr-scorer.yml` in the target repo with `path: instructions` pairs, read via `gh api repos/:owner/:repo/contents/.pr-scorer.yml`, appended to the prompt for matching files. Our own CLAUDE.md rules (Mgr-only reads, tests under test-suite, docs with the change) are the first entries.
 
 ## 5. Real blast radius
 
@@ -42,7 +42,7 @@ Filter over cached reviews by title, file path, or finding text. Client-side ove
 
 ## 10. Environments
 
-Named model profiles (`fast` = Ollama qwen coder, `deep` = MiniMax or Claude) selectable per review. Today: restart with different env vars. Add when switching becomes annoying.
+Named model profiles (`fast` = Ollama qwen coder, `deep` = MiniMax or Claude) selectable per review. Today: switch under Settings → Model provider. Add a per-review picker when switching becomes annoying.
 
 ## 11. Jev as a merge gate
 
@@ -54,15 +54,14 @@ The project only matters if strangers install it. Milestones, in order:
 
 1. Public repo with a 30-second GIF in the README, `npx pr-scorer` one-liner, MIT license. Pilot customer: Debtops (first real repo, first testimonials).
 2. GitHub Action variant (`uses: dharmeshgurnani/pr-scorer@v1`) so people can add it without running a server.
-3. Submit to awesome lists once there are 3 external users and 1 release tag: awesome-code-review, awesome-github-actions, awesome-ai-devtools, awesome-selfhosted (needs a Dockerfile), awesome-llm-apps. Each list has a contributing.md with a format; follow it exactly, one PR per list, never batch.
-4. Launch posts: Show HN, r/selfhosted, r/ExperiencedDevs, dev.to. Angle: "CodeRabbit-style review scores from any open model, runs on your laptop, no SaaS."
+3. Submit to awesome lists once there are 3 external users and 1 release tag: awesome-code-review, awesome-github-actions, awesome-ai-devtools, awesome-selfhosted (Dockerfile done), awesome-llm-apps. Each list has a contributing.md with a format; follow it exactly, one PR per list, never batch.
+4. Launch posts: Show HN, r/selfhosted, r/ExperiencedDevs, dev.to. Angle: "Review scores like the hosted bots, from any open model, runs on your laptop, no SaaS."
 
 ## Not planned
 
-Billing, Account, per-page pagination, "Sync" buttons. These exist in CodeRabbit because it is a hosted product. A local tool has no use for them.
+Billing, per-page pagination, "Sync" buttons. Hosted products need them; a self-hosted tool does not.
 
 ## Before open-sourcing
 
-- Rename the bot and repo (anything but CodeRabbit; the look is fine, the trademark is not).
-- Move the MiniMax key lookup behind a plain `LLM_API_KEY` requirement so strangers do not depend on the pi CLI.
-- Add a `LICENSE` and a screenshot to the README.
+- Done: bot and repo are "pr-scorer"; the pi CLI key fallback is gone (`LLM_API_KEY` or a provider key, or the Settings page); `LICENSE`, `CHANGELOG`, `CONTRIBUTING`, root `package.json` (0.1.0) exist.
+- Still to do: a screenshot or GIF in the README.

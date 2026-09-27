@@ -1,0 +1,13 @@
+{
+  "name": "pr-scorer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Code review scores for pull requests from any open model, self-hosted.",
+  "engines": { "node": ">=20.11" },
+  "scripts": {
+    "start": "node server.mjs",
+    "build": "pnpm -C web install && pnpm -C web build"
+  }
+}

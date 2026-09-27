@@ -1,0 +1,10 @@
+node_modules
+web/node_modules
+web/dist
+pb_data
+scores
+.git
+*.log
+.env
+.pb
+config.json

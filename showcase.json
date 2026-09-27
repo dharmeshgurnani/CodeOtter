@@ -1,0 +1,25 @@
+{
+  "headline": "Code review scores from any open model, on your own machine.",
+  "sub": "Quality, blast radius, risk, tests and hygiene for every pull request. Runs locally or in one container. No SaaS in the loop.",
+  "groups": [
+    {
+      "title": "Sponsors",
+      "items": [
+        { "label": "Your logo here", "hint": "Sponsor the project", "href": "https://github.com/sponsors/dharmeshgurnani" }
+      ]
+    },
+    {
+      "title": "Used by",
+      "items": [
+        { "label": "Debtops", "hint": "Pilot customer, first real repository", "href": "https://debtops.ai" }
+      ]
+    },
+    {
+      "title": "Case studies",
+      "items": [
+        { "label": "Reviewing a Turborepo monorepo", "hint": "Blast radius across 40 packages", "href": "https://github.com/dharmeshgurnani/pr-scorer#readme" },
+        { "label": "Fully local with Ollama", "hint": "No data leaves the laptop", "href": "https://github.com/dharmeshgurnani/pr-scorer#readme" }
+      ]
+    }
+  ]
+}

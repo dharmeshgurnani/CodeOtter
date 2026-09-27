@@ -58,3 +58,16 @@
 }
 
 body { font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+/* Everything clickable shows a pointer; disabled controls say so. Anchors without href are used as in-app links. */
+@layer base {
+  a, button, [role="button"], summary, select, label[for],
+  input[type="checkbox"], input[type="radio"], input[type="range"], input[type="submit"] {
+    cursor: pointer;
+  }
+  button:disabled, [aria-disabled="true"], input:disabled, select:disabled {
+    cursor: not-allowed;
+  }
+  a:not([class*="no-underline"]):hover { text-decoration-line: underline; }
+  [data-sidebar] a:hover, [data-sidebar] a:hover * { text-decoration-line: none; }
+}

@@ -1,0 +1,36 @@
+# Agent instructions for pr-scorer
+
+Rules for anyone (human or agent) changing this codebase. Keep them; they encode decisions already made.
+
+## Product rules
+
+- **Everything is scoped to the active organization.** The organization picked in the sidebar header (owners of the onboarded repositories) scopes every page: home, repository pages, and settings that list or touch repositories. A page that shows another organization's data is a bug. The scope travels as `?org=` on API calls and is owned by the app shell (`web/src/App.tsx`), remembered in `localStorage` under `pr-scorer.org`.
+- **Accounts have roles**: owner (everything), admin (everything except Accounts), developer (reserved). Platform-wide pages (OAuth, Accounts) live in the sidebar's **Admin** section, visible to admins and owners regardless of organization; organization-scoped pages live under Settings. A page declares `group: "settings" | "admin"` and `access` in `SETTINGS_PAGES`. First account to sign in is the owner. Anonymous visitors count as owner only while no account exists (bootstrap) or with `PR_SCORER_RECOVERY=1`. Enforce access server-side (`access` on each `SETTINGS_PAGES` entry), never only in the UI.
+- **Sign-in is GitHub only**, through PocketBase's OAuth2 on the `users` collection. No username/password. GitLab, Forgejo, Bitbucket may come later.
+- **Repository review guidelines are auto-detected**: `AGENTS.md` and/or `CLAUDE.md` at the repository root, checked through the GitHub API, never assumed. Both are used when both exist. Whether reviews follow them is a per-repository checkbox in Settings → Repositories (gear icon on the row).
+- **Talk to technical people.** No explanatory copy for things engineers already know. A label and a control.
+
+## UI rules
+
+- **JSON-driven pages.** The server describes a page as JSON (sections and fields, or report sections); one generic renderer draws it: `web/src/components/json-form.tsx` for settings, `web/src/components/json-report.tsx` for dashboards. Adding a setting is one object in `SETTINGS_PAGES` in `server.mjs`, never new JSX. If a new control type is genuinely needed, add it once to the generic renderer.
+- **Plainest control wins.** Picklist over cards, `input type=range` over slider libraries, text over anything fancier.
+- **Animate UI first.** Never hand-build a widget Animate UI provides (dialog, dropdown, collapsible, sheet, tooltip, sidebar...). Install from the registry inside `web/`: `pnpx shadcn@latest add @animate-ui/<item> -y` (registry in `web/components.json`, index at https://animate-ui.com/r/registry.json). Wire it exactly like the Animate UI demo. Installed files may need their unused `import * as React` line removed to pass the strict build.
+- **Settings is a collapsed sidebar group of links**, no landing page. Each link is a server-registered page.
+- **Cards keep their geometry** regardless of data: reserve the subtitle and button rows.
+- **Skeletons, not "Loading…"**: every page has a skeleton mirroring its real layout (`web/src/components/skeletons.tsx`).
+- **Every clickable thing shows a pointer**; disabled controls show not-allowed (global rule in `web/src/index.css`).
+
+## Engineering rules
+
+- **Dependency-free backend.** `server.mjs` is one Node file using only the standard library and `fetch`. Provider calls are raw HTTP, including Anthropic's Messages API.
+- **Storage** is PocketBase when `PB_URL` is set (Docker sets it), else JSON files. Schema lives in `pb_migrations/`.
+- **Never run write-then-clear tests against a live instance.** A save/clear test once wiped real GitHub OAuth credentials. Read-only checks only; for write paths use a throwaway PocketBase data dir.
+- **Build**: `cd web && pnpm build` (strict TypeScript; unused imports fail). **Run**: PocketBase on 8090 plus `PB_URL=... PB_ADMIN_EMAIL=... PB_ADMIN_PASSWORD=... node server.mjs` on 4747.
+- **Docs travel with the change**: README for behaviour, ROADMAP for status, a CHANGELOG line per release.
+- **Model output is untrusted.** `judge()` normalises scores, verdict, findings and walkthrough before storage; never render raw model fields.
+- **Every data endpoint is gated** (`gate()` in `server.mjs`): admin or owner once an account exists, owner-level anonymous only during bootstrap or with `PR_SCORER_RECOVERY=1`. Cross-site requests to `/api/*` are refused. Validate anything that reaches `gh` argv (`OWNER_RE`, `REPO_RE`, `PR_URL_RE`).
+
+## Local workflow notes (one developer's habits, not project rules)
+
+- Patch scripts write to a `.new` file first, then swap, so a failed patch never truncates a source file.
+- Restart the server on its own, never in the same step as a build: a restart that kills every Node process will kill the build too.

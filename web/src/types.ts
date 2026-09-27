@@ -27,7 +27,8 @@ export type Review = {
   model: string;
   at: string;
 };
-export type Board = { repo: string; model: string; baseUrl: string; reviewed: Review[]; open: OpenPr[] };
+export type User = { id: string; name: string; email: string; role: string; avatar: string };
+export type Board = { repo: string; repos: string[]; model: string; baseUrl: string; store: string; settingsPages: { id: string; title: string; group: "settings" | "admin" }[]; reviewed: Review[]; open: OpenPr[] };
 
 export const VERDICT = { approve: ["Approved", "ok"], comment: ["Commented", "warn"], request_changes: ["Changes requested", "bad"] } as const;
 export const tone = (v: number, invert = false) => {
