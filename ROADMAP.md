@@ -44,6 +44,10 @@ Filter over cached reviews by title, file path, or finding text. Client-side ove
 
 Named model profiles (`fast` = Ollama qwen coder, `deep` = MiniMax or Claude) selectable per review. Today: switch under Settings → Model provider. Add a per-review picker when switching becomes annoying.
 
+## 11a. Downloadable local System One model
+
+One click in Settings downloads an open-weight model that answers the typed questions locally, Handy-style. Jev itself cannot be shipped (closed weights); the plan uses a small open model driven by next-token probabilities behind the same `/v1/systemone` contract. Full plan: `docs/plan-local-system-one.md`.
+
 ## 11. Jev as a merge gate
 
 Once a TypeSafe key exists: after the LLM review, ask Jev two or three yes/no policy questions (touches a domain table outside its Mgr, migration without docs change) and show them as pass/fail in Pre-merge checks. Jev cannot explain findings, so it complements the LLM rather than replacing it.
