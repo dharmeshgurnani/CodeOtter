@@ -1,70 +1,218 @@
-# PR Scorer
+<div align="center">
 
-Scores pull requests the way hosted review bots such as CodeRabbit summarise them: quality, blast radius, risk, tests, readability, PR hygiene, plus concrete findings and a file walkthrough. Self-hosted, any open model. Backend is one dependency-free Node file; the UI is a small React app.
+<img src="assets/banners/ring-360-slash-vfx.jpg" alt="CodeOtter — 360° Score-Ring Game VFX & Dual-Engine AI Code Review Lab" width="100%" />
 
-Requires Node 20.11+, pnpm, and the GitHub CLI (`gh`) logged in.
+# 🦦 CodeOtter (`pr-scorer`)
 
-```
-cd web && pnpm install && pnpm build && cd ..   # once, builds the React UI into web/dist
-node server.mjs                                  # http://localhost:4747
-```
+**CodeRabbit-grade pull request reviews, blast-radius scoring, and merge gates — running on your own machine with any open model.**
 
-UI is Vite + React + Tailwind with the Animate UI sidebar (collapsible, Ctrl+B, icon mode with tooltips). For UI work run `pnpm dev` inside `web/` alongside the server; Vite proxies `/api` to it. Without `web/dist` the server falls back to its own server-rendered pages.
+[![License: MIT](https://img.shields.io/badge/License-MIT-c2410c.svg)](LICENSE)
+[![Node: 20.11+](https://img.shields.io/badge/Node-%3E%3D20.11-111111.svg)](package.json)
+[![Backend Dependencies: 0](https://img.shields.io/badge/Backend_Dependencies-0-15803d.svg)](server.mjs)
+[![Models: Local_GGUF_%7C_BYOK](https://img.shields.io/badge/Models-100%25_Local_or_BYOK-b45309.svg)](models.json)
+[![Design System: DESIGN.md](https://img.shields.io/badge/Design_Spec-DESIGN.md-1f1f1f.svg)](design.md)
 
-Pick the model under **Settings → Model provider** inside the app: Anthropic (Claude), OpenAI (ChatGPT), MiniMax, OpenRouter, Ollama, or any custom OpenAI-compatible endpoint. Settings persist in PocketBase (or `config.json` without it) and apply to the next review, no restart. The env vars below are only the defaults when nothing is saved:
+[Quickstart](#-30-second-quickstart) · [How the Dual Engine Works](#-why-two-ai-engines-system-1--system-2) · [100% Offline Mode](#-100-offline-local-models-zero-api-keys) · [Docker](#-docker-one-container) · [Settings & RBAC](#-settings--multi-org-architecture)
 
-```
-LLM_BASE_URL=http://localhost:11434/v1 LLM_MODEL=qwen2.5-coder:latest node server.mjs   # Ollama, fully local
-LLM_API_KEY=... LLM_MODEL=MiniMax-M3 node server.mjs                                     # explicit key for the default provider (MiniMax)
-ANTHROPIC_API_KEY=... node server.mjs                                                     # per-provider keys (also OPENAI_API_KEY, MINIMAX_API_KEY, OPENROUTER_API_KEY) are used once that provider is selected in Settings
-REPO=owner/name node server.mjs                                                          # optional: seeds the first repository; add more under Settings → Repositories
-PORT=8080 APP_URL=https://pr.example.com node server.mjs                                 # port, and the public address used for the GitHub sign-in callback
-```
+</div>
 
-`/api/score?pr=<url|number>` returns the review as JSON, `/score?pr=` renders it server-side, `&force=1` rescores. Both need a signed-in admin or owner once an account exists.
+---
 
-## Settings pages
+## Why CodeOtter?
 
-Settings is a group of sidebar links, one per page, no landing page. Every page is a JSON schema served by the backend (`SETTINGS_PAGES` in `server.mjs`) and rendered by one generic form component; adding a setting is one object in the schema, never new JSX. Controls stay plain: picklists, text, range inputs.
+Hosted AI code-review bots (**CodeRabbit, Greptile, Cursor Bugbot**) are great at summarizing pull requests—until you look at the **$24–$30/developer/month** invoice, the third-party SaaS read access to your private codebase, or the vendor lock-in.
 
-- **Repositories**: the onboarded repositories of the active organization (the one picked in the sidebar header; every page is scoped to it). The gear on a row opens the repository's settings: "Auto-detected" shows the `AGENTS.md` / `CLAUDE.md` found at the repository root, checked through the GitHub API, with a checkbox that decides whether reviews follow them (on by default). Both files are used when both exist; violations come back as findings. Each one is a sidebar link showing its reviewed and open pull requests; "Add repository" in the sidebar opens this page. Without any saved, the app uses `REPO` or the repository it was launched from.
-- **Model provider**: two engines on one page. The **language model** (Anthropic, OpenAI, MiniMax, OpenRouter, Ollama, custom, or a local model) writes the walkthrough and findings. The **System One model** (TypeSafe Jev first; more later) answers typed questions in one fast pass: every score from fixed rubrics (the five review scores and blast radius) and yes/no gates (title, description, security, complexity, tests, docs, scope, repository guidelines) shown under Pre-merge checks; the language model is then not asked for scores at all. With only a language model, it scores too, as before. With only a System One model you get scores and gates, no prose. With both, they run in parallel and each owns its part, so the review takes as long as the slower engine, not the sum. Online: TypeSafe Jev directly (`TYPESAFE_API_KEY`) or "TypeSafe Jev via OpenRouter" with an OpenRouter key, which serves the same typed endpoint; OpenRouter also lists `typesafe/jev-router` as a language model that routes each request to a suitable model. Offline: two open-weight models that run on this machine with nothing leaving it, managed under **Settings → Local models** (downloaded and available lists, size and licence per row, Download / Use / Delete; nothing downloads by itself, and API-only users need none of it): **Laya typed-decisions** (Convai Innovations, 421M encoder, 455 MB, Apache-2.0, 1024-token context) and **Kev 0.8B** (Jared Palmer, Qwen3.5-based, 828 MB, Apache-2.0, 2048-token context). Both run through the `laya` runtime from the ggmlc project (MIT), fetched per platform on first use into `.local/` (or `PR_SCORER_DATA`; the Docker image keeps it on the volume). The sidecar starts on the first review and stops after 15 idle minutes; it prefers a discrete GPU, `S1_DEVICE=cpu` forces CPU. Anything else that speaks `/v1/systemone` (Kev 4B on a GPU box, SemIf, a self-hosted Laya) plugs in as a "Custom System One endpoint". Offline **language models** on the same page: **Qwen2.5-Coder 1.5B** (1.1 GB, runs on CPU, plain but usable) and **Qwen2.5-Coder 7B** (4.7 GB, the quality option, wants a GPU), both Apache-2.0, served by llama.cpp's `llama-server` fetched per platform (GPU build first, CPU build as fallback). With a local language model and a local System One model selected, a review runs fully offline. Local models see a shortened diff sized to their context. The catalog is `models.json`; runtimes are `laya` (typed models) and `llama` (chat models). Plus review knobs (max findings, diff size, temperature).
-- **OAuth**: sign-in with GitHub through PocketBase's built-in OAuth2 on the `users` collection. Create a GitHub OAuth app, paste the client id and secret, and use the callback URL shown on the page (`<APP_URL>/auth/callback`). Needs PocketBase. Set `APP_URL` when the app runs behind a domain. GitLab, Forgejo and Bitbucket are planned.
+On the other hand, wiring a raw LLM prompt to `git diff` produces walls of uncalibrated prose and hallucinated 85/100 scores.
 
-## Accounts
+**CodeOtter** (`pr-scorer`) gives your team the exact UX of a top-tier review bot—**file-by-file cohort walkthroughs, 6 calibrated score gauges, deterministic blast-radius analysis, pre-merge check gates, and actionable findings**—self-hosted in **one dependency-free Node file** and a fast React + Animate UI console.
 
-Every signed-in account has a role. **owner** can do everything; **admin** can do everything except Admin → Accounts (role management). Platform-wide pages live in the sidebar's **Admin** section (OAuth, Accounts), shown to admins and owners in every organization; organization-scoped pages stay under Settings. A **developer** role is reserved and not built yet. The first account to sign in becomes the owner, later ones admins; the owner changes roles under Admin → Accounts. Until any account exists, an anonymous visitor can use every page so the instance can be set up; once an owner exists, everything except the login page needs a signed-in admin or owner. Locked out (sign-in broken, no session)? Restart with `PR_SCORER_RECOVERY=1`, fix Admin → OAuth, then unset it.
-
-## Security notes
-
-Reviews send the pull request diff and description to the model provider you configure, nowhere else. Model output is treated as untrusted and normalised before storage. All API routes refuse cross-site requests, session cookies are HttpOnly, and settings that hold keys never return them. Sign-in, accounts, and every data endpoint are gated by role once an owner exists.
-
-## Sign-in
-
-`/login` is a split page: the left column is the only way in, a single "Continue with GitHub" button; the right column is showcase space (sponsors, customers, case studies) drawn over an animated dithered shader in the app's palette. Its content lives in `showcase.json` next to the server, so it changes without a code change. The sidebar footer holds the account: "Log in with GitHub" when signed out, the user's avatar, name and email with a Log out item when signed in. The header shows the organization (owners of the onboarded repositories). Login uses PocketBase's manual OAuth2 flow through the app server: `/api/auth/start` returns the GitHub authorization URL, GitHub returns to `/auth/callback`, and the PocketBase user token is kept in an HttpOnly cookie. Once an owner exists, signing in is required for everything except the login page.
-
-## Storage
-
-Reviews are stored in [PocketBase](https://pocketbase.io) when `PB_URL` is set (the Docker image sets it), otherwise as JSON files in `scores/`. PocketBase needs a superuser login via `PB_ADMIN_EMAIL` and `PB_ADMIN_PASSWORD`; the schema lives in `pb_migrations/` and is applied on start. Any files left in `scores/` are imported into PocketBase the first time the server starts against it.
-
-## Docker
-
-One image runs PocketBase and the app together. It works anywhere that runs a container (Docker, Compose, Railway, Fly, a VPS).
-
-```
-cp .env.example .env      # fill in GH_TOKEN, REPO, LLM_API_KEY, PB_ADMIN_*
-docker compose up --build # app on :4747, PocketBase admin UI on :8090/_/
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ codeotter bot commented · Reviewed in 6.4s                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Walkthrough                                                                  │
+│ Splits review scoring into parallel System 1 (typed rubrics + merge gates)   │
+│ and System 2 (cohort walkthrough + actionable findings) passes.              │
+│                                                                              │
+│ Estimated code review effort: 🎯 3 (Moderate) | ⏱️ ~15 minutes               │
+│                                                                              │
+│   ╭──────╮    ╭──────╮    ╭──────╮    ╭──────╮    ╭──────╮    ╭──────╮       │
+│   │  88  │    │  25  │    │  18  │    │  75  │    │  92  │    │  84  │       │
+│   ╰──────╯    ╰──────╯    ╰──────╯    ╰──────╯    ╰──────╯    ╰──────╯       │
+│   Quality    Blast Rad.     Risk       Tests     Readability  PR Hygiene     │
+│                                                                              │
+│ ▸ Blast radius details: 6 files · 214 lines · 2 areas · Hotspots: [auth, api]│
+│ ▸ Pre-merge checks: ✅ Title  ✅ Description  ✅ Security (2% risk)  ✅ Scope │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Or without Compose:
+| Capability | **CodeOtter (Open Source)** | Hosted Review SaaS | Raw LLM / CI Scripts |
+| :--- | :--- | :--- | :--- |
+| **Seat Pricing** | **$0 forever (MIT)** | $24–$30 / dev / month | API cost only |
+| **Code Privacy** | **100% Offline Local GGUF** or BYOK | Diff sent to vendor cloud | Depends on endpoint |
+| **Scoring Architecture** | **Parallel System 1 (Typed) + System 2 (Prose)** | Closed proprietary pipeline | Uncalibrated LLM guesses |
+| **`AGENTS.md` / `CLAUDE.md` Rules** | **Auto-detected at repo root via GitHub API** | Custom `.yaml` config required | Manual prompt pasting |
+| **Blast Radius & Hotspots** | **Deterministic AST/path analysis + S1 rubric** | Partial | None |
+| **Backend Footprint** | **1 Node.js file (`server.mjs`), 0 npm deps** | Hosted black box | Heavy Python/TS framework |
 
+---
+
+## ⚡ 30-Second Quickstart
+
+Requires **Node 20.11+**, **pnpm**, and the **GitHub CLI (`gh`)** authenticated (`gh auth status`).
+
+```bash
+cd web && pnpm install && pnpm build && cd ..   # Build the React + Animate UI frontend once
+node server.mjs                                  # Launch on http://localhost:4747
 ```
+
+Open **`http://localhost:4747`**:
+1. Paste any GitHub PR URL (`https://github.com/owner/repo/pull/123`) or select an open PR from the sidebar.
+2. Pick your model under **Settings → Model provider** (or download a 100% offline local model under **Settings → Local models**).
+3. Get a complete review report in seconds—or hit `/api/score?pr=<url|number>` for JSON (`&force=1` to rescore).
+
+> **UI Development Mode:** Run `pnpm dev` inside `web/` alongside `node server.mjs`; Vite proxies `/api` to `:4747`. Even without `web/dist`, `server.mjs` automatically falls back to its built-in server-rendered HTML UI.
+
+---
+
+## 🧠 Why Two AI Engines? (System 1 + System 2)
+
+<p align="center">
+  <img src="assets/banners/dual-engine.jpg" alt="CodeOtter Dual Engine — System 1 Stamping Press + System 2 Cybernetic Brain" width="100%" />
+</p>
+
+Asking a single chat LLM to both write nuanced code critiques *and* output calibrated numeric scores fails in practice: chat models cluster every score between `75` and `85` and slow down generation.
+
+CodeOtter separates review into **two specialized engines that run in parallel**—so a review takes only as long as the slower engine, never the sum:
+
+```mermaid
+flowchart LR
+  PR["GitHub PR Diff + Metadata\n+ Auto-detected AGENTS.md / CLAUDE.md"] --> Facts["Deterministic Blast Radius\nFiles · Lines · Areas · Hotspots"]
+  PR --> LLM["Engine 1: Language Model (System 2)\nWalkthrough · File Cohorts · Actionable Findings"]
+  PR --> S1["Engine 2: System One Model (System 1)\n6 Calibrated Rubric Scores + 8 Pre-Merge Gates"]
+  Facts --> Report["Unified PR Review Report\nScores · Gates · Effort · Findings"]
+  LLM --> Report
+  S1 --> Report
+```
+
+### 1. The Language Model (System 2 — Prose & Critique)
+Writes the executive **Walkthrough**, groups modified files into **Cohort Summaries**, and surfaces severity-ranked **Actionable Findings** (`⚠️ High / Major`, `⚠️ Medium / Minor`, `🛠️ Low / Refactor`, `🧹 Nitpick`).
+- **Supported Providers**: Anthropic (Claude), OpenAI, MiniMax, OpenRouter (`typesafe/jev-router`), Ollama, any custom OpenAI-compatible `/v1` endpoint, or **built-in Local GGUF models**.
+
+### 2. The System One Model (System 1 — Typed Scores & Merge Gates)
+Answers structured `/v1/systemone` questions (`score` and `noul` yes/no probabilities) in a single fast pass:
+- **6 Fixed-Rubric Scores (`0–100`)**: `Quality`, `Blast Radius`, `Correctness Risk`, `Test Coverage`, `Readability`, and `PR Hygiene`. When a System One model is active, it owns every score and the LLM is not asked to guess numbers.
+- **8 Pre-Merge Policy Gates**: `Title check`, `Description check`, `Security` (injection, auth bypass, secrets, SSRF, XSS), `Complexity`, `Tests`, `Documentation`, `Scope`, and `Repository guidelines` (`AGENTS.md` / `CLAUDE.md` compliance), rendered with exact pass/warn badges and `% yes` confidence.
+- **Supported Providers**: **Laya 421M** (local), **Kev 0.8B** (local), **TypeSafe Jev** (`TYPESAFE_API_KEY` or via OpenRouter), or any custom `/v1/systemone` endpoint (Kev 4B, SemIf, self-hosted Laya).
+
+*Either engine works solo (LLM-only scores + writes prose; System-One-only outputs instant scores + merge gates), or both run together in parallel.*
+
+---
+
+## 💻 100% Offline Local Models (Zero API Keys)
+
+<p align="center">
+  <img src="assets/banners/offline-vault.jpg" alt="CodeOtter Offline Submarine Vault — 100% Local GGUF Sidecar" width="100%" />
+</p>
+
+Want to review proprietary code on a plane or air-gapped workstation with **zero bytes leaving your machine**?
+
+Open **Settings → Local models**. Nothing downloads without your click, and API-only users never touch it. One click downloads open-weight Apache-2.0 models from Hugging Face along with the matching prebuilt runtime binary (`ggmlc/laya` or `llama.cpp`'s `llama-server`, GPU build tried first with automatic CPU fallback):
+
+| Local Model | Role | Size | Context | Runtime | Hardware Profile |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Laya Typed-Decisions 421M** *(Convai)* | System One (Scores & Gates) | `455 MB` | `1024` tok | `laya` | Instant on CPU or GPU |
+| **Kev 0.8B** *(Jared Palmer / Qwen3.5)* | System One (Scores & Gates) | `828 MB` | `2048` tok | `laya` | Fast on CPU or GPU |
+| **Qwen2.5-Coder 1.5B** | Language Model (Walkthrough & Findings) | `1.1 GB` | `8192` tok | `llama-server` | Runs comfortably on CPU |
+| **Qwen2.5-Coder 7B** | Language Model (Walkthrough & Findings) | `4.7 GB` | `16384` tok | `llama-server` | High-quality local review (GPU recommended) |
+
+- Sidecars start on-demand on the first review and automatically shut down after **15 idle minutes** (`S1_DEVICE=cpu` forces CPU).
+- Local diffs are automatically sized to each model's context window (`contextChars`), and System One questions are chunked to respect runtime batch limits.
+
+---
+
+## 🛡️ Auto-Detected `AGENTS.md` & `CLAUDE.md` Enforcement
+
+<p align="center">
+  <img src="assets/banners/merge-gate-agents.jpg" alt="CodeOtter Spot-Checking AI Agents at the Merge Gate" width="100%" />
+</p>
+
+Every repository you onboard under **Settings → Repositories** is automatically inspected at its root via the GitHub API for `AGENTS.md` and/or `CLAUDE.md`.
+- When both exist, **both are fed into the review context**.
+- Both the Language Model (via concrete findings) and the System One Engine (via the `Repository guidelines` merge gate) flag violations of your team's architectural rules automatically.
+- Toggle enforcement per repository anytime via the gear icon (`⚙️`) on the repository row.
+
+---
+
+## ⚙️ Configuration & Environment Variables
+
+All settings can be configured live in the UI (**Settings → Model provider**, **Repositories**, **Local models**, **Admin → OAuth**, **Admin → Accounts**) and persist in PocketBase (or `config.json` in file-storage mode) with zero restarts.
+
+Environment variables act as zero-config startup defaults:
+
+```bash
+# 1. Fully local via Ollama
+LLM_BASE_URL=http://localhost:11434/v1 LLM_MODEL=qwen2.5-coder:latest node server.mjs
+
+# 2. Explicit key for the default provider (MiniMax)
+LLM_API_KEY=sk-... LLM_MODEL=MiniMax-M3 node server.mjs
+
+# 3. Per-provider API keys (used automatically when selected in Settings)
+ANTHROPIC_API_KEY=sk-ant-... \
+OPENAI_API_KEY=sk-... \
+OPENROUTER_API_KEY=sk-or-... \
+TYPESAFE_API_KEY=ts-... \
+node server.mjs
+
+# 4. Seed initial repository and custom public URL / port
+REPO=owner/name PORT=8080 APP_URL=https://pr.example.com node server.mjs
+```
+
+---
+
+## 🐳 Docker (One Container, Production Ready)
+
+A single Docker image packages **PocketBase** (for persistent storage, OAuth2, and user roles) and **PR Scorer** together. Deployable anywhere that runs a container (Docker Compose, Railway, Fly.io, Render, Coolify, or a bare VPS).
+
+```bash
+cp .env.example .env       # Set GH_TOKEN, REPO (optional), LLM_API_KEY, PB_ADMIN_*
+docker compose up --build  # App on http://localhost:4747 · PocketBase Admin on 127.0.0.1:8090/_/
+```
+
+Or run standalone without Compose:
+
+```bash
 docker build -t pr-scorer .
 docker run -p 4747:4747 -p 8090:8090 --env-file .env -v pr-scorer-data:/app/pb_data pr-scorer
 ```
 
-`GH_TOKEN` replaces `gh auth login` inside the container; `REPO` is optional (repositories are onboarded in Settings). Set `APP_URL` to the public address so the GitHub sign-in callback works. Persist `/app/pb_data` or the reviews go with the container. The PocketBase admin UI is bound to loopback by default.
+- `GH_TOKEN` authenticates `gh` inside the container without interactive login.
+- Persist `/app/pb_data` on a volume so your reviews, settings, and downloaded local models survive container upgrades.
+- Any existing JSON reviews in `scores/` are automatically imported into PocketBase on first boot.
 
-Blast radius is deterministic (files, lines, areas, hotspots such as migrations, auth, payments, API routes, core domain, deps, CI). Everything else comes from the model.
+---
 
-Why not Jev: TypeSafe Jev is closed-weight and API-only, and it returns numbers without explanations. Point `LLM_BASE_URL` at any open model instead.
+## 🏢 Settings, Multi-Org Scoping & RBAC
+
+- **Organization-Scoped Everything**: The organization switcher in the sidebar header scopes the Home KPI dashboard, repository lists, open PR queues, and repository settings.
+- **GitHub-Only OAuth2 + One-Click App Manifest**: Under **Admin → OAuth**, click **"Create GitHub app for me"** to run the GitHub App manifest flow—creating and wiring your OAuth client ID and secret in one click—or paste credentials manually (`<APP_URL>/auth/callback`).
+- **Role-Based Access Control (`owner` / `admin`)**:
+  - The **first user to sign in with GitHub** automatically becomes the instance `owner`.
+  - During initial bootstrap (while zero accounts exist), all setup pages are accessible; once an `owner` exists, every data endpoint and settings route requires an authenticated `admin` or `owner`.
+  - **Locked out?** Restart with `PR_SCORER_RECOVERY=1` to regain owner-level access, fix **Admin → OAuth**, and unset the variable.
+
+---
+
+## 🔒 Security Architecture
+
+- **Zero Telemetry / No Middleman**: Pull request diffs and descriptions are sent strictly to the model endpoint you configure—nowhere else.
+- **Untrusted Model Output Normalization**: `judge()` sanitizes and clamps every score, verdict, finding severity, and file walkthrough before storage; raw model output is never rendered into the DOM.
+- **Hardened HTTP & CLI Boundaries**: All `/api/*` routes reject cross-site requests, session tokens live in `HttpOnly; SameSite=Lax` cookies, stored API keys are masked (`••••1234`), and every string reaching `gh` argv is strictly validated against `OWNER_RE`, `REPO_RE`, and `PR_URL_RE`.
+
+---
+
+## 📄 License & Contributing
+
+- **License**: [MIT](LICENSE)
+- **Design System**: Full [Google Stitch `DESIGN.md`](design.md) specification in [`design.md`](design.md)
+- **Architecture & Agent Rules**: See [`AGENTS.md`](AGENTS.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md)

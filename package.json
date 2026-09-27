@@ -1,10 +1,10 @@
 {
-  "name": "pr-scorer",
+  "name": "codeotter",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "Code review scores for pull requests from any open model, self-hosted.",
+  "description": "CodeOtter — Dual-engine AI code review scores, blast radius analysis, and merge gates from any open model, self-hosted.",
   "engines": { "node": ">=20.11" },
   "scripts": {
     "start": "node server.mjs",
