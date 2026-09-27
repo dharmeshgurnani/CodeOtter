@@ -127,7 +127,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
           {b.hotspots.length ? b.hotspots.map((h) => <span key={h} className="mr-1.5 inline-block rounded-full bg-orange-100 px-2.5 py-0.5 text-xs text-orange-900">{h}</span>) : <span className="text-muted-foreground">No hotspots touched.</span>}
         </details>
         <details className="my-2"><summary className="cursor-pointer font-semibold">Pre-merge checks</summary>
-          <Md head={["Check", "Status"]} rows={[["Title check", check(v.scores.pr_hygiene >= 60)], ["Description check", check((p.body ?? "").length > 80)], ["Tests touched", check(b.testFiles > 0)], ...(r.gates ?? []).map((g) => [g.label, <>{check(g.pass)} <span className="text-muted-foreground">({Math.round(g.yes * 100)}% yes)</span></>] as React.ReactNode[])]} />
+          <Md head={["Check", "Status"]} rows={[...(r.gates?.length ? [] : [["Title check", check(v.scores.pr_hygiene >= 60)], ["Description check", check((p.body ?? "").length > 80)]]), ["Tests touched", check(b.testFiles > 0)], ...(r.gates ?? []).map((g) => [g.label, <>{check(g.pass)} <span className="text-muted-foreground">({Math.round(g.yes * 100)}% yes)</span></>] as React.ReactNode[])]} />
         </details>
         <div className="mt-3.5 flex gap-4 border-t border-border pt-2.5 text-[13px] text-muted-foreground"><span>{r.engines?.s1 && r.engines?.llm ? `Language model ${r.engines.llm} · System One ${r.engines.s1}` : `Model ${r.model}`}</span><span>Reviewed {when}</span></div>
       </Comment>

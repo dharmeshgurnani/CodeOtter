@@ -16,7 +16,7 @@ export type OpenPr = Pick<Pr, "number" | "title" | "url" | "author" | "additions
 export type Finding = { file: string; severity: "high" | "medium" | "low" | "nit"; title: string; detail: string };
 export type Review = {
   pr: Pr;
-  blast: { score: number; files: number; lines: number; dirs: number; hotspots: string[]; testFiles: number };
+  blast: { score: number; files: number; lines: number; dirs: number; hotspots: string[]; testFiles: number; source?: "s1" };
   review: {
     summary: string;
     verdict: "approve" | "comment" | "request_changes";

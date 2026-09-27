@@ -301,8 +301,11 @@ const S1_SCORES = {
   test_coverage: ["No tests for the change", "Minimal tests", "Partial coverage", "Good coverage", "Thorough coverage"],
   readability: ["Hard to follow", "Below average", "Readable", "Clear", "Very clear"],
   pr_hygiene: ["Unclear title and description, mixed concerns", "Weak description or scope", "Adequate", "Well described and focused", "Exemplary title, description and scope"],
+  blast_radius: ["Isolated change with no downstream effect", "Small local impact", "Moderate impact on nearby modules", "Wide impact across several areas", "System-wide or critical-path impact (auth, payments, migrations, deploy)"],
 };
 const S1_GATES = [
+  { id: "title", label: "Title check", q: "The pull request title accurately describes the change.", risk: false },
+  { id: "description", label: "Description check", q: "The pull request description explains what changed and why.", risk: false },
   { id: "security", label: "Security", q: "The change introduces a security risk (injection, auth bypass, secrets, unsafe deserialisation, SSRF, XSS).", risk: true },
   { id: "complexity", label: "Complexity", q: "The change is more complex than the problem requires.", risk: true },
   { id: "tests", label: "Tests", q: "The change is adequately covered by tests for its risk.", risk: false },
@@ -313,6 +316,7 @@ const S1_GATES = [
 async function scoreWithSystemOne(pr, diff, c, guide) {
   const state = {
     pull_request: { title: pr.title, description: (pr.body || "").slice(0, 3000), author: pr.author.login, base: pr.baseRefName, files: pr.files.map((f) => `${f.path} +${f.additions} -${f.deletions}`).slice(0, 200) },
+    change_facts: (({ files, lines, dirs, hotspots, testFiles }) => ({ files, lines, areas: dirs, sensitive_areas: hotspots, test_files: testFiles }))(blastRadius(pr.files)),
     ...(guide ? { review_guidelines: guide.text.slice(0, 12000) } : {}),
     diff: diff.slice(0, 80000),
   };
@@ -325,11 +329,10 @@ async function scoreWithSystemOne(pr, diff, c, guide) {
   return { scores, gates };
 }
 
-async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null) {
+async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true) {
   const prompt = `You are a strict senior code reviewer. Review this pull request and reply with ONLY a JSON object:
 {"summary":"2-3 sentence walkthrough","verdict":"approve|comment|request_changes",
- "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},
- "findings":[{"file":"path","severity":"high|medium|low|nit","title":"short","detail":"why + what to do"}],
+${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},\n` : ""} "findings":[{"file":"path","severity":"high|medium|low|nit","title":"short","detail":"why + what to do"}],
  "walkthrough":[{"file":"path","change":"one line"}]}
 Be concrete; cite files. Max ${r.maxFindings} findings, most severe first. Today is ${new Date().toISOString().slice(0, 10)}.
 
@@ -394,15 +397,23 @@ async function score(ref, force, repo) {
   const llmReady = !!c.model && (!!c.apiKey || !!PROVIDERS[c.provider]?.noKey || /localhost|127\.0\.0\.1/.test(c.baseUrl));
   if (!llmReady && !s1.enabled) throw new Error("No model configured: open Settings / Model provider");
   // Language model writes the narrative; System One model scores and gates. Both in parallel when both are configured.
-  const [narrative, typed] = await Promise.all([llmReady ? judge(pr, diff, c, rc, guide) : null, s1.enabled ? scoreWithSystemOne(pr, diff, s1, guide) : null]);
+  const [narrative, typed] = await Promise.all([llmReady ? judge(pr, diff, c, rc, guide, !s1.enabled) : null, s1.enabled ? scoreWithSystemOne(pr, diff, s1, guide) : null]);
+  // Every score comes from the typed engine when it is configured: the five review scores and blast radius.
+  // The deterministic file/line/hotspot facts stay as facts; only the number is scored.
+  const blast = blastRadius(pr.files);
   let review = narrative;
-  if (!review) {
-    const g = typed.gates;
-    const bad = g.some((x) => x.id === "security" && !x.pass) || typed.scores.quality < 40;
-    review = { summary: "Scored by the System One model. Configure a language model for a walkthrough and findings.", verdict: bad ? "request_changes" : typed.scores.quality >= 70 && g.every((x) => x.pass) ? "approve" : "comment", scores: typed.scores, findings: [], walkthrough: [] };
-  } else if (typed) review = { ...review, scores: typed.scores };
+  if (typed) {
+    const { blast_radius, ...scores } = typed.scores;
+    blast.score = blast_radius;
+    blast.source = "s1";
+    if (!review) {
+      const g = typed.gates;
+      const bad = g.some((x) => x.id === "security" && !x.pass) || scores.quality < 40;
+      review = { summary: "Scored by the System One model. Configure a language model for a walkthrough and findings.", verdict: bad ? "request_changes" : scores.quality >= 70 && g.every((x) => x.pass) ? "approve" : "comment", scores, findings: [], walkthrough: [] };
+    } else review = { ...review, scores };
+  }
   const engines = { llm: llmReady ? `${c.provider}/${c.model}` : null, s1: s1.enabled ? `${s1.provider}/${s1.model}` : null };
-  const result = { pr, blast: blastRadius(pr.files), review, gates: typed?.gates || [], engines, model: [engines.llm, engines.s1].filter(Boolean).join(" + "), guide: guide?.file || null, at: new Date().toISOString() };
+  const result = { pr, blast, review, gates: typed?.gates || [], engines, model: [engines.llm, engines.s1].filter(Boolean).join(" + "), guide: guide?.file || null, at: new Date().toISOString() };
   await store.put(result);
   return result;
 }
@@ -546,8 +557,8 @@ function renderScore(r) {
       </div>
       <details><summary>Blast radius details</summary><p>${blast.files} files &middot; ${blast.lines} lines &middot; ${blast.dirs} areas &middot; ${blast.testFiles} test files</p>${blast.hotspots.map((h) => `<span class="tag">${esc(h)}</span>`).join("") || "<span class=mut>No hotspots touched.</span>"}</details>
       <details><summary>Pre-merge checks</summary><table class="md"><tr><th>Check</th><th>Status</th></tr>
-        <tr><td>Title check</td><td>${v.scores.pr_hygiene >= 60 ? "✅ Passed" : "⚠️ Warning"}</td></tr>
-        <tr><td>Description check</td><td>${(pr.body || "").length > 80 ? "✅ Passed" : "⚠️ Warning"}</td></tr>
+        ${(r.gates || []).length ? "" : `<tr><td>Title check</td><td>${v.scores.pr_hygiene >= 60 ? "✅ Passed" : "⚠️ Warning"}</td></tr>
+        <tr><td>Description check</td><td>${(pr.body || "").length > 80 ? "✅ Passed" : "⚠️ Warning"}</td></tr>`}
         <tr><td>Tests touched</td><td>${blast.testFiles ? "✅ Passed" : "⚠️ Warning"}</td></tr>
         ${(r.gates || []).map((g) => `<tr><td>${esc(g.label)}</td><td>${g.pass ? "✅ Passed" : "⚠️ Warning"} <span class="mut">(${Math.round(g.yes * 100)}% yes)</span></td></tr>`).join("")}</table></details>
       <div class="ft"><span>Model ${esc(r.model)}</span><span>Reviewed ${esc(when)}</span></div>
