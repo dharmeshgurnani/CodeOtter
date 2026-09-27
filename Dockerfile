@@ -21,6 +21,7 @@ RUN apk add --no-cache git ca-certificates curl unzip \
 WORKDIR /app
 COPY server.mjs start.sh showcase.json models.json ./
 COPY pb_migrations ./pb_migrations
+COPY runtimes ./runtimes
 COPY --from=web /app/web/dist ./web/dist
 ENV PB_URL=http://127.0.0.1:8090 PORT=4747 PR_SCORER_DATA=/app/pb_data/local S1_DEVICE=cpu
 EXPOSE 4747 8090

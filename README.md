@@ -117,7 +117,7 @@ Answers structured `/v1/systemone` questions (`score` and `noul` yes/no probabil
 
 Want to review proprietary code on a plane or air-gapped workstation with **zero bytes leaving your machine**?
 
-Open **Settings → Local models**. Nothing downloads without your click, and API-only users never touch it. One click downloads open-weight Apache-2.0 models from Hugging Face along with the matching prebuilt runtime binary (`ggmlc/laya` or `llama.cpp`'s `llama-server`, GPU build tried first with automatic CPU fallback):
+Open **Admin → Local models** (split into Language models and System One models). Nothing downloads without your click, and API-only users never touch it. One click downloads open-weight Apache-2.0 models from Hugging Face along with the matching runtime binary (`ggmlc/laya`, `llama.cpp`'s `llama-server` with GPU build tried first and CPU fallback, or the Python `codereviewer` sidecar):
 
 | Local Model | Role | Size | Context | Runtime | Hardware Profile |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -125,8 +125,10 @@ Open **Settings → Local models**. Nothing downloads without your click, and AP
 | **Kev 0.8B** *(Jared Palmer / Qwen3.5)* | System One (Scores & Gates) | `828 MB` | `2048` tok | `laya` | Fast on CPU or GPU |
 | **Qwen2.5-Coder 1.5B** | Language Model (Walkthrough & Findings) | `1.1 GB` | `8192` tok | `llama-server` | Runs comfortably on CPU |
 | **Qwen2.5-Coder 7B** | Language Model (Walkthrough & Findings) | `4.7 GB` | `16384` tok | `llama-server` | High-quality local review (GPU recommended) |
+| **Microsoft CodeReviewer 223M** *(CodeT5, arXiv:2203.09095)* | Language Model (Hunk-by-hunk Findings; pairs with System One) | `895 MB` | `512` tok/hunk | `codereviewer` (`serve.py`) | Fast on CPU (~0.3s/hunk, Python 3.10+ bare-metal) |
 
 - Sidecars start on-demand on the first review and automatically shut down after **15 idle minutes** (`S1_DEVICE=cpu` forces CPU).
+- **Microsoft CodeReviewer** (`waleko/codereviewer-finetuned-msg`) reads the diff one hunk at a time and writes one review comment per hunk into findings; it requires a System One model alongside it (e.g. Laya on CPU) for scores and gates (`PR_SCORER_PYTHON` points at a specific Python 3.10+ interpreter).
 - Local diffs are automatically sized to each model's context window (`contextChars`), and System One questions are chunked to respect runtime batch limits.
 
 ---
