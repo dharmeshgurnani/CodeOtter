@@ -35,6 +35,8 @@ const ENV_DEFAULTS = process.env.LLM_BASE_URL
 // (summary, walkthrough, findings). Both run in parallel when both are configured.
 const S1_PROVIDERS = {
   jev: { label: "TypeSafe Jev", baseUrl: "https://api.typesafe.ai", models: ["jev-latest", "jev-1.13.0"], keyEnv: "TYPESAFE_API_KEY", keyUrl: "https://console.typesafe.ai/settings/keys" },
+  // OpenRouter serves the same typed endpoint (POST /api/v1/systemone) with an OpenRouter key
+  jev_openrouter: { label: "TypeSafe Jev via OpenRouter", baseUrl: "https://openrouter.ai/api", models: ["typesafe/jev-1.13"], keyEnv: "OPENROUTER_API_KEY", keyUrl: "https://openrouter.ai/keys" },
 };
 async function s1Config() {
   const saved = (await store.getSetting("s1")) || {};
