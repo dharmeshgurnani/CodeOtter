@@ -46,7 +46,7 @@ Named model profiles (`fast` = Ollama qwen coder, `deep` = MiniMax or Claude) se
 
 ## 11a. Downloadable local System One model
 
-One click in Settings downloads an open-weight model that answers the typed questions locally, Handy-style. Jev itself cannot be shipped (closed weights); the plan uses a small open model driven by next-token probabilities behind the same `/v1/systemone` contract. Full plan: `docs/plan-local-system-one.md`.
+One click in Settings downloads an open-weight System One model that runs locally, Handy-style. Jev itself cannot be shipped (closed weights), but open alternatives now speak the same `/v1/systemone` contract: Laya (421M, single-binary runtime, sub-GB weights) is the bundled tier; Kev, SemIf and others are reachable through a custom-endpoint provider. Full plan: `docs/plan-local-system-one.md`.
 
 ## 11. Jev as a merge gate
 
