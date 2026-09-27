@@ -17,7 +17,7 @@ export type Field = {
   text?: string; // inline label for a checkbox
   placeholder?: string;
   options?: Option[];
-  optionsBy?: { field: string; map: Record<string, string[]> };
+  optionsBy?: { field: string; map: Record<string, (string | Option)[]> }; // options chosen by another field's value; an empty list means free text
   defaultBy?: { field: string; map: Record<string, string> };
   hideWhen?: { field: string; in: string[] };
   link?: { label: string; url: string };
@@ -36,7 +36,7 @@ export function applyChange(section: Section, vals: Record<string, unknown>, key
   const next = { ...vals, [key]: value };
   for (const f of section.fields) {
     if (f.defaultBy?.field === key) next[f.key] = f.defaultBy.map[String(value)] ?? "";
-    if (f.optionsBy?.field === key) next[f.key] = f.optionsBy.map[String(value)]?.[0] ?? "";
+    if (f.optionsBy?.field === key) { const first = f.optionsBy.map[String(value)]?.[0]; next[f.key] = first === undefined ? "" : typeof first === "object" ? first.value : first; }
   }
   return next;
 }
@@ -110,15 +110,18 @@ const Control = ({ f, vals, onChange, id, scope = "" }: { f: Field; vals: Record
         <span className="block py-2 text-sm text-muted-foreground">None yet.</span>
       );
     }
-    case "select":
+    case "select": {
+      const opts: Option[] = (f.options ?? f.optionsBy?.map[String(vals[f.optionsBy.field])] ?? []).map((o) => (typeof o === "object" ? o : { value: o, label: o }));
+      if (!f.options && opts.length === 0) return <Input id={id} className={cls} value={String(v ?? "")} placeholder={f.placeholder ?? "model id"} onChange={(e) => onChange(e.target.value)} />;
       return (
-        <select id={id} className={`${cls} h-9 rounded-md border border-input bg-transparent px-3 text-sm`} value={String(v ?? "")} onChange={(e) => onChange(typeof f.options?.[0]?.value === "number" ? Number(e.target.value) : e.target.value)}>
-          {v !== undefined && v !== "" && !f.options?.some((o) => String(o.value) === String(v)) && <option value={String(v)}>{String(v)}</option>}
-          {f.options?.map((o) => <option key={String(o.value)} value={String(o.value)}>{o.label}</option>)}
+        <select id={id} className={`${cls} h-9 rounded-md border border-input bg-transparent px-3 text-sm`} value={String(v ?? "")} onChange={(e) => onChange(typeof opts[0]?.value === "number" ? Number(e.target.value) : e.target.value)}>
+          {v !== undefined && v !== "" && !opts.some((o) => String(o.value) === String(v)) && <option value={String(v)}>{String(v)}</option>}
+          {opts.map((o) => <option key={String(o.value)} value={String(o.value)}>{o.label}</option>)}
         </select>
       );
+    }
     case "combo": {
-      const opts = f.options?.map((o) => String(o.value)) ?? f.optionsBy?.map[String(vals[f.optionsBy.field])] ?? [];
+      const opts = (f.options ?? f.optionsBy?.map[String(vals[f.optionsBy.field])] ?? []).map((o) => String(typeof o === "object" ? o.value : o));
       const listId = `dl-${scope}-${f.key}`;
       return (
         <>

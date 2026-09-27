@@ -5,6 +5,7 @@
 - System One models: a second engine next to the language model. TypeSafe Jev scores pull requests from fixed rubrics and answers merge gates (security, complexity, tests, docs, scope, repository guidelines), shown under Pre-merge checks. Runs in parallel with the language model; either engine works alone. Reachable directly from TypeSafe or through OpenRouter.
 - Removed the "Review pull request" header button; open pull requests are reviewed from their repository page.
 - The UI no longer names the storage backend.
+- Model fields are picklists filled from each provider's model-list API (Anthropic, OpenAI-compatible, OpenRouter, TypeSafe), with static suggestions until a key is saved and a text box for custom endpoints.
 
 ## 0.1.0 (2026-09-27)
 

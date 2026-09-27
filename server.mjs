@@ -27,6 +27,40 @@ const PROVIDERS = {
   custom: { label: "Custom OpenAI-compatible", api: "openai", baseUrl: "", models: [] },
 };
 // Defaults come from env (LLM_* keeps working); the Settings page overrides them and persists to the store.
+// Live model lists from each provider (10-minute cache). Anthropic and TypeSafe have their own list endpoints;
+// everything OpenAI-compatible answers GET /models. Falls back to the static suggestions when a list is unavailable.
+const modelCache = new Map();
+async function listModels(kind, c) {
+  const key = `${kind}|${c.baseUrl}|${(c.apiKey || "").slice(-8)}`;
+  const hit = modelCache.get(key);
+  if (hit && Date.now() - hit.at < 600e3) return hit.list;
+  let list = [];
+  const base = (c.baseUrl || "").replace(/\/+$/, "");
+  const opt = (headers) => ({ headers, signal: AbortSignal.timeout(10000) });
+  try {
+    if (kind === "anthropic") {
+      const r = await fetch(`${base}/v1/models?limit=1000`, opt({ "x-api-key": c.apiKey, "anthropic-version": "2023-06-01" }));
+      if (r.ok) list = ((await r.json()).data || []).map((m) => ({ value: m.id, label: m.display_name ? `${m.display_name} (${m.id})` : m.id }));
+    } else if (kind === "openai") {
+      const r = await fetch(`${base}/models`, opt(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}));
+      if (r.ok) {
+        const d = (await r.json()).data || [];
+        list = d
+          .filter((m) => m.id && (!m.architecture?.modality || /->text$/.test(m.architecture.modality)) && !/^typesafe\/jev-\d/.test(m.id))
+          .map((m) => ({ value: m.id, label: m.id }))
+          .sort((a, b) => a.value.localeCompare(b.value));
+      }
+    } else if (kind === "s1-typesafe") {
+      const r = await fetch(`${base}/v1/models`, opt({ authorization: `Bearer ${c.apiKey}`, accept: "application/json" }));
+      if (r.ok) list = ((await r.json()).models || []).map((m) => ({ value: m.id || m, label: m.id || m }));
+    } else if (kind === "s1-openrouter") {
+      const r = await fetch(`${base}/v1/models`, opt({}));
+      if (r.ok) list = ((await r.json()).data || []).filter((m) => /^typesafe\/jev-\d/.test(m.id)).map((m) => ({ value: m.id, label: m.id }));
+    }
+  } catch {}
+  modelCache.set(key, { list, at: Date.now() });
+  return list;
+}
 const ENV_DEFAULTS = process.env.LLM_BASE_URL
   ? { provider: "custom", baseUrl: process.env.LLM_BASE_URL, model: process.env.LLM_MODEL || "", apiKey: process.env.LLM_API_KEY || "" }
   : { provider: "minimax", baseUrl: PROVIDERS.minimax.baseUrl, model: process.env.LLM_MODEL || "MiniMax-M3", apiKey: process.env.LLM_API_KEY || "" };
@@ -603,6 +637,11 @@ const SETTINGS_PAGES = {
       const s1 = await s1Config();
       const r = await reviewConfig();
       const p = PROVIDERS[c.provider] || PROVIDERS.custom;
+      const llmCanList = c.baseUrl && (c.apiKey || p.noKey || c.provider === "openrouter" || /localhost|127\.0\.0\.1/.test(c.baseUrl));
+      const [llmLive, s1Live] = await Promise.all([
+        llmCanList ? listModels(p.api === "anthropic" ? "anthropic" : "openai", c) : [],
+        s1.provider === "jev" && s1.apiKey ? listModels("s1-typesafe", s1) : s1.provider === "jev_openrouter" ? listModels("s1-openrouter", s1) : [],
+      ]);
       const sections = [
         {
           id: "llm",
@@ -610,7 +649,7 @@ const SETTINGS_PAGES = {
           description: "Writes the walkthrough and findings. Also scores when no System One model is configured.",
           fields: [
             { key: "provider", label: "Provider", type: "select", options: Object.entries(PROVIDERS).map(([value, x]) => ({ value, label: x.label })) },
-            { key: "model", label: "Model", type: "combo", hint: "Pick one or type any model id the provider accepts.", optionsBy: { field: "provider", map: byProvider((x) => x.models) } },
+            { key: "model", label: "Model", type: "select", hint: llmLive.length ? `${llmLive.length} models listed by ${p.label}.` : c.provider === "custom" ? "Type the model id your endpoint serves." : "Save a key to list the provider's models.", optionsBy: { field: "provider", map: { ...byProvider((x) => x.models.map((value) => ({ value, label: value }))), ...(llmLive.length ? { [c.provider]: llmLive } : {}) } } },
             { key: "apiKey", label: "API key", type: "password", hint: c.apiKey ? `Saved key ${mask(c.apiKey)}. Leave blank to keep it.` : p.noKey ? "" : "No key saved yet.", placeholder: mask(c.apiKey) || "paste key", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => PROVIDERS[k].noKey) }, linkBy: { field: "provider", map: Object.fromEntries(Object.entries(PROVIDERS).filter(([, x]) => x.keyUrl).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
             { key: "baseUrl", label: "Base URL", type: "text", hint: "Prefilled per provider. Change only for proxies or self-hosted gateways.", defaultBy: { field: "provider", map: byProvider((x) => x.baseUrl) } },
           ],
@@ -622,7 +661,7 @@ const SETTINGS_PAGES = {
           description: "Typed scores and merge gates in one fast pass. Owns scoring when configured; runs alongside the language model.",
           fields: [
             { key: "provider", label: "Provider", type: "select", options: [{ value: "none", label: "None" }, ...Object.entries(S1_PROVIDERS).map(([value, x]) => ({ value, label: x.label }))] },
-            { key: "model", label: "Model", type: "combo", hideWhen: { field: "provider", in: ["none"] }, optionsBy: { field: "provider", map: { none: [], ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.models])) } } },
+            { key: "model", label: "Model", type: "select", hideWhen: { field: "provider", in: ["none"] }, hint: s1Live.length ? `${s1Live.length} models listed by ${S1_PROVIDERS[s1.provider].label}.` : "", optionsBy: { field: "provider", map: { none: [], ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.models.map((value) => ({ value, label: value }))])), ...(s1Live.length ? { [s1.provider]: s1Live } : {}) } } },
             { key: "apiKey", label: "API key", type: "password", hideWhen: { field: "provider", in: ["none"] }, hint: s1.apiKey ? `Saved key ${mask(s1.apiKey)}. Leave blank to keep it.` : "No key saved yet.", placeholder: mask(s1.apiKey) || "paste key", linkBy: { field: "provider", map: Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
             { key: "baseUrl", label: "Base URL", type: "text", hideWhen: { field: "provider", in: ["none"] }, defaultBy: { field: "provider", map: { none: "", ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.baseUrl])) } } },
           ],
@@ -649,6 +688,7 @@ const SETTINGS_PAGES = {
         const prev = (await store.getSetting("llm")) || {};
         const apiKey = v.apiKey || (prev.provider === v.provider && (v.baseUrl || "") === (prev.baseUrl || "") ? prev.apiKey : "") || "";
         await store.setSetting("llm", { provider: v.provider, model: v.model || "", baseUrl: v.baseUrl || "", apiKey });
+        modelCache.clear();
       }
       if (body.s1) {
         const v = body.s1;
@@ -656,6 +696,7 @@ const SETTINGS_PAGES = {
         const prev = (await store.getSetting("s1")) || {};
         const apiKey = v.apiKey || (prev.provider === v.provider && (v.baseUrl || "") === (prev.baseUrl || "") ? prev.apiKey : "") || "";
         await store.setSetting("s1", v.provider === "none" ? { provider: "none" } : { provider: v.provider, model: v.model || "", baseUrl: v.baseUrl || "", apiKey });
+        modelCache.clear();
       }
       if (body.review) {
         const v = body.review;
