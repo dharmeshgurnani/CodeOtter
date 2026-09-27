@@ -78,7 +78,7 @@ const S1_PROVIDERS = {
   jev: { label: "TypeSafe Jev", baseUrl: "https://api.typesafe.ai", models: ["jev-latest", "jev-1.13.0"], keyEnv: "TYPESAFE_API_KEY", keyUrl: "https://console.typesafe.ai/settings/keys" },
   // OpenRouter serves the same typed endpoint (POST /api/v1/systemone) with an OpenRouter key
   jev_openrouter: { label: "TypeSafe Jev via OpenRouter", baseUrl: "https://openrouter.ai/api", models: ["typesafe/jev-1.13"], keyEnv: "OPENROUTER_API_KEY", keyUrl: "https://openrouter.ai/keys" },
-  ...Object.fromEntries(CATALOG.models.map((m) => [m.id, { label: m.label, local: true, baseUrl: "", models: [m.modelId], keyEnv: "" }])),
+  ...Object.fromEntries(CATALOG.models.map((m) => [m.id, { get label() { return existsSync(modelPath(m)) ? m.label : `${m.label}, not downloaded`; }, local: true, baseUrl: "", models: [m.modelId], keyEnv: "" }])),
   custom: { label: "Custom System One endpoint", baseUrl: "", models: [], keyEnv: "", keyUrl: "" },
 };
 const runtimeAsset = () => CATALOG.runtime.assets[`${process.platform}-${process.arch}`];
@@ -196,7 +196,7 @@ async function s1Config() {
   return { provider, model: saved.model || p.models[0] || "", baseUrl, apiKey, enabled: provider === "custom" ? !!baseUrl : !!apiKey };
 }
 async function askSystemOne(state, questions, c) {
-  if (!c.enabled) throw new Error(c.local ? `${c.local.label} is not downloaded: open Settings / Model provider` : "No System One model configured: open Settings");
+  if (!c.enabled) throw new Error(c.local ? `${c.local.label} is not downloaded: open Settings / Local models` : "No System One model configured: open Settings");
   const base = c.local ? `http://127.0.0.1:${await ensureSidecar(c.local)}` : c.baseUrl.replace(/\/+$/, "");
   const max = c.local?.maxQuestions || 0;
   const keys = Object.keys(questions);
@@ -803,15 +803,9 @@ const SETTINGS_PAGES = {
             { key: "model", label: "Model", type: "select", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1Live.length ? `${s1Live.length} models listed by ${S1_PROVIDERS[s1.provider].label}.` : "", optionsBy: { field: "provider", map: { none: [], ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.models.map((value) => ({ value, label: value }))])), ...(s1Live.length ? { [s1.provider]: s1Live } : {}) } } },
             { key: "apiKey", label: "API key", type: "password", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1.apiKey ? `Saved key ${mask(s1.apiKey)}. Leave blank to keep it.` : s1.provider === "custom" ? "Optional." : "No key saved yet.", placeholder: mask(s1.apiKey) || "paste key", linkBy: { field: "provider", map: Object.fromEntries(Object.entries(S1_PROVIDERS).filter(([, x]) => x.keyUrl).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
             { key: "baseUrl", label: "Base URL", type: "text", hideWhen: { field: "provider", in: ["none", ...localIds] }, placeholder: "http://host:port", defaultBy: { field: "provider", map: { none: "", ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.baseUrl])) } } },
-            { key: "status", label: "Status", type: "readonly", hideWhen: { field: "provider", in: ["none", "jev", "jev_openrouter", "custom"] }, hint: s1.local ? `${s1.local.maker} · ${s1.local.license} · ${s1.local.contextTokens}-token context · runs on this machine, nothing leaves it` : "" },
+            { key: "status", label: "Status", type: "readonly", hideWhen: { field: "provider", in: ["none", "jev", "jev_openrouter", "custom"] }, hint: s1.local ? "Download, switch or delete local models under Settings / Local models." : "" },
           ],
-          poll: s1.local && localStatus(s1.local).state === "downloading" ? 2000 : 0,
-          actions: [
-            { id: "save", label: "Save" },
-            ...(s1.local && localStatus(s1.local).state !== "ready" && localStatus(s1.local).state !== "downloading" ? [{ id: "download", label: "Download", always: true }] : []),
-            ...(s1.local && localStatus(s1.local).state === "ready" ? [{ id: "remove", label: "Delete model", variant: "outline", always: true }] : []),
-            { id: "probe", label: "Test connection", variant: "outline", needsSaved: true },
-          ],
+          actions: [{ id: "save", label: "Save" }, { id: "probe", label: "Test connection", variant: "outline", needsSaved: true }],
         },
         {
           id: "review",
@@ -852,23 +846,6 @@ const SETTINGS_PAGES = {
       }
     },
     actions: {
-      async download() {
-        const s1 = await s1Config();
-        if (!s1.local) throw new Error("Pick a local model first and save");
-        const m = s1.local;
-        if (!existsSync(modelPath(m)) && !downloads.get(m.id)?.active) downloadFile(`https://huggingface.co/${m.repo}/resolve/main/${m.file}`, modelPath(m), m.id);
-        ensureRuntime().catch(() => {});
-        return { message: `Downloading ${m.label} (${m.sizeMB} MB)…` };
-      },
-      async remove() {
-        const s1 = await s1Config();
-        if (!s1.local) throw new Error("No local model selected");
-        stopSidecar();
-        rmSync(modelPath(s1.local), { force: true });
-        rmSync(`${modelPath(s1.local)}.part`, { force: true });
-        downloads.delete(s1.local.id);
-        return { message: `${s1.local.label} deleted.` };
-      },
       async probe() {
         const t = Date.now();
         const a = await askSystemOne({ document: "The function returns the sum of two integers." }, { ok: { type: "noul", instructions: "The document describes an addition." } }, await s1Config());
@@ -968,6 +945,81 @@ SETTINGS_PAGES.accounts = {
     for (const [id, role] of next) if (role !== users.find((u) => u.id === id)?.role) await store.setRole(id, role);
   },
 };
+// Local models page: what is downloaded, what is available, one action per row. Nothing downloads by itself.
+SETTINGS_PAGES.models = {
+  title: "Local models",
+  group: "settings",
+  access: "admin",
+  async load() {
+    const s1 = await s1Config();
+    const rows = CATALOG.models.map((m) => {
+      const st = localStatus(m);
+      const d = downloads.get(m.id);
+      const active = s1.provider === m.id;
+      const facts = [m.maker, `${m.sizeMB} MB`, m.license, `${m.contextTokens}-token context`, m.notes].join(" · ");
+      return {
+        id: m.id,
+        label: m.label.replace(" (local)", ""),
+        badge: active ? "Active" : undefined,
+        meta: st.state === "ready" ? facts : `${facts}${st.state === "missing" ? "" : ` · ${st.text}`}`,
+        progress: st.state === "downloading" && d?.total ? Math.round((d.done / d.total) * 100) : undefined,
+        actions: st.state === "ready" ? [...(active ? [] : [{ id: "use", label: "Use" }]), { id: "delete", label: "Delete", variant: "outline" }] : st.state === "downloading" ? [] : [{ id: "download", label: `Download ${m.sizeMB} MB` }],
+        state: st.state,
+      };
+    });
+    const asset = runtimeAsset();
+    const runtime = existsSync(runtimeBin()) ? `${CATALOG.runtime.name} ${CATALOG.runtime.version} · installed${sidecar.proc && sidecar.ready ? ` · running ${LOCAL[sidecar.id]?.label.replace(" (local)", "")} on ${sidecar.device}` : ""}` : asset ? `${CATALOG.runtime.name} ${CATALOG.runtime.version} · fetched with the first download (${asset})` : `no runtime for ${process.platform}-${process.arch}`;
+    const sections = [
+      {
+        id: "downloaded",
+        title: "Downloaded",
+        description: "On this machine. Use makes one the System One model; Delete frees the disk.",
+        fields: [
+          { key: "list", label: "Models", type: "list", removable: false },
+          { key: "runtime", label: "Runtime", type: "readonly", hint: `Data directory ${DATA_DIR}` },
+        ],
+      },
+      {
+        id: "available",
+        title: "Available to download",
+        description: "Optional. Only for scoring offline; API providers need nothing here.",
+        fields: [{ key: "list", label: "Models", type: "list", removable: false }],
+        poll: rows.some((r) => r.state === "downloading") ? 2000 : 0,
+      },
+    ];
+    return { sections, values: { downloaded: { list: rows.filter((r) => r.state === "ready"), runtime }, available: { list: rows.filter((r) => r.state !== "ready") } } };
+  },
+  async save() {},
+  actions: {
+    async download(_req, _res, body) {
+      const m = LOCAL[body?.item];
+      if (!m) throw new Error("Unknown model");
+      if (!existsSync(modelPath(m)) && !downloads.get(m.id)?.active) downloadFile(`https://huggingface.co/${m.repo}/resolve/main/${m.file}`, modelPath(m), m.id);
+      ensureRuntime().catch(() => {});
+      return { message: `Downloading ${m.label.replace(" (local)", "")} (${m.sizeMB} MB)…` };
+    },
+    async use(_req, _res, body) {
+      const m = LOCAL[body?.item];
+      if (!m) throw new Error("Unknown model");
+      if (!existsSync(modelPath(m))) throw new Error(`${m.label} is not downloaded`);
+      if (sidecar.id && sidecar.id !== m.id) stopSidecar();
+      await store.setSetting("s1", { provider: m.id });
+      return { message: `${m.label.replace(" (local)", "")} is now the System One model.` };
+    },
+    async delete(_req, _res, body) {
+      const m = LOCAL[body?.item];
+      if (!m) throw new Error("Unknown model");
+      if (sidecar.id === m.id) stopSidecar();
+      rmSync(modelPath(m), { force: true });
+      rmSync(`${modelPath(m)}.part`, { force: true });
+      downloads.delete(m.id);
+      const s1 = (await store.getSetting("s1")) || {};
+      if (s1.provider === m.id) await store.setSetting("s1", { provider: "none" });
+      return { message: `${m.label.replace(" (local)", "")} deleted.` };
+    },
+  },
+};
+
 const settingsPages = async (user) => {
   const role = await effectiveRole(user);
   // group "settings" = organization-scoped pages; group "admin" = platform-wide pages, shown to admins and owners in every organization
@@ -1168,7 +1220,7 @@ http
         if (m[2]) {
           const action = page.actions?.[m[2]];
           if (!action) throw new Error(`No action ${m[2]} on ${m[1]}`);
-          return json(await action(req, res));
+          return json(await action(req, res, await readJson(req)));
         }
         const scope = { org: url.searchParams.get("org") || "" };
         if (scope.org && !OWNER_RE.test(scope.org)) throw new Error("Bad organization");

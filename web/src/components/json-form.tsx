@@ -8,7 +8,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 
 export type Option = { value: string | number; label: string };
 // A list item may carry its own settings (fields + values); they open in an Animate UI dialog from a gear icon on the row.
-export type ListItem = string | { id: string; label: string; meta?: string; settings?: { title?: string; description?: string; fields: Field[]; values: Record<string, unknown> } };
+export type ListItem = string | { id: string; label: string; meta?: string; badge?: string; progress?: number; actions?: Action[]; settings?: { title?: string; description?: string; fields: Field[]; values: Record<string, unknown> } };
 export type Field = {
   key: string;
   label: string;
@@ -77,7 +77,7 @@ function ItemSettingsDialog({ item, onChange }: { item: Exclude<ListItem, string
   );
 }
 
-const Control = ({ f, vals, onChange, id, scope = "" }: { f: Field; vals: Record<string, unknown>; onChange: (v: unknown) => void; id?: string; scope?: string }) => {
+const Control = ({ f, vals, onChange, id, scope = "", onItemAction }: { f: Field; vals: Record<string, unknown>; onChange: (v: unknown) => void; id?: string; scope?: string; onItemAction?: (itemId: string, actionId: string) => void }) => {
   const v = vals[f.key];
   const cls = "w-full max-w-[520px]";
   switch (f.type) {
@@ -91,9 +91,15 @@ const Control = ({ f, vals, onChange, id, scope = "" }: { f: Field; vals: Record
           {items.map((it) => (
             <li key={it.id} className="flex items-center gap-2 px-3 py-2 text-sm">
               <span className="min-w-0 flex-1">
-                <span className="block truncate">{it.label}</span>
+                <span className="block truncate">{it.label}{it.badge && <span className="ml-2 rounded-md bg-green-100 px-1.5 py-px text-[11px] text-green-800 align-middle">{it.badge}</span>}</span>
                 {it.meta && <span className="block text-xs text-muted-foreground">{it.meta}</span>}
+                {it.progress !== undefined && (
+                  <span className="mt-1.5 block h-1.5 w-full max-w-[320px] overflow-hidden rounded-full bg-neutral-200"><span className="block h-full bg-brand" style={{ width: `${Math.max(0, Math.min(100, it.progress))}%` }} /></span>
+                )}
               </span>
+              {it.actions?.map((a) => (
+                <Button key={a.id} size="sm" variant={a.variant ?? "default"} onClick={() => onItemAction?.(it.id, a.id)}>{a.label}</Button>
+              ))}
               {it.settings && (
                 <ItemSettingsDialog
                   item={it}
@@ -164,7 +170,7 @@ export function JsonForm({
   saved: Values;
   busy: string;
   onChange: (sectionId: string, vals: Record<string, unknown>) => void;
-  onAction: (sectionId: string, actionId: string) => void;
+  onAction: (sectionId: string, actionId: string, itemId?: string) => void;
 }) {
   return (
     <div className="space-y-8">
@@ -184,7 +190,7 @@ export function JsonForm({
                     <div key={f.key} className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-[200px_1fr] sm:gap-4">
                       <label className="pt-2 text-sm font-medium text-neutral-800" htmlFor={f.type === "checkbox" || f.type === "readonly" || f.type === "list" ? undefined : `f-${s.id}-${f.key}`}>{f.label}</label>
                       <div>
-                        <Control f={f} vals={vals} id={`f-${s.id}-${f.key}`} scope={s.id} onChange={(v) => onChange(s.id, applyChange(s, vals, f.key, v))} />
+                        <Control f={f} vals={vals} id={`f-${s.id}-${f.key}`} scope={s.id} onChange={(v) => onChange(s.id, applyChange(s, vals, f.key, v))} onItemAction={(itemId, actionId) => onAction(s.id, actionId, itemId)} />
                         {(f.hint || link) && (
                           <span className="mt-1 block text-xs text-muted-foreground">
                             {f.type === "readonly" ? <code className="rounded bg-neutral-100 px-1.5">{f.hint}</code> : f.hint}

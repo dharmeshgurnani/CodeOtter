@@ -5,7 +5,7 @@
 - System One models: a second engine next to the language model. TypeSafe Jev scores pull requests from fixed rubrics and answers merge gates (security, complexity, tests, docs, scope, repository guidelines), shown under Pre-merge checks. Runs in parallel with the language model; either engine works alone. Reachable directly from TypeSafe or through OpenRouter.
 - Removed the "Review pull request" header button; open pull requests are reviewed from their repository page.
 - The UI no longer names the storage backend.
-- Two offline System One models, downloaded with one click and run locally through the ggmlc `laya` runtime: Laya typed-decisions (435 MB) and Kev 0.8B (790 MB). Plus a custom `/v1/systemone` endpoint provider for self-hosted models.
+- Two offline System One models, run locally through the ggmlc `laya` runtime: Laya typed-decisions (455 MB) and Kev 0.8B (828 MB). A Settings → Local models page lists downloaded and available models with Download / Use / Delete and download progress; nothing downloads by itself. Plus a custom `/v1/systemone` endpoint provider for self-hosted models.
 - With a System One model configured, every score comes from it: the five review scores and blast radius from rubrics, plus title and description checks as gates. The language model is then not asked for scores.
 - Model fields are picklists filled from each provider's model-list API (Anthropic, OpenAI-compatible, OpenRouter, TypeSafe), with static suggestions until a key is saved and a text box for custom endpoints.
 

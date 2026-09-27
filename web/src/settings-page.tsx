@@ -50,7 +50,7 @@ export function SettingsPage({ page, org, setOrg, user, onLogin, onSaved }: { pa
     return () => clearInterval(t);
   }, [pollMs, page, org]);
 
-  const onAction = async (sectionId: string, actionId: string) => {
+  const onAction = async (sectionId: string, actionId: string, itemId?: string) => {
     setBusy(`${sectionId}:${actionId}`);
     setMsg(null);
     try {
@@ -67,7 +67,7 @@ export function SettingsPage({ page, org, setOrg, user, onLogin, onSaved }: { pa
         setMsg({ ok: d.ok, text: d.ok ? `Connected, model answered in ${(d.ms / 1000).toFixed(1)}s.` : `Model answered but not with OK: "${d.reply}"` });
       } else {
         // Generic page action. A `submit` reply means "post this form to an external site" (GitHub app manifest flow).
-        const d = await call(url(`/${actionId}`), { method: "POST" });
+        const d = await call(url(`/${actionId}`), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ item: itemId ?? null }) });
         if (d.submit) {
           const f = document.createElement("form");
           f.method = "POST";
@@ -82,6 +82,7 @@ export function SettingsPage({ page, org, setOrg, user, onLogin, onSaved }: { pa
           return;
         }
         if (d.message) setMsg({ ok: true, text: d.message });
+        if (itemId) apply(await call(url())); // row actions change the page (downloaded / active); refetch
       }
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message, status: (e as { status?: number }).status });
@@ -99,7 +100,7 @@ export function SettingsPage({ page, org, setOrg, user, onLogin, onSaved }: { pa
         {msg.status === 403 && !user && <> <a className="text-brand" href="/login" onClick={(e) => { e.preventDefault(); onLogin(); }}>Sign in</a></>}
       </p>
     ) : (
-      <FormSkeleton sections={page === "model" ? [4, 3] : page === "repos" ? [2] : page === "oauth" ? [6] : [1]} />
+      <FormSkeleton sections={page === "model" ? [4, 3] : page === "repos" ? [2] : page === "oauth" ? [6] : page === "models" ? [2, 1] : [1]} />
     );
   return (
     <div className="max-w-[820px]">
