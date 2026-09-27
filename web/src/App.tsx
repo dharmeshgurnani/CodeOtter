@@ -8,7 +8,6 @@ import { HomePage } from "./home-page";
 import { LoginPage } from "./login-page";
 import { TableSkeleton } from "@/components/skeletons";
 import { Link } from "@/components/link";
-import { ReviewDialog } from "@/components/review-dialog";
 import { type Board, type Review, type User, VERDICT, effort, tone } from "./types";
 
 const useRoute = () => {
@@ -123,7 +122,6 @@ export default function App() {
                 {/^https?:/.test(prRef) && <Button asChild><a href={prRef} target="_blank" rel="noreferrer">Open in GitHub</a></Button>}
               </>
             )}
-            {path !== "/review" && <ReviewDialog repo={repoPage} go={go} />}
           </span>
         </div>
         <div className="w-full px-10 py-7">
