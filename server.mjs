@@ -80,7 +80,7 @@ async function pbAuth() {
 async function pb(path, init = {}, retry = true) {
   const res = await fetch(`${PB_URL}/api/${path}`, { ...init, headers: { "content-type": "application/json", authorization: pbToken }, signal: AbortSignal.timeout(10000) });
   if (res.status === 401 && retry) return pbAuth().then(() => pb(path, init, false));
-  if (!res.ok) throw new Error(`PocketBase ${res.status}: ${pbError(await res.text())}`);
+  if (!res.ok) throw new Error(`Storage ${res.status}: ${pbError(await res.text())}`);
   return res.json();
 }
 // PocketBase validation errors nest as {data:{field:{sub:{code,message}}}}; surface "field.sub: message".
@@ -583,7 +583,7 @@ const SETTINGS_PAGES = {
     group: "admin",
     access: "admin",
     async load() {
-      if (!PB_URL) return { sections: [{ id: "oauth", title: "Sign-in with GitHub", description: "Sign-in needs PocketBase. Start with PB_URL set (the Docker image does) to configure it.", fields: [] }], values: {} };
+      if (!PB_URL) return { sections: [{ id: "oauth", title: "GitHub", description: "Sign-in is not available in file-storage mode. Start with PB_URL set (the Docker image does).", fields: [] }], values: {} };
       const o = await store.getOAuth();
       const gh = o.providers.find((x) => x.name === "github") || {};
       const redirect = `${APP_URL}/auth/callback`;
@@ -610,7 +610,7 @@ const SETTINGS_PAGES = {
     // code to /github/manifest/callback, and the conversion gives us the client id + secret to store in PocketBase.
     actions: {
       async connect(req, res) {
-        if (!PB_URL) throw new Error("Sign-in needs PocketBase (PB_URL)");
+        if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
         const state = randomBytes(16).toString("hex");
         setCookie(res, "pr_manifest", state, 600);
         const owner = ((await repos())[0] || "pr-scorer").split("/")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-");
@@ -627,7 +627,7 @@ const SETTINGS_PAGES = {
       },
     },
     async save(body) {
-      if (!PB_URL) throw new Error("Sign-in needs PocketBase (PB_URL)");
+      if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
       const v = body.oauth;
       if (!v) return;
       // PocketBase never returns the secret and keeps the stored one when the PATCH omits it, so only send what was typed.
@@ -643,7 +643,7 @@ SETTINGS_PAGES.accounts = {
   group: "admin",
   access: "owner",
   async load(_scope, user) {
-    if (!PB_URL) return { sections: [{ id: "accounts", title: "Accounts", description: "Accounts need PocketBase.", fields: [] }], values: {} };
+    if (!PB_URL) return { sections: [{ id: "accounts", title: "Accounts", description: "Accounts are not available in file-storage mode (set PB_URL).", fields: [] }], values: {} };
     const items = (await store.users()).map((u) => ({
       id: u.id,
       label: (u.name || u.email || u.id) + (user && u.id === user.id ? " (you)" : ""),
@@ -713,8 +713,7 @@ async function homeData(org = "") {
     { id: "links", kind: "links", title: "Quick links", items: [
       { label: "Model provider", hint: `${PROVIDERS[c.provider]?.label || c.provider} · ${c.model}`, path: "/settings/model" },
       { label: "Repositories", hint: "Add or remove onboarded repositories", path: "/settings/repos" },
-      { label: "Sign-in (OAuth)", hint: "GitHub login through PocketBase", path: "/settings/oauth" },
-      ...(PB_URL ? [{ label: "PocketBase admin", hint: "Data, users and collections", href: `${(process.env.PB_PUBLIC_URL || PB_URL).replace(/\/+$/, "")}/_/` }] : []),
+      { label: "Sign-in (OAuth)", hint: "GitHub login", path: "/settings/oauth" },
       { label: "Documentation", hint: "README on GitHub", href: "https://github.com/dharmeshgurnani/pr-scorer#readme" },
     ] },
   ];
@@ -811,7 +810,7 @@ http
         return res.end(Buffer.from(await f.arrayBuffer()));
       }
       if (url.pathname === "/api/auth/start") {
-        if (!PB_URL) throw new Error("Sign-in needs PocketBase (PB_URL)");
+        if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
         const m = await store.authMethods();
         const gh = m.oauth2?.enabled && m.oauth2.providers.find((p) => p.name === "github");
         if (!gh) throw new Error("GitHub sign-in is not configured: open Settings / OAuth");

@@ -144,7 +144,7 @@ function NavUser({ user, signInAvailable, onLogin, onLogout }: { user: User | nu
             <Avatar className="h-8 w-8 rounded-lg"><AvatarFallback className="rounded-lg"><LogIn className="size-4" /></AvatarFallback></Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-semibold">Not signed in</span>
-              <span className="truncate text-xs">{signInAvailable ? "Log in with GitHub" : "Sign-in needs PocketBase"}</span>
+              <span className="truncate text-xs">{signInAvailable ? "Log in with GitHub" : "Sign-in unavailable"}</span>
             </div>
           </SidebarMenuButton>
         </SidebarMenuItem>

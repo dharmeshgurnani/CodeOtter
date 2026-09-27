@@ -65,7 +65,7 @@ export default function App() {
   // Active organization scopes the pages (home, sidebar). Remembered across refreshes.
   const [org, setOrgState] = useState(() => localStorage.getItem("pr-scorer.org") ?? "");
   const setOrg = (o: string) => { setOrgState(o); localStorage.setItem("pr-scorer.org", o); };
-  // Signed-in user (PocketBase session cookie). Login goes through the server's OAuth start endpoint.
+  // Signed-in user (session cookie). Login goes through the server's OAuth start endpoint.
   const [me, setMe] = useState<{ user: User | null; signInAvailable: boolean }>({ user: null, signInAvailable: false });
   const loadMe = () => api("/api/me").then(setMe).catch(() => {});
   const [loginError, setLoginError] = useState("");

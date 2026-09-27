@@ -21,7 +21,7 @@ export function LoginPage({ error, onLogin, go }: { error: string; onLogin: () =
   const [busy, setBusy] = useState(false);
   useEffect(() => { fetch("/api/login").then((r) => r.json()).then(setD).catch(() => {}); }, []);
   const canLogin = !!d?.signInAvailable && !!d?.configured;
-  const reason = !d ? "" : !d.signInAvailable ? "Sign-in needs PocketBase running." : !d.configured ? "GitHub sign-in is not configured yet." : "";
+  const reason = !d ? "" : !d.signInAvailable ? "Sign-in is not available on this instance." : !d.configured ? "GitHub sign-in is not configured yet." : "";
 
   return (
     <div className="grid min-h-svh grid-cols-1 bg-white lg:grid-cols-[minmax(420px,5fr)_7fr]">
