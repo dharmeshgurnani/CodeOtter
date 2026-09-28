@@ -1,0 +1,12 @@
+services:
+  pr-scorer:
+    build: .
+    ports:
+      - "4747:4747"   # app
+      - "127.0.0.1:8090:8090"   # PocketBase admin UI at /_/ (loopback only; put it behind your own auth if exposing it)
+    env_file: .env
+    volumes:
+      - pb_data:/app/pb_data
+    restart: unless-stopped
+volumes:
+  pb_data:

@@ -1,0 +1,20 @@
+{
+  "headline": "Autonomous AI code reviews from any open model, self-hosted.",
+  "sub": "Calibrated scores, blast radius, security gates, and walkthroughs for every pull request. Runs on your hardware or in one container. Zero cloud telemetry.",
+  "groups": [
+    {
+      "title": "Community",
+      "items": [
+        { "label": "Star on GitHub", "hint": "Support the open-source project", "href": "https://github.com/dharmeshgurnani/CodeOtter" },
+        { "label": "Sponsor", "hint": "Back development on GitHub Sponsors", "href": "https://github.com/sponsors/dharmeshgurnani" }
+      ]
+    },
+    {
+      "title": "Case studies",
+      "items": [
+        { "label": "Reviewing a Turborepo monorepo", "hint": "Blast radius across 40 packages", "href": "https://github.com/dharmeshgurnani/CodeOtter#readme" },
+        { "label": "Fully local with Ollama", "hint": "No data leaves the laptop", "href": "https://github.com/dharmeshgurnani/CodeOtter#readme" }
+      ]
+    }
+  ]
+}

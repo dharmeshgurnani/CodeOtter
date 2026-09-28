@@ -1,0 +1,12 @@
+node_modules/
+web/dist/
+scores/
+server.log
+.env
+pb_data/
+.pb/
+config.json
+pb.log
+.env.*
+!.env.example
+.local/
