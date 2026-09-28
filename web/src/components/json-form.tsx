@@ -41,8 +41,8 @@ export function applyChange(section: Section, vals: Record<string, unknown>, key
   return next;
 }
 
-// Per-item settings in an Animate UI dialog, opened from a gear icon. Same generic controls; "Done" hands the values back
-// to the list, and the page's Save persists them.
+// Per-item settings in an Animate UI dialog, opened from a gear icon. Same generic controls; "Save" hands the values back
+// to the list and persists them.
 function ItemSettingsDialog({ item, onChange }: { item: Exclude<ListItem, string>; onChange: (values: Record<string, unknown>) => void }) {
   const s = item.settings!;
   const [vals, setVals] = useState<Record<string, unknown>>(s.values);
@@ -70,14 +70,14 @@ function ItemSettingsDialog({ item, onChange }: { item: Exclude<ListItem, string
         </div>
         <DialogFooter>
           <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
-          <DialogClose asChild><Button onClick={() => onChange(vals)}>Done</Button></DialogClose>
+          <DialogClose asChild><Button onClick={() => onChange(vals)}>Save</Button></DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-const Control = ({ f, vals, onChange, id, scope = "", onItemAction }: { f: Field; vals: Record<string, unknown>; onChange: (v: unknown) => void; id?: string; scope?: string; onItemAction?: (itemId: string, actionId: string) => void }) => {
+const Control = ({ f, vals, onChange, onSaveList, id, scope = "", onItemAction }: { f: Field; vals: Record<string, unknown>; onChange: (v: unknown) => void; onSaveList?: (v: unknown) => void; id?: string; scope?: string; onItemAction?: (itemId: string, actionId: string) => void }) => {
   const v = vals[f.key];
   const cls = "w-full max-w-[520px]";
   switch (f.type) {
@@ -103,7 +103,11 @@ const Control = ({ f, vals, onChange, id, scope = "", onItemAction }: { f: Field
               {it.settings && (
                 <ItemSettingsDialog
                   item={it}
-                  onChange={(values) => onChange(items.map((x) => (x.id === it.id ? { ...x, settings: { ...x.settings!, values } } : x)))}
+                  onChange={(values) => {
+                    const next = items.map((x) => (x.id === it.id ? { ...x, settings: { ...x.settings!, values } } : x));
+                    onChange(next);
+                    onSaveList?.(next);
+                  }}
                 />
               )}
               {f.removable !== false && (
@@ -170,7 +174,7 @@ export function JsonForm({
   saved: Values;
   busy: string;
   onChange: (sectionId: string, vals: Record<string, unknown>) => void;
-  onAction: (sectionId: string, actionId: string, itemId?: string) => void;
+  onAction: (sectionId: string, actionId: string, itemId?: string, nextVals?: Record<string, unknown>) => void;
 }) {
   return (
     <div className="space-y-8">
@@ -190,7 +194,7 @@ export function JsonForm({
                     <div key={f.key} className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-[200px_1fr] sm:gap-4">
                       <label className="pt-2 text-sm font-medium text-neutral-800" htmlFor={f.type === "checkbox" || f.type === "readonly" || f.type === "list" ? undefined : `f-${s.id}-${f.key}`}>{f.label}</label>
                       <div>
-                        <Control f={f} vals={vals} id={`f-${s.id}-${f.key}`} scope={s.id} onChange={(v) => onChange(s.id, applyChange(s, vals, f.key, v))} onItemAction={(itemId, actionId) => onAction(s.id, actionId, itemId)} />
+                        <Control f={f} vals={vals} id={`f-${s.id}-${f.key}`} scope={s.id} onChange={(v) => onChange(s.id, applyChange(s, vals, f.key, v))} onSaveList={(v) => onAction(s.id, "save", undefined, applyChange(s, vals, f.key, v))} onItemAction={(itemId, actionId) => onAction(s.id, actionId, itemId)} />
                         {(f.hint || link) && (
                           <span className="mt-1 block text-xs text-muted-foreground">
                             {f.type === "readonly" ? <code className="rounded bg-neutral-100 px-1.5">{f.hint}</code> : f.hint}

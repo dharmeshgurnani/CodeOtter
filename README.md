@@ -1,7 +1,7 @@
 <div align="center">
 
 <p align="center">
-  <img src="assets/banners/hero-score-card.png" alt="CodeOtter AI Code Review Platform" width="850" />
+  <img src="assets/banners/hero-score-card.png" alt="CodeOtter AI Code Review Platform" width="520" style="max-width: 100%; height: auto; border-radius: 10px;" />
 </p>
 
 # 🦦 CodeOtter
@@ -71,7 +71,7 @@ Run it 100% offline on your laptop with open-weight models, or connect it to you
 | :---: | :--- | :--- |
 | **01** | **Connect Repository** | Auto-detects `AGENTS.md` and `CLAUDE.md` guidelines at the repository root. |
 | **02** | **Dual Engine Review** | System 1 computes rubric scores & merge gates in parallel with System 2 cohort walkthroughs. |
-| **03** | **Enforce & Merge** | Inspect blast-radius hotspots, review severity-ranked findings, and clear the merge gate. |
+| **03** | **Enforce, Comment & Merge** | Automatically post System 1 scores and/or the review summary (with a link to the full CodeOtter report) as GitHub PR comments (`gh pr comment`), inspect blast-radius hotspots, and clear the merge gate. |
 
 <br/>
 
@@ -175,13 +175,13 @@ Review proprietary code on an airplane or within an air-gapped data center with 
 
 With 1-click downloads directly from **Admin → Local models**, open-weight models download with optimized local runtimes:
 
-| Model | Engine Role | Size | Recommended Hardware | Ideal For |
-| :--- | :--- | :--- | :--- | :--- |
-| **Laya Typed-Decisions 421M** | System 1 (Scores & Gates) | `455 MB` | Any CPU or GPU | Instant rubric scoring & gate checks |
-| **Kev 0.8B** | System 1 (Scores & Gates) | `828 MB` | Any CPU or GPU | High-confidence decision calibration |
-| **Qwen2.5-Coder 1.5B** | System 2 (Prose & Walkthrough) | `1.1 GB` | Standard CPU | Fast local walkthroughs on laptops |
-| **Qwen2.5-Coder 7B** | System 2 (Prose & Walkthrough) | `4.7 GB` | Modern GPU / Apple Silicon | In-depth code critiques & findings |
-| **Microsoft CodeReviewer 223M** | System 2 (Hunk Findings) | `895 MB` | Lightweight CPU | Specialized diff-hunk comment generation |
+| Model | Engine Role | Ideal For | Hugging Face |
+| :--- | :--- | :--- | :--- |
+| **Laya Typed-Decisions** | System 1 (Scores & Gates) | Instant rubric scoring & gate checks | [`mys/laya-typed-decisions-GGUF`](https://huggingface.co/mys/laya-typed-decisions-GGUF) |
+| **Kev** | System 1 (Scores & Gates) | High-confidence decision calibration | [`mys/kev-0.8b-GGUF`](https://huggingface.co/mys/kev-0.8b-GGUF) |
+| **Qwen2.5-Coder (Compact)** | System 2 (Prose & Walkthrough) | Fast local walkthroughs on laptops | [`Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF`](https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF) |
+| **Qwen2.5-Coder (Standard)** | System 2 (Prose & Walkthrough) | In-depth code critiques & findings | [`Qwen/Qwen2.5-Coder-7B-Instruct-GGUF`](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF) |
+| **Microsoft CodeReviewer** | System 2 (Hunk Findings) | Specialized diff-hunk comment generation | [`microsoft/codereviewer`](https://huggingface.co/microsoft/codereviewer) |
 
 - **Smart Resource Management**: Local model runtimes spin up on-demand on the first review and automatically shut down after **15 idle minutes** to conserve memory and battery.
 - **Hardware Acceleration**: Automatic GPU detection with seamless CPU fallback ensures smooth execution on everything from developer laptops to dedicated servers.

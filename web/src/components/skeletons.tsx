@@ -86,38 +86,58 @@ export function FormSkeleton({ sections = [4, 3] }: { sections?: number[] }) {
   );
 }
 
-const FindingSkeleton = () => (
-  <div className="my-2.5 overflow-hidden rounded-lg border border-border">
-    <div className="border-b border-border bg-neutral-50 px-3 py-2"><Line w="w-64" h="h-3" /></div>
-    <div className="space-y-2 px-3.5 py-3"><Line w="w-40" h="h-3.5" /><Line w="w-72" h="h-3.5" /><Line w="w-full" h="h-3" /><Line w="w-5/6" h="h-3" /></div>
-  </div>
-);
-
-// Review report: title, meta line, the two bot comments with their headings, score rings and finding cards.
 export function ReviewSkeleton({ note }: { note?: string }) {
-  const Comment = ({ children }: { children: React.ReactNode }) => (
-    <div className="mb-4 rounded-[10px] border border-border">
-      <div className="flex items-center gap-2 border-b border-border bg-[#efefef] px-4 py-2.5"><Skeleton className="size-5 rounded-full bg-neutral-300/60" /><Line w="w-16" h="h-3" className="bg-neutral-300/60" /><Line w="w-40" h="h-3" className="bg-neutral-300/40" /></div>
-      <div className="px-5 py-4">{children}</div>
+  const Card = ({ dark = false, children }: { dark?: boolean; children: React.ReactNode }) => (
+    <div className={`h-[540px] flex flex-col overflow-hidden rounded-[10px] border border-border ${dark ? "bg-[#0d1117]" : "bg-white"}`}>
+      <div className="flex items-center gap-2 border-b border-border bg-[#efefef] px-4 py-2.5">
+        <Skeleton className="size-4 rounded-full bg-neutral-300/60" />
+        <Line w="w-40" h="h-3.5" className="bg-neutral-300/60" />
+      </div>
+      <div className="flex-1 p-5">{children}</div>
     </div>
   );
   return (
-    <div aria-busy="true" aria-label="Loading">
-      <div className="mb-2 flex items-center gap-2"><Line w="w-2/3" h="h-5" /><Skeleton className="h-5 w-20 rounded-md" /></div>
-      <div className="mb-4 flex items-center gap-2"><Line w="w-40" h="h-3" /><Line w="w-24" h="h-3" /><Line w="w-32" h="h-3" /></div>
-      <Comment>
-        <Line w="w-24" h="h-3.5" className="mb-3" />
-        <div className="space-y-2"><Line /><Line w="w-11/12" /><Line w="w-3/4" /></div>
-        <Line w="w-16" h="h-3.5" className="mt-5 mb-2" />
-        <TableSkeleton cols={2} rows={3} widths={["w-56", "w-full"]} />
-        <Line w="w-20" h="h-3.5" className="mt-5 mb-2" />
-        <div className="my-1.5 flex flex-wrap gap-4">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="size-[88px] rounded-full" />)}</div>
-        <div className="mt-4 space-y-2"><Line w="w-36" h="h-3.5" /><Line w="w-32" h="h-3.5" /></div>
-      </Comment>
-      <Comment>
-        <Line w="w-48" h="h-3.5" className="mb-3" />
-        <FindingSkeleton /><FindingSkeleton /><FindingSkeleton />
-      </Comment>
+    <div className="space-y-5" aria-busy="true" aria-label="Loading">
+      <div>
+        <div className="mb-2 flex items-center gap-2"><Line w="w-2/3" h="h-5" /><Skeleton className="h-5 w-20 rounded-md" /></div>
+        <div className="mb-3 flex items-center gap-2"><Line w="w-40" h="h-3" /><Line w="w-24" h="h-3" /><Line w="w-32" h="h-3" /></div>
+        <div className="rounded-[10px] border border-border bg-neutral-50/60 px-4 py-3 space-y-2">
+          <Line w="w-20" h="h-3" />
+          <Line w="w-full" h="h-3.5" />
+          <Line w="w-4/5" h="h-3.5" />
+        </div>
+      </div>
+      <div>
+        <Line w="w-32" h="h-3.5" className="mb-2" />
+        <div className="rounded-[10px] border border-border bg-white p-3 space-y-2.5">
+          <Line w="w-48" h="h-3.5" />
+          <Line w="w-40" h="h-3.5" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[3fr_7fr] items-stretch">
+        <Card>
+          <div className="my-2 grid grid-cols-3 gap-4 justify-items-center">
+            {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="size-[88px] rounded-full" />)}
+          </div>
+          <div className="mt-6 space-y-3">
+            <Line w="w-36" h="h-3.5" />
+            <Line w="w-32" h="h-3.5" />
+          </div>
+        </Card>
+        <Card dark>
+          <div className="space-y-3">
+            <Line w="w-48" h="h-4" className="bg-neutral-800" />
+            <Line w="w-full" h="h-3.5" className="bg-neutral-800" />
+            <Line w="w-11/12" h="h-3.5" className="bg-neutral-800" />
+            <Line w="w-4/5" h="h-3.5" className="bg-neutral-800" />
+            <div className="pt-4 space-y-2.5">
+              <Line w="w-40" h="h-4" className="bg-neutral-800" />
+              <Line w="w-full" h="h-3.5" className="bg-neutral-800" />
+              <Line w="w-5/6" h="h-3.5" className="bg-neutral-800" />
+            </div>
+          </div>
+        </Card>
+      </div>
       {note && <p className="text-sm text-muted-foreground">{note}</p>}
     </div>
   );

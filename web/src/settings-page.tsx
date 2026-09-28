@@ -50,13 +50,14 @@ export function SettingsPage({ page, org, setOrg, user, onLogin, onSaved }: { pa
     return () => clearInterval(t);
   }, [pollMs, page, org]);
 
-  const onAction = async (sectionId: string, actionId: string, itemId?: string) => {
+  const onAction = async (sectionId: string, actionId: string, itemId?: string, nextVals?: Record<string, unknown>) => {
     setBusy(`${sectionId}:${actionId}`);
     setMsg(null);
     try {
       if (actionId === "save") {
-        const added = String((values[sectionId] as Record<string, unknown> | undefined)?.add ?? "").trim().replace(/^https:\/\/github\.com\//, "");
-        apply(await call(url(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ [sectionId]: values[sectionId] }) }));
+        const secVals = nextVals ?? values[sectionId];
+        const added = String((secVals as Record<string, unknown> | undefined)?.add ?? "").trim().replace(/^https:\/\/github\.com\//, "");
+        apply(await call(url(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ [sectionId]: secVals }) }));
         onSaved();
         setMsg({ ok: true, text: "Saved." });
         // Onboarding a repository from another organization switches to it, so the page you land on is not empty.

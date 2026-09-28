@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/animate-ui/components/radix/sidebar";
+import { updateSeo } from "@/lib/seo";
 import { Button } from "@/components/ui/button";
 import { AppSidebar } from "./app-sidebar";
 import { ReviewPage } from "./review-page";
@@ -108,6 +109,39 @@ export default function App() {
         ? `${repoPage} / ${repoView === "open" ? "Open pull requests" : "Reviews"}`
         : org ? `Home / ${org}` : "Home";
 
+  useEffect(() => {
+    if (path === "/review") return; // ReviewPage sets rich PR-specific SEO metadata
+    if (path === "/login") {
+      updateSeo({
+        title: "Sign in · CodeOtter",
+        description: "Sign in with GitHub to access CodeOtter AI pull request reviews, blast radius metrics, and merge gates.",
+      });
+    } else if (settingsPage) {
+      const pageMeta = board?.settingsPages.find((p) => p.id === settingsPage);
+      const section = pageMeta?.group === "admin" ? "Admin" : "Settings";
+      const pageTitle = pageMeta?.title ?? settingsPage;
+      updateSeo({
+        title: `${pageTitle} — ${section} · CodeOtter`,
+        description: `Manage ${pageTitle.toLowerCase()} configuration for ${org || "your organization"} on CodeOtter.`,
+      });
+    } else if (repoPage) {
+      updateSeo({
+        title: `${repoPage} — ${repoView === "open" ? "Open Pull Requests" : "PR Reviews"} · CodeOtter`,
+        description:
+          repoView === "open"
+            ? `Open pull requests waiting for AI code review in ${repoPage} on CodeOtter.`
+            : `Completed AI pull request reviews, quality scores, and blast radius assessments for ${repoPage} on CodeOtter.`,
+      });
+    } else {
+      updateSeo({
+        title: org ? `${org} Dashboard — CodeOtter` : "CodeOtter — AI Pull Request Review, Blast Radius & Merge Gates",
+        description: org
+          ? `AI pull request review dashboard, quality scores, and pre-merge safety gates for ${org} repositories on CodeOtter.`
+          : "Automated AI pull request reviews, calibrated quality & blast-radius scores, repository guideline enforcement (AGENTS.md / CLAUDE.md), and pre-merge safety gates.",
+      });
+    }
+  }, [path, settingsPage, repoPage, repoView, org, board]);
+
   if (path === "/login") return <LoginPage error={loginError} onLogin={login} go={go} />;
   return (
     <SidebarProvider defaultOpen={sidebarDefaultOpen()}>
@@ -116,11 +150,8 @@ export default function App() {
         <div className="flex items-center justify-between border-b border-border px-6 py-3 text-base">
           <span className="flex items-center gap-3"><SidebarTrigger />{title}</span>
           <span className="flex gap-2.5">
-            {path === "/review" && prRef && (
-              <>
-                <Button variant="outline" onClick={() => go(`/review?pr=${encodeURIComponent(prRef)}${prRepo ? `&repo=${encodeURIComponent(prRepo)}` : ""}&force=${Date.now()}`)}>Re-review</Button>
-                {/^https?:/.test(prRef) && <Button asChild><a href={prRef} target="_blank" rel="noreferrer">Open in GitHub</a></Button>}
-              </>
+            {path === "/review" && prRef && /^https?:/.test(prRef) && (
+              <Button asChild><a href={prRef} target="_blank" rel="noreferrer">Open in GitHub</a></Button>
             )}
           </span>
         </div>

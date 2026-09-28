@@ -23,10 +23,24 @@ export type Review = {
     scores: { quality: number; correctness_risk: number; test_coverage: number; readability: number; pr_hygiene: number };
     findings: Finding[];
     walkthrough: { file: string; change: string }[];
+    rawOutput?: string;
   };
   model: string;
+  guide?: string | null;
+  gitHistory?: {
+    prCommits?: { sha: string; message: string; author?: string }[];
+    baseCommits?: { sha: string; message: string; author?: string }[];
+  };
   gates?: { id: string; label: string; yes: number; pass: boolean }[];
   engines?: { llm: string | null; s1: string | null };
+  pending?: {
+    scores?: boolean;
+    readyScores?: Record<string, number>;
+    gates?: boolean;
+    narrative?: boolean;
+  };
+  commentsPosted?: string[];
+  commentError?: string;
   at: string;
 };
 export type User = { id: string; name: string; email: string; role: string; avatar: string };
