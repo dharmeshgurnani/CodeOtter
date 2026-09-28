@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Rebranded project to **CodeOtter** (`codeotter`) with a `design.md` token specification. The mascot is the otter with the score card (`assets/banners/hero-score-card.png`); the candidate mascot sheets, the `brand-showcase.html` exploration and the unused banner variants were removed from the repository. `assets/` now holds only what the README uses.
+- Rebranded project to **CodeOtter** (`codeotter`) with a `DESIGN.md` token specification. The mascot is the otter with the score card (`assets/banners/hero-score-card.png`); the candidate mascot sheets, the `brand-showcase.html` exploration and the unused banner variants were removed from the repository. `assets/` now holds only what the README uses.
 - System One models: a second engine next to the language model. TypeSafe Jev scores pull requests from fixed rubrics and answers merge gates (security, complexity, tests, docs, scope, repository guidelines), shown under Pre-merge checks. Runs in parallel with the language model; either engine works alone. Reachable directly from TypeSafe or through OpenRouter.
 - Removed the "Review pull request" header button; open pull requests are reviewed from their repository page.
 - The UI no longer names the storage backend.
