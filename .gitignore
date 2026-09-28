@@ -10,3 +10,6 @@ pb.log
 .env.*
 !.env.example
 .local/
+
+# Marketing kit (videos, mock data, copy): local only, never committed
+marketing/
