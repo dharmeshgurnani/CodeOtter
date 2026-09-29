@@ -19,6 +19,61 @@ function repoFromCwd() {
     return "";
   }
 }
+// Hugging Face organization/author avatars for model & provider selection lists.
+const HF_LOGO = "https://huggingface.co/front/assets/huggingface_logo-noborder.svg";
+const HF_AVATARS = {
+  anthropic: "https://cdn-avatars.huggingface.co/v1/production/uploads/1670531762351-6200d0a443eb0913fa2df7cc.png",
+  openai: "https://cdn-avatars.huggingface.co/v1/production/uploads/68783facef79a05727260de3/UPX5RQxiPGA-ZbBmArIKq.png",
+  minimax: "https://cdn-avatars.huggingface.co/v1/production/uploads/676e38ad04af5bec20bc9faf/dUd-LsZEX0H_d4qefO_g6.jpeg",
+  minimaxai: "https://cdn-avatars.huggingface.co/v1/production/uploads/676e38ad04af5bec20bc9faf/dUd-LsZEX0H_d4qefO_g6.jpeg",
+  qwen: "https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg",
+  deepseek: "https://cdn-avatars.huggingface.co/v1/production/uploads/6538815d1bdb3c40db94fbfa/xMBly9PUMphrFVMxLX4kq.png",
+  "deepseek-ai": "https://cdn-avatars.huggingface.co/v1/production/uploads/6538815d1bdb3c40db94fbfa/xMBly9PUMphrFVMxLX4kq.png",
+  microsoft: "https://cdn-avatars.huggingface.co/v1/production/uploads/1583646260758-5e64858c87403103f9f1055d.png",
+  mys: "https://cdn-avatars.huggingface.co/v1/production/uploads/1596903074565-noauth.jpeg",
+  "meta-llama": "https://cdn-avatars.huggingface.co/v1/production/uploads/646cf8084eefb026fb8fd8bc/oCTqufkdTkjyGodsx1vo1.png",
+  meta: "https://cdn-avatars.huggingface.co/v1/production/uploads/646cf8084eefb026fb8fd8bc/oCTqufkdTkjyGodsx1vo1.png",
+  google: "https://cdn-avatars.huggingface.co/v1/production/uploads/5dd96eb166059660ed1ee413/WtA3YYitedOr9n02eHfJe.png",
+  mistralai: "https://cdn-avatars.huggingface.co/v1/production/uploads/634c17653d11eaedd88b314d/9OgyfKstSZtbmsmuG8MbU.png",
+  cohereforai: "https://cdn-avatars.huggingface.co/v1/production/uploads/660eb9ff338e9556c90a6bbc/9DrmMdvUZKoHP3hRTngvc.png",
+  cohere: "https://cdn-avatars.huggingface.co/v1/production/uploads/660eb9ff338e9556c90a6bbc/9DrmMdvUZKoHP3hRTngvc.png",
+  thudm: "https://cdn-avatars.huggingface.co/v1/production/uploads/63033dc4e1e7f0e03a5e1a31/0BibmRdezvN6v6d2CEtd5.png",
+  "01-ai": "https://cdn-avatars.huggingface.co/v1/production/uploads/6536187279f1de44b5e02d0f/-T8Xw0mX67_R73b7Re1y-.png",
+  ollama: "https://cdn-avatars.huggingface.co/v1/production/uploads/noauth/MMgt1jNfE_ML3JWg3hz41.png",
+  huggingface: "https://cdn-avatars.huggingface.co/v1/production/uploads/1583856921041-5dd96eb166059660ed1ee413.png",
+};
+function modelIcon(id = "", provider = "") {
+  const s = String(id).toLowerCase();
+  const p = String(provider).toLowerCase();
+  const local = LOCAL[p.replace(/^local_/, "")] || Object.values(LOCAL).find((m) => m.modelId === id || m.repo === id);
+  if (local?.icon) return local.icon;
+  if (/claude|anthropic/.test(s)) return HF_AVATARS.anthropic;
+  if (/^(gpt-|o1|o3|o4|chatgpt)|openai/.test(s)) return HF_AVATARS.openai;
+  if (/minimax/.test(s)) return HF_AVATARS.minimax;
+  if (/qwen|kev/.test(s)) return HF_AVATARS.qwen;
+  if (/deepseek/.test(s)) return HF_AVATARS.deepseek;
+  if (/llama/.test(s)) return HF_AVATARS["meta-llama"];
+  if (/codereviewer|microsoft|\bphi-/.test(s)) return HF_AVATARS.microsoft;
+  if (/gemini|gemma|google/.test(s)) return HF_AVATARS.google;
+  if (/mistral|mixtral|codestral/.test(s)) return HF_AVATARS.mistralai;
+  if (/command|cohere/.test(s)) return HF_AVATARS.cohere;
+  if (/glm|thudm/.test(s)) return HF_AVATARS.thudm;
+  if (/laya|typed-decisions|jev|typesafe/.test(s)) return HF_AVATARS.mys;
+  if (s.includes("/")) {
+    const owner = String(id).split("/")[0];
+    return HF_AVATARS[owner.toLowerCase()] || `/api/hf-avatar?owner=${encodeURIComponent(owner)}`;
+  }
+  if (HF_AVATARS[p]) return HF_AVATARS[p];
+  return HF_LOGO;
+}
+function providerIcon(key) {
+  const k = String(key).replace(/^local_/, "");
+  if (LOCAL[k]) return LOCAL[k].icon || modelIcon(LOCAL[k].repo, k);
+  if (k === "jev" || k === "jev_openrouter") return HF_AVATARS.mys;
+  if (k === "openrouter" || k === "custom") return HF_LOGO;
+  return HF_AVATARS[k] || HF_LOGO;
+}
+
 // Providers. Everything except Anthropic speaks the OpenAI chat/completions shape.
 const PROVIDERS = {
   anthropic: { label: "Anthropic", api: "anthropic", baseUrl: "https://api.anthropic.com", models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"], keyEnv: "ANTHROPIC_API_KEY", keyUrl: "https://console.anthropic.com/settings/keys" },
@@ -42,22 +97,22 @@ async function listModels(kind, c) {
   try {
     if (kind === "anthropic") {
       const r = await fetch(`${base}/v1/models?limit=1000`, opt({ "x-api-key": c.apiKey, "anthropic-version": "2023-06-01" }));
-      if (r.ok) list = ((await r.json()).data || []).map((m) => ({ value: m.id, label: m.display_name ? `${m.display_name} (${m.id})` : m.id }));
+      if (r.ok) list = ((await r.json()).data || []).map((m) => ({ value: m.id, label: m.display_name ? `${m.display_name} (${m.id})` : m.id, icon: modelIcon(m.id, c.provider) }));
     } else if (kind === "openai") {
       const r = await fetch(`${base}/models`, opt(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}));
       if (r.ok) {
         const d = (await r.json()).data || [];
         list = d
           .filter((m) => m.id && (!m.architecture?.modality || /->text$/.test(m.architecture.modality)) && !/^typesafe\/jev-\d/.test(m.id))
-          .map((m) => ({ value: m.id, label: m.id }))
+          .map((m) => ({ value: m.id, label: m.id, icon: modelIcon(m.id, c.provider) }))
           .sort((a, b) => a.value.localeCompare(b.value));
       }
     } else if (kind === "s1-typesafe") {
       const r = await fetch(`${base}/v1/models`, opt({ authorization: `Bearer ${c.apiKey}`, accept: "application/json" }));
-      if (r.ok) list = ((await r.json()).models || []).map((m) => ({ value: m.id || m, label: m.id || m }));
+      if (r.ok) list = ((await r.json()).models || []).map((m) => ({ value: m.id || m, label: m.id || m, icon: modelIcon(m.id || m, c.provider) }));
     } else if (kind === "s1-openrouter") {
       const r = await fetch(`${base}/v1/models`, opt({}));
-      if (r.ok) list = ((await r.json()).data || []).filter((m) => /^typesafe\/jev-\d/.test(m.id)).map((m) => ({ value: m.id, label: m.id }));
+      if (r.ok) list = ((await r.json()).data || []).filter((m) => /^typesafe\/jev-\d/.test(m.id)).map((m) => ({ value: m.id, label: m.id, icon: modelIcon(m.id, c.provider) }));
     }
   } catch {}
   modelCache.set(key, { list, at: Date.now() });
@@ -1324,8 +1379,8 @@ const SETTINGS_PAGES = {
           title: "Language model",
           description: "Writes the walkthrough and findings. Also scores when no System One model is configured.",
           fields: [
-            { key: "provider", label: "Provider", type: "select", options: Object.entries(PROVIDERS).map(([value, x]) => ({ value, label: x.label })) },
-            { key: "model", label: "Model", type: "select", hint: llmLive.length ? `${llmLive.length} models listed by ${p.label}.` : c.provider === "custom" ? "Type the model id your endpoint serves." : "Save a key to list the provider's models.", optionsBy: { field: "provider", map: { ...byProvider((x) => x.models.map((value) => ({ value, label: value }))), ...(llmLive.length ? { [c.provider]: llmLive } : {}) } } },
+            { key: "provider", label: "Provider", type: "select", options: Object.entries(PROVIDERS).map(([value, x]) => ({ value, label: x.label, icon: providerIcon(value) })) },
+            { key: "model", label: "Model", type: "select", hint: llmLive.length ? `${llmLive.length} models listed by ${p.label}.` : c.provider === "custom" ? "Type the model id your endpoint serves." : "Save a key to list the provider's models.", optionsBy: { field: "provider", map: { ...Object.fromEntries(Object.entries(PROVIDERS).map(([k, x]) => [k, x.models.map((value) => ({ value, label: value, icon: modelIcon(value, k) }))])), ...(llmLive.length ? { [c.provider]: llmLive } : {}) } } },
             { key: "apiKey", label: "API key", type: "password", hint: c.apiKey ? `Saved key ${mask(c.apiKey)}. Leave blank to keep it.` : p.noKey ? "" : "No key saved yet.", placeholder: mask(c.apiKey) || "paste key", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => PROVIDERS[k].noKey) }, linkBy: { field: "provider", map: Object.fromEntries(Object.entries(PROVIDERS).filter(([, x]) => x.keyUrl).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
             { key: "baseUrl", label: "Base URL", type: "text", hint: "Prefilled per provider. Change only for proxies or self-hosted gateways.", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => PROVIDERS[k].local) }, defaultBy: { field: "provider", map: byProvider((x) => x.baseUrl) } },
             { key: "llmStatus", label: "Status", type: "readonly", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => !PROVIDERS[k].local) }, hint: c.local ? "Download, switch or delete local models under Settings / Local models." : "" },
@@ -1337,8 +1392,8 @@ const SETTINGS_PAGES = {
           title: "System One model",
           description: "Typed scores and merge gates in one fast pass. Owns scoring when configured; runs alongside the language model.",
           fields: [
-            { key: "provider", label: "Provider", type: "select", options: [{ value: "none", label: "None" }, ...Object.entries(S1_PROVIDERS).map(([value, x]) => ({ value, label: x.label }))] },
-            { key: "model", label: "Model", type: "select", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1Live.length ? `${s1Live.length} models listed by ${S1_PROVIDERS[s1.provider].label}.` : "", optionsBy: { field: "provider", map: { none: [], ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.models.map((value) => ({ value, label: value }))])), ...(s1Live.length ? { [s1.provider]: s1Live } : {}) } } },
+            { key: "provider", label: "Provider", type: "select", options: [{ value: "none", label: "None" }, ...Object.entries(S1_PROVIDERS).map(([value, x]) => ({ value, label: x.label, icon: providerIcon(value) }))] },
+            { key: "model", label: "Model", type: "select", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1Live.length ? `${s1Live.length} models listed by ${S1_PROVIDERS[s1.provider].label}.` : "", optionsBy: { field: "provider", map: { none: [], ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.models.map((value) => ({ value, label: value, icon: modelIcon(value, k) }))])), ...(s1Live.length ? { [s1.provider]: s1Live } : {}) } } },
             { key: "apiKey", label: "API key", type: "password", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1.apiKey ? `Saved key ${mask(s1.apiKey)}. Leave blank to keep it.` : s1.provider === "custom" ? "Optional." : "No key saved yet.", placeholder: mask(s1.apiKey) || "paste key", linkBy: { field: "provider", map: Object.fromEntries(Object.entries(S1_PROVIDERS).filter(([, x]) => x.keyUrl).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
             { key: "baseUrl", label: "Base URL", type: "text", hideWhen: { field: "provider", in: ["none", ...localIds] }, placeholder: "http://host:port", defaultBy: { field: "provider", map: { none: "", ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.baseUrl])) } } },
             { key: "status", label: "Status", type: "readonly", hideWhen: { field: "provider", in: ["none", "jev", "jev_openrouter", "custom"] }, hint: s1.local ? "Download, switch or delete local models under Settings / Local models." : "" },
@@ -1514,6 +1569,7 @@ SETTINGS_PAGES.models = {
       return {
         id: m.id,
         label: m.label.replace(" (local)", ""),
+        icon: m.icon || modelIcon(m.repo || m.modelId, m.id),
         badge: active ? "Active" : st.state === "ready" ? "Downloaded" : undefined,
         meta: st.state === "ready" || st.state === "missing" ? facts : `${facts} · ${st.text}`,
         progress: st.state === "downloading" && d?.total ? Math.round((d.done / d.total) * 100) : undefined,
@@ -1809,6 +1865,25 @@ http
         if (url.pathname === "/api/score") return json(result);
         res.setHeader("content-type", "text/html; charset=utf-8");
         return res.end(renderScore(result));
+      }
+      if (url.pathname === "/api/hf-avatar") {
+        const owner = (url.searchParams.get("owner") || "").trim();
+        let target = HF_AVATARS[owner.toLowerCase()];
+        if (!target && OWNER_RE.test(owner)) {
+          for (const ep of ["organizations", "users"]) {
+            try {
+              const r = await fetch(`https://huggingface.co/api/${ep}/${encodeURIComponent(owner)}/overview`, { signal: AbortSignal.timeout(4000) });
+              if (r.ok) {
+                const av = (await r.json()).avatarUrl;
+                if (av) { target = av; HF_AVATARS[owner.toLowerCase()] = av; break; }
+              }
+            } catch {}
+          }
+        }
+        res.statusCode = 302;
+        res.setHeader("location", target || HF_LOGO);
+        res.setHeader("cache-control", "public, max-age=86400");
+        return res.end();
       }
       if (url.pathname === "/favicon.svg") {
         res.setHeader("content-type", "image/svg+xml; charset=utf-8");

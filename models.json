@@ -68,6 +68,7 @@
       "label": "Laya typed-decisions",
       "maker": "Convai Innovations",
       "repo": "mys/laya-typed-decisions-GGUF",
+      "icon": "https://cdn-avatars.huggingface.co/v1/production/uploads/1596903074565-noauth.jpeg",
       "file": "laya_typed_decisions_q8_0.gguf",
       "sizeMB": 455,
       "modelId": "typed-decisions",
@@ -84,6 +85,7 @@
       "label": "Kev 0.8B",
       "maker": "Jared Palmer",
       "repo": "mys/kev-0.8b-GGUF",
+      "icon": "https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg",
       "file": "kev_0.8b_q8_0.gguf",
       "sizeMB": 828,
       "modelId": "kev-0.8b",
@@ -100,6 +102,7 @@
       "label": "Qwen2.5-Coder 1.5B",
       "maker": "Alibaba Qwen",
       "repo": "Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF",
+      "icon": "https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg",
       "file": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
       "sizeMB": 1117,
       "modelId": "qwen2.5-coder-1.5b-instruct",
@@ -115,6 +118,7 @@
       "label": "Qwen2.5-Coder 7B",
       "maker": "Alibaba Qwen",
       "repo": "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+      "icon": "https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg",
       "file": "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
       "sizeMB": 4683,
       "modelId": "qwen2.5-coder-7b-instruct",
@@ -131,6 +135,7 @@
       "label": "CodeReviewer (Microsoft)",
       "maker": "Microsoft Research",
       "repo": "microsoft/codereviewer",
+      "icon": "https://cdn-avatars.huggingface.co/v1/production/uploads/1583646260758-5e64858c87403103f9f1055d.png",
       "files": [
         "config.json",
         "generation_config.json",
@@ -148,32 +153,6 @@
       "contextChars": 90000,
       "license": "Apache-2.0",
       "notes": "CodeT5-based, pre-trained on code review data (arXiv:2203.09095). Writes a comment per hunk, no summary or scores: needs a System One model alongside. CPU is fine."
-    },
-    {
-      "id": "codereviewer-msg",
-      "kind": "llm",
-      "runtime": "codereviewer",
-      "api": "codereviewer",
-      "label": "CodeReviewer, comment fine-tune",
-      "maker": "waleko (on Microsoft's checkpoint)",
-      "repo": "waleko/codereviewer-finetuned-msg",
-      "files": [
-        "config.json",
-        "generation_config.json",
-        "added_tokens.json",
-        "merges.txt",
-        "special_tokens_map.json",
-        "tokenizer_config.json",
-        "vocab.json",
-        "pytorch_model.bin"
-      ],
-      "dir": "waleko__codereviewer-finetuned-msg",
-      "sizeMB": 895,
-      "modelId": "waleko/codereviewer-finetuned-msg",
-      "contextTokens": 512,
-      "contextChars": 90000,
-      "license": "Apache-2.0",
-      "notes": "Same model fine-tuned on the paper's comment-generation set. Chattier, question-style comments. Also needs a System One model."
     }
   ]
 }

@@ -33,6 +33,8 @@
 
 ## What is CodeOtter?
 
+For the cinematic product video, preview and export instructions, see [the video guide](docs/cinematic-video.md). Its isolated demo uses fictional records and never connects to the application backend.
+
 **CodeOtter** is an open-source, self-hosted pull request review platform designed for engineering teams who demand deep code intelligence without compromising privacy or paying thousands in monthly SaaS subscriptions.
 
 Commercial hosted review bots charge **$24–$30/developer/month** and require continuous third-party cloud access to your private codebase. Meanwhile, standard AI prompts piped to `git diff` produce wall-of-text hallucinations and uncalibrated scores.
@@ -45,25 +47,13 @@ Run it 100% offline on your laptop with open-weight models, or connect it to you
 
 <br/>
 
-```text
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ codeotter bot commented · Reviewed in 6.4s                                   │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ Walkthrough                                                                  │
-│ Splits review scoring into parallel System 1 (typed rubrics + merge gates)   │
-│ and System 2 (cohort walkthrough + actionable findings) passes.              │
-│                                                                              │
-│ Estimated code review effort: 🎯 3 (Moderate) | ⏱️ ~15 minutes              │
-│                                                                              │
-│   ╭──────╮    ╭──────╮    ╭──────╮    ╭──────╮    ╭──────╮    ╭──────╮       │
-│   │  88  │    │  25  │    │  18  │    │  75  │    │  92  │    │  84  │       │
-│   ╰──────╯    ╰──────╯    ╰──────╯    ╰──────╯    ╰──────╯    ╰──────╯       │
-│   Quality    Blast Rad.     Risk       Tests     Readability  PR Hygiene     │
-│                                                                              │
-│ ▸ Blast radius details: 6 files · 214 lines · 2 areas · Hotspots: [auth, api]│
-│ ▸ Pre-merge checks: ✅ Title ✅ Description ✅ Security(2% risk) ✅ Scope  │   
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+<div align="center">
+  <video src="assets/videos/codeotter-cinematic-film-silent.mp4" poster="assets/videos/codeotter-cinematic-film-poster.png" autoplay loop muted playsinline controls width="100%" style="max-width: 960px; border-radius: 12px;">
+    <a href="assets/videos/codeotter-cinematic-film-silent.mp4">
+      <img src="assets/videos/codeotter-cinematic-film-poster.png" alt="Watch CodeOtter Cinematic Product Film" width="100%" style="max-width: 960px; border-radius: 12px;" />
+    </a>
+  </video>
+</div>
 
 <br/>
 

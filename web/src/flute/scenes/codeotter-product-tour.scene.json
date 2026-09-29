@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "id": "codeotter-product-tour",
+  "title": "CodeOtter — Full product tour",
+  "description": "Readable desktop close-ups. Fictional data, Dharmesh Gurnani throughout, no soundtrack.",
+  "definition": {
+    "width": 1920,
+    "height": 1080,
+    "scene": {
+      "version": 3,
+      "camera": { "perspective": 1800 },
+      "focus": { "distance": 1800, "fStop": 22, "focalLength": 50, "maxBlur": 0 },
+      "nodes": [{ "id": "product-tour" }]
+    },
+    "motion": { "durationMs": 99000, "speed": 1, "tracks": [] }
+  }
+}

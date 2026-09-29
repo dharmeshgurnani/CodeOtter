@@ -1,0 +1,3903 @@
+{
+  "version": 1,
+  "id": "codeotter-cinematic-film",
+  "title": "CodeOtter — AI Code Review Platform",
+  "description": "74-second cinematic product film. Live UI surfaces, camera rails, layered reveals. Fictional data. Silent.",
+  "definition": {
+    "width": 1920,
+    "height": 1080,
+    "scene": {
+      "version": 3,
+      "camera": {
+        "perspective": 2400
+      },
+      "focus": {
+        "distance": 2400,
+        "fStop": 22,
+        "focalLength": 45,
+        "maxBlur": 0
+      },
+      "nodes": [
+        {
+          "id": "film-title",
+          "transform": {
+            "x": -380,
+            "y": 0,
+            "z": 0
+          }
+        },
+        {
+          "id": "film-mascot",
+          "transform": {
+            "x": 565,
+            "y": 0,
+            "z": 60
+          }
+        },
+        {
+          "id": "film-deck",
+          "transform": {
+            "x": 145,
+            "y": 20,
+            "z": -35
+          }
+        },
+        {
+          "id": "film-sidebar",
+          "transform": {
+            "x": -785,
+            "y": 20,
+            "z": 0
+          }
+        },
+        {
+          "id": "film-stat-0",
+          "transform": {
+            "x": -310,
+            "y": -185,
+            "z": 70
+          }
+        },
+        {
+          "id": "film-stat-1",
+          "transform": {
+            "x": 135,
+            "y": -185,
+            "z": 70
+          }
+        },
+        {
+          "id": "film-stat-2",
+          "transform": {
+            "x": 580,
+            "y": -185,
+            "z": 70
+          }
+        },
+        {
+          "id": "film-repositories",
+          "transform": {
+            "x": 135,
+            "y": 205,
+            "z": 35
+          }
+        },
+        {
+          "id": "film-pr",
+          "transform": {
+            "x": 145,
+            "y": -280,
+            "z": 70
+          }
+        },
+        {
+          "id": "film-score-0",
+          "transform": {
+            "x": -265,
+            "y": -65,
+            "z": 110
+          }
+        },
+        {
+          "id": "film-score-1",
+          "transform": {
+            "x": 145,
+            "y": -65,
+            "z": 110
+          }
+        },
+        {
+          "id": "film-score-2",
+          "transform": {
+            "x": 555,
+            "y": -65,
+            "z": 110
+          }
+        },
+        {
+          "id": "film-score-3",
+          "transform": {
+            "x": -265,
+            "y": 220,
+            "z": 110
+          }
+        },
+        {
+          "id": "film-score-4",
+          "transform": {
+            "x": 145,
+            "y": 220,
+            "z": 110
+          }
+        },
+        {
+          "id": "film-score-5",
+          "transform": {
+            "x": 555,
+            "y": 220,
+            "z": 110
+          }
+        },
+        {
+          "id": "film-gates",
+          "transform": {
+            "x": -210,
+            "y": 55,
+            "z": 100
+          }
+        },
+        {
+          "id": "film-walkthrough",
+          "transform": {
+            "x": 580,
+            "y": 55,
+            "z": 55
+          }
+        },
+        {
+          "id": "film-finding",
+          "transform": {
+            "x": 340,
+            "y": 80,
+            "z": 230
+          }
+        },
+        {
+          "id": "film-repo-settings",
+          "transform": {
+            "x": 145,
+            "y": 30,
+            "z": 35
+          }
+        },
+        {
+          "id": "film-rules",
+          "transform": {
+            "x": 155,
+            "y": 40,
+            "z": 220
+          }
+        },
+        {
+          "id": "film-llm",
+          "transform": {
+            "x": -310,
+            "y": 25,
+            "z": 100
+          }
+        },
+        {
+          "id": "film-s1",
+          "transform": {
+            "x": 600,
+            "y": 25,
+            "z": 100
+          }
+        },
+        {
+          "id": "film-local",
+          "transform": {
+            "x": 160,
+            "y": 310,
+            "z": 90
+          }
+        },
+        {
+          "id": "film-oauth",
+          "transform": {
+            "x": -160,
+            "y": 0,
+            "z": 100
+          }
+        },
+        {
+          "id": "film-comment-options",
+          "transform": {
+            "x": -500,
+            "y": 10,
+            "z": 80
+          }
+        },
+        {
+          "id": "film-comment",
+          "transform": {
+            "x": 530,
+            "y": 25,
+            "z": 130
+          }
+        },
+        {
+          "id": "film-end-title",
+          "transform": {
+            "x": -380,
+            "y": 0,
+            "z": 0
+          }
+        },
+        {
+          "id": "film-end-mascot",
+          "transform": {
+            "x": 565,
+            "y": 0,
+            "z": 60
+          }
+        }
+      ]
+    },
+    "motion": {
+      "durationMs": 74000,
+      "speed": 1,
+      "tracks": [
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "x",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2700,
+              "value": 30,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5200,
+              "value": -234.64758017832457,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10200,
+              "value": 84.61605156893371,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13000,
+              "value": 158.726236155537,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 20300,
+              "value": 221.10916998431952,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 23100,
+              "value": 16.96603013329297,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 25600,
+              "value": 130.3105291876746,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28200,
+              "value": 368.26641958935926,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 31500,
+              "value": 385.79805676860144,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 34200,
+              "value": 74.25460742887624,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 37800,
+              "value": 93.97494671586767,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 39800,
+              "value": 118.60053791208645,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 42200,
+              "value": -178.86710327725697,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 46900,
+              "value": 467.125450471437,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 49700,
+              "value": 143.2667220470059,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 55000,
+              "value": 197.71480490675893,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 57400,
+              "value": 193.18398805907907,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 59600,
+              "value": -147.87882935709231,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 63400,
+              "value": 223.2830093573937,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 67600,
+              "value": 473.7650811768274,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 70900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5200,
+              "value": -69.97297327330722,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10200,
+              "value": 46.365184002420804,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13000,
+              "value": -64.73804271936291,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 20300,
+              "value": 83.67207778650439,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 23100,
+              "value": -1.3659438876932413,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 25600,
+              "value": 30.60443397201312,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28200,
+              "value": 101.01270925873429,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 31500,
+              "value": 155.72957353595496,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 34200,
+              "value": -15.844121310442612,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 37800,
+              "value": -17.97484830210319,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 39800,
+              "value": -5.8188602534139555,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 42200,
+              "value": 32.11500686883643,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 46900,
+              "value": 40.009335971152964,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 49700,
+              "value": -5.103211719848407,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 55000,
+              "value": 10.932218632736518,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 57400,
+              "value": 446.090403842401,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 59600,
+              "value": 8.715923547494155,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 63400,
+              "value": 38.52168221467467,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 67600,
+              "value": 55.43900329510978,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 70900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -92.30769230769238,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5200,
+              "value": -417.5244148719987,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10200,
+              "value": -176.42486949880595,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13000,
+              "value": -189.19962052942083,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 20300,
+              "value": -334.3256292724709,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 23100,
+              "value": -28.44659844376747,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 25600,
+              "value": -59.8447320192613,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28200,
+              "value": -509.07949478892965,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 31500,
+              "value": -451.8257670605676,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 34200,
+              "value": -250.31216952684554,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 37800,
+              "value": -172.24878876663206,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 39800,
+              "value": -93.49490022064629,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 42200,
+              "value": -205.5551730002103,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 46900,
+              "value": -417.99645916950703,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 49700,
+              "value": -171.55566016561625,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 55000,
+              "value": -228.66319042525174,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 57400,
+              "value": -227.40115458937998,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 59600,
+              "value": -188.0104130895952,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 63400,
+              "value": -53.57510786757939,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 67600,
+              "value": -441.3405260589723,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 70900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": -92.30769230769238,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "rotateX",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5200,
+              "value": 10,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10200,
+              "value": 10,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13000,
+              "value": 8,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 20300,
+              "value": 8,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 23100,
+              "value": 8,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 25600,
+              "value": 8,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28200,
+              "value": -7,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 31500,
+              "value": -7,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 34200,
+              "value": 10,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 37800,
+              "value": 10,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 39800,
+              "value": 10,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 42200,
+              "value": -7,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 46900,
+              "value": -7,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 49700,
+              "value": 9,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 55000,
+              "value": 9,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 57400,
+              "value": 9,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 59600,
+              "value": -6,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 63400,
+              "value": -6,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 67600,
+              "value": -6,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 70900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "rotateY",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -5,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5200,
+              "value": -19,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10200,
+              "value": -19,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13000,
+              "value": 16,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 20300,
+              "value": 16,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 23100,
+              "value": -13,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 25600,
+              "value": -13,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28200,
+              "value": 14,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 31500,
+              "value": 14,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 34200,
+              "value": -17,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 37800,
+              "value": -17,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 39800,
+              "value": -17,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 42200,
+              "value": 18,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 46900,
+              "value": 18,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 49700,
+              "value": -12,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 55000,
+              "value": -12,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 57400,
+              "value": -12,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 59600,
+              "value": 15,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 63400,
+              "value": 15,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 67600,
+              "value": 15,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 70900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": -3,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "rotateZ",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5200,
+              "value": -3,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10200,
+              "value": -3,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13000,
+              "value": 2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 20300,
+              "value": 2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 23100,
+              "value": -2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 25600,
+              "value": -2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28200,
+              "value": 2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 31500,
+              "value": 2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 34200,
+              "value": -3,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 37800,
+              "value": -3,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 39800,
+              "value": -3,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 42200,
+              "value": 2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 46900,
+              "value": 2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 49700,
+              "value": -2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 55000,
+              "value": -2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 57400,
+              "value": -2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 59600,
+              "value": 2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 63400,
+              "value": 2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 67600,
+              "value": 2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 70900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-title"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 180,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3800,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-title"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -80,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 1250,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3800,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4100,
+              "value": -180,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-title"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 24,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 1250,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3800,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4100,
+              "value": -40,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-mascot"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 280,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4100,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4400,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-mascot"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -40,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 100,
+              "value": -40,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 1350,
+              "value": 60,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4100,
+              "value": 60,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4400,
+              "value": -120,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-mascot"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 55,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 100,
+              "value": 55,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 1350,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4400,
+              "value": -40,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-deck"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3280,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69500,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69800,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-deck"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -215,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3100,
+              "value": -215,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4350,
+              "value": -35,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69500,
+              "value": -35,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69800,
+              "value": -215,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-deck"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 200,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3100,
+              "value": 200,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4350,
+              "value": 20,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69500,
+              "value": 20,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69800,
+              "value": -20,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-sidebar"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3400,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3580,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69100,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69400,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-sidebar"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 160,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3400,
+              "value": 160,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4650,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69400,
+              "value": -180,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-sidebar"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 130,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3400,
+              "value": 130,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4650,
+              "value": 20,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69100,
+              "value": 20,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69400,
+              "value": -20,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-stat-0"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3880,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11400,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-stat-0"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 330,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3700,
+              "value": 330,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4950,
+              "value": 70,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11400,
+              "value": 70,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11700,
+              "value": -110,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-stat-0"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -105,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3700,
+              "value": -105,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4950,
+              "value": -185,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11400,
+              "value": -185,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11700,
+              "value": -225,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-stat-1"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3850,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4030,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11400,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-stat-1"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 280,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3850,
+              "value": 280,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5100,
+              "value": 70,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11400,
+              "value": 70,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11700,
+              "value": -110,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-stat-1"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -105,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3850,
+              "value": -105,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5100,
+              "value": -185,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11400,
+              "value": -185,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11700,
+              "value": -225,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-stat-2"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4000,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4180,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11400,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-stat-2"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 230,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4000,
+              "value": 230,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5250,
+              "value": 70,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11400,
+              "value": 70,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11700,
+              "value": -110,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-stat-2"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -105,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4000,
+              "value": -105,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5250,
+              "value": -185,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11400,
+              "value": -185,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11700,
+              "value": -225,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-repositories"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4050,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4230,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11500,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11800,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-repositories"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 175,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4050,
+              "value": 175,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5300,
+              "value": 35,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11500,
+              "value": 35,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11800,
+              "value": -145,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-repositories"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 335,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4050,
+              "value": 335,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 5300,
+              "value": 205,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11500,
+              "value": 205,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11800,
+              "value": 165,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-pr"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11280,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-pr"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 140,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11100,
+              "value": 140,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12350,
+              "value": 70,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 70,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": -110,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-pr"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -245,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11100,
+              "value": -245,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12350,
+              "value": -280,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": -280,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": -320,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-0"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11800,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11980,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-0"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 340,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11800,
+              "value": 340,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13050,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": -70,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-0"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 20,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11800,
+              "value": 20,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13050,
+              "value": -65,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": -65,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": -105,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-1"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11895,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12075,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-1"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 320,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11895,
+              "value": 320,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13145,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": -70,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-1"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 20,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11895,
+              "value": 20,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13145,
+              "value": -65,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": -65,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": -105,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-2"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11990,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12170,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-2"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 300,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11990,
+              "value": 300,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13240,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": -70,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-2"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 20,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11990,
+              "value": 20,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13240,
+              "value": -65,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": -65,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": -105,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-3"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12085,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12265,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-3"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 280,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12085,
+              "value": 280,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13335,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": -70,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-3"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 305,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12085,
+              "value": 305,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13335,
+              "value": 220,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 220,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": 180,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-4"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12180,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12360,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-4"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 260,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12180,
+              "value": 260,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13430,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": -70,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-4"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 305,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12180,
+              "value": 305,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13430,
+              "value": 220,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 220,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": 180,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-5"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12275,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12455,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-5"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 240,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12275,
+              "value": 240,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13525,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": -70,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-score-5"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 305,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12275,
+              "value": 305,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13525,
+              "value": 220,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21700,
+              "value": 220,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22000,
+              "value": 180,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-gates"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21280,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 27000,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 27300,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-gates"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 230,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21100,
+              "value": 230,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22350,
+              "value": 100,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 27000,
+              "value": 100,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 27300,
+              "value": -80,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-gates"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 145,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21100,
+              "value": 145,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22350,
+              "value": 55,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 27000,
+              "value": 55,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 27300,
+              "value": 15,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-walkthrough"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21500,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21680,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28600,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-walkthrough"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 95,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21500,
+              "value": 95,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22750,
+              "value": 55,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28600,
+              "value": 55,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28900,
+              "value": -125,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-walkthrough"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 145,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 21500,
+              "value": 145,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22750,
+              "value": 55,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28600,
+              "value": 55,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 28900,
+              "value": 15,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-finding"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26280,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 32400,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 32700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-finding"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 390,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26100,
+              "value": 390,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 27350,
+              "value": 230,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 32400,
+              "value": 230,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 32700,
+              "value": 50,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-finding"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 180,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26100,
+              "value": 180,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 27350,
+              "value": 80,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 32400,
+              "value": 80,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 32700,
+              "value": 40,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-repo-settings"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 32100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 32280,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 39900,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40200,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-repo-settings"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 85,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 32100,
+              "value": 85,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 33350,
+              "value": 35,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 39900,
+              "value": 35,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40200,
+              "value": -145,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-repo-settings"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 130,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 32100,
+              "value": 130,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 33350,
+              "value": 30,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 39900,
+              "value": 30,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40200,
+              "value": -10,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-rules"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 35200,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 35380,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40200,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40500,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-rules"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 470,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 35200,
+              "value": 470,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 36450,
+              "value": 220,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40200,
+              "value": 220,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40500,
+              "value": 40,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-rules"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 190,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 35200,
+              "value": 190,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 36450,
+              "value": 40,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40200,
+              "value": 40,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40500,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-llm"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40000,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40180,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 47800,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 48100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-llm"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 220,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40000,
+              "value": 220,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 41250,
+              "value": 100,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 47800,
+              "value": 100,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 48100,
+              "value": -80,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-llm"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 95,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40000,
+              "value": 95,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 41250,
+              "value": 25,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 47800,
+              "value": 25,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 48100,
+              "value": -15,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-s1"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40300,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40480,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 48000,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 48300,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-s1"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 300,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40300,
+              "value": 300,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 41550,
+              "value": 100,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 48000,
+              "value": 100,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 48300,
+              "value": -80,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-s1"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 145,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 40300,
+              "value": 145,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 41550,
+              "value": 25,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 48000,
+              "value": 25,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 48300,
+              "value": -15,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-local"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 47600,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 47780,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 58400,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 58700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-local"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 160,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 47600,
+              "value": 160,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 48850,
+              "value": 90,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 58400,
+              "value": 90,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 58700,
+              "value": -90,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-local"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 410,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 47600,
+              "value": 410,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 48850,
+              "value": 310,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 58400,
+              "value": 310,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 58700,
+              "value": 270,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-oauth"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 58100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 58280,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 62100,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 62400,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-oauth"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 250,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 58100,
+              "value": 250,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 59350,
+              "value": 100,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 62100,
+              "value": 100,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 62400,
+              "value": -80,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-oauth"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 80,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 58100,
+              "value": 80,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 59350,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 62100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 62400,
+              "value": -40,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-comment-options"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 61500,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 61680,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 68600,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 68900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-comment-options"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 160,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 61500,
+              "value": 160,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 62750,
+              "value": 80,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 68600,
+              "value": 80,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 68900,
+              "value": -100,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-comment-options"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 100,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 61500,
+              "value": 100,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 62750,
+              "value": 10,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 68600,
+              "value": 10,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 68900,
+              "value": -30,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-comment"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 61900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 62080,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69300,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69600,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 74000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-comment"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 350,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 61900,
+              "value": 350,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 63150,
+              "value": 130,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69300,
+              "value": 130,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69600,
+              "value": -50,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-comment"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 125,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 61900,
+              "value": 125,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 63150,
+              "value": 25,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69300,
+              "value": 25,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69600,
+              "value": -15,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-end-title"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69000,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69180,
+              "value": 1,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-end-title"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -50,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69000,
+              "value": -50,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 70250,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-end-title"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 25,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69000,
+              "value": 25,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 70250,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-end-mascot"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69200,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69380,
+              "value": 1,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-end-mascot"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69200,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 70450,
+              "value": 60,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "film-end-mascot"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 55,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 69200,
+              "value": 55,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 70450,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

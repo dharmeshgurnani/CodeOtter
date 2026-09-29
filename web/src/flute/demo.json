@@ -1,0 +1,376 @@
+{
+  "user": {
+    "id": "demo-dharmesh",
+    "name": "Dharmesh Gurnani",
+    "email": "dharmeshgurnani@example.com",
+    "avatar": "",
+    "role": "owner"
+  },
+  "repos": [
+    "acme-robotics/fleet-api",
+    "acme-robotics/dispatch-ui",
+    "acme-robotics/telemetry-sdk"
+  ],
+  "review": {
+    "pr": {
+      "number": 482,
+      "title": "Add rate limiting to telemetry ingest",
+      "body": "Adds a token-bucket limiter in front of POST /ingest so a misbehaving fleet cannot starve the others.\n\nKeyed per fleet, window and burst configurable via INGEST_WINDOW_MS and INGEST_BURST. Internal collectors bypass the limiter.\n\nTests cover refill, burst and the bypass path.",
+      "url": "https://github.com/acme-robotics/fleet-api/pull/482",
+      "author": {
+        "login": "dharmeshgurnani"
+      },
+      "baseRefName": "main",
+      "headRefName": "feat/ingest-rate-limit",
+      "additions": 197,
+      "deletions": 17,
+      "changedFiles": 5,
+      "files": [
+        {
+          "path": "src/ingest/limiter.ts",
+          "additions": 96,
+          "deletions": 4
+        },
+        {
+          "path": "src/ingest/routes.ts",
+          "additions": 31,
+          "deletions": 12
+        },
+        {
+          "path": "src/config.ts",
+          "additions": 9,
+          "deletions": 1
+        },
+        {
+          "path": "test/ingest/limiter.test.ts",
+          "additions": 58,
+          "deletions": 0
+        },
+        {
+          "path": "docs/ingest.md",
+          "additions": 3,
+          "deletions": 0
+        }
+      ]
+    },
+    "blast": {
+      "score": 42,
+      "files": 5,
+      "lines": 214,
+      "dirs": 2,
+      "hotspots": [
+        "ingest",
+        "config"
+      ],
+      "testFiles": 1,
+      "source": "s1"
+    },
+    "review": {
+      "summary": "Adds a token-bucket limiter to the telemetry ingest route, keyed per fleet, with a config knob for the window and burst and a bypass for internal collectors. The limiter is a small self-contained class; the route change is a middleware insertion. Tests cover refill and burst but not the bypass path.",
+      "verdict": "comment",
+      "scores": {
+        "quality": 88,
+        "correctness_risk": 25,
+        "test_coverage": 75,
+        "readability": 92,
+        "pr_hygiene": 84
+      },
+      "findings": [
+        {
+          "file": "src/ingest/limiter.ts",
+          "severity": "high",
+          "title": "Limiter key falls back to client IP",
+          "detail": "When fleetId is missing the key is the socket address, so every fleet behind one NAT shares a single bucket. Reject requests without a fleetId instead of falling back."
+        },
+        {
+          "file": "src/ingest/routes.ts",
+          "severity": "medium",
+          "title": "Bypass header is trusted from any origin",
+          "detail": "x-internal-collector is honoured without checking the source network. Gate it on the internal CIDR list already in config."
+        },
+        {
+          "file": "src/config.ts",
+          "severity": "low",
+          "title": "Magic window of 1200 ms",
+          "detail": "Name the default next to INGEST_BURST so both knobs are tuned together."
+        },
+        {
+          "file": "test/ingest/limiter.test.ts",
+          "severity": "nit",
+          "title": "Fake timers left installed",
+          "detail": "vi.useFakeTimers() is never restored; add afterEach(vi.useRealTimers)."
+        }
+      ],
+      "walkthrough": [
+        {
+          "file": "src/ingest/limiter.ts",
+          "change": "New TokenBucket class with refill(), take() and a per-key map with idle eviction."
+        },
+        {
+          "file": "src/ingest/routes.ts",
+          "change": "Inserts the limiter middleware before the ingest handler; 429 with Retry-After on exhaustion."
+        },
+        {
+          "file": "src/config.ts",
+          "change": "Adds INGEST_WINDOW_MS and INGEST_BURST with defaults."
+        },
+        {
+          "file": "test/ingest/limiter.test.ts",
+          "change": "Covers refill timing and burst capacity with fake timers."
+        },
+        {
+          "file": "docs/ingest.md",
+          "change": "Documents the two new environment variables."
+        }
+      ]
+    },
+    "model": "local_qwen15/qwen2.5-coder-1.5b",
+    "gates": [
+      {
+        "id": "title",
+        "label": "Title check",
+        "yes": 0.97,
+        "pass": true
+      },
+      {
+        "id": "description",
+        "label": "Description check",
+        "yes": 0.93,
+        "pass": true
+      },
+      {
+        "id": "security",
+        "label": "Security",
+        "yes": 0.03,
+        "pass": true
+      },
+      {
+        "id": "complexity",
+        "label": "Complexity",
+        "yes": 0.11,
+        "pass": true
+      },
+      {
+        "id": "tests",
+        "label": "Tests",
+        "yes": 0.71,
+        "pass": true
+      },
+      {
+        "id": "docs",
+        "label": "Documentation",
+        "yes": 0.88,
+        "pass": true
+      },
+      {
+        "id": "scope",
+        "label": "Scope",
+        "yes": 0.94,
+        "pass": true
+      },
+      {
+        "id": "guidelines",
+        "label": "Repository guidelines",
+        "yes": 0.04,
+        "pass": true
+      }
+    ],
+    "engines": {
+      "llm": "Qwen2.5-Coder 1.5B (local)",
+      "s1": "Laya typed-decisions (local)"
+    },
+    "at": "2026-09-28T10:00:00.000Z",
+    "gitHistory": {
+      "prCommits": [
+        {
+          "sha": "d3a0482",
+          "message": "Add per-fleet rate limiter",
+          "author": "Dharmesh Gurnani"
+        }
+      ]
+    }
+  },
+  "home": {
+    "sections": [
+      {
+        "id": "stats",
+        "kind": "stats",
+        "items": [
+          {
+            "label": "Waiting for review",
+            "value": 4,
+            "unit": "pull requests",
+            "hint": "Across 3 repositories",
+            "action": {
+              "label": "Open pull requests",
+              "path": "/repo/acme-robotics/fleet-api/open"
+            }
+          },
+          {
+            "label": "Reviewed",
+            "value": 5,
+            "unit": "reviews",
+            "hint": "5 in the last 7 days"
+          },
+          {
+            "label": "Average quality",
+            "value": 77,
+            "unit": "/ 100",
+            "hint": "1 with changes requested"
+          }
+        ]
+      },
+      {
+        "id": "repos",
+        "kind": "table",
+        "title": "Repositories",
+        "columns": [
+          "Repository",
+          "Waiting",
+          "Reviewed",
+          "Avg quality",
+          "Avg blast",
+          ""
+        ],
+        "rows": [
+          [
+            {
+              "text": "acme-robotics/fleet-api",
+              "path": "/repo/acme-robotics/fleet-api"
+            },
+            {
+              "text": "2 waiting",
+              "tone": "warn"
+            },
+            2,
+            88,
+            22,
+            {
+              "text": "Open pull requests",
+              "path": "/repo/acme-robotics/fleet-api/open"
+            }
+          ],
+          [
+            {
+              "text": "acme-robotics/dispatch-ui",
+              "path": "/repo/acme-robotics/dispatch-ui"
+            },
+            {
+              "text": "1 waiting",
+              "tone": "warn"
+            },
+            2,
+            77,
+            35,
+            {
+              "text": "Open pull requests",
+              "path": "/repo/acme-robotics/dispatch-ui/open"
+            }
+          ],
+          [
+            {
+              "text": "acme-robotics/telemetry-sdk",
+              "path": "/repo/acme-robotics/telemetry-sdk"
+            },
+            {
+              "text": "1 waiting",
+              "tone": "warn"
+            },
+            1,
+            54,
+            77,
+            {
+              "text": "Open pull requests",
+              "path": "/repo/acme-robotics/telemetry-sdk/open"
+            }
+          ]
+        ]
+      },
+      {
+        "id": "recent",
+        "kind": "table",
+        "title": "Recent reviews",
+        "columns": [
+          "Pull request",
+          "Repository",
+          "Verdict",
+          "Quality",
+          "Blast",
+          "Reviewed"
+        ],
+        "rows": [
+          [
+            {
+              "text": "#481 Retry policy for dispatch webhooks",
+              "path": "/review?pr=https%3A%2F%2Fgithub.com%2Facme-robotics%2Ffleet-api%2Fpull%2F481"
+            },
+            "acme-robotics/fleet-api",
+            {
+              "text": "Approved",
+              "tone": "ok"
+            },
+            86,
+            31,
+            "28 Sept"
+          ],
+          [
+            {
+              "text": "#212 Route map clustering at zoom 12+",
+              "path": "/review?pr=https%3A%2F%2Fgithub.com%2Facme-robotics%2Fdispatch-ui%2Fpull%2F212"
+            },
+            "acme-robotics/dispatch-ui",
+            {
+              "text": "Commented",
+              "tone": "warn"
+            },
+            72,
+            48,
+            "28 Sept"
+          ],
+          [
+            {
+              "text": "#77 Bump protobuf and regenerate stubs",
+              "path": "/review?pr=https%3A%2F%2Fgithub.com%2Facme-robotics%2Ftelemetry-sdk%2Fpull%2F77"
+            },
+            "acme-robotics/telemetry-sdk",
+            {
+              "text": "Changes requested",
+              "tone": "bad"
+            },
+            54,
+            77,
+            "27 Sept"
+          ],
+          [
+            {
+              "text": "#480 Fix flaky heartbeat test",
+              "path": "/review?pr=https%3A%2F%2Fgithub.com%2Facme-robotics%2Ffleet-api%2Fpull%2F480"
+            },
+            "acme-robotics/fleet-api",
+            {
+              "text": "Approved",
+              "tone": "ok"
+            },
+            90,
+            12,
+            "27 Sept"
+          ],
+          [
+            {
+              "text": "#209 Keyboard navigation for the job list",
+              "path": "/review?pr=https%3A%2F%2Fgithub.com%2Facme-robotics%2Fdispatch-ui%2Fpull%2F209"
+            },
+            "acme-robotics/dispatch-ui",
+            {
+              "text": "Approved",
+              "tone": "ok"
+            },
+            81,
+            22,
+            "26 Sept"
+          ]
+        ]
+      }
+    ]
+  }
+}

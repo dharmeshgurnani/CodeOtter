@@ -71,7 +71,7 @@ const Md = ({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) => (
   </table>
 );
 
-const Ring = ({ label, value: raw, invert, loading }: { label: string; value: number; invert?: boolean; loading?: boolean }) => {
+export const Ring = ({ label, value: raw, invert, loading }: { label: string; value: number; invert?: boolean; loading?: boolean }) => {
   if (loading) {
     return (
       <div className="relative flex size-[88px] flex-col items-center justify-center rounded-full border-[6px] border-neutral-200 bg-white">

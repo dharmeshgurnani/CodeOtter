@@ -1,14 +1,16 @@
 // One renderer for every settings-style form. The server sends sections + fields as JSON; nothing here is page-specific.
 // Rule: the plainest control that does the job. Picklist over cards, range over slider widgets, text over anything fancier.
 import { useState } from "react";
-import { Settings2, X } from "lucide-react";
+import { Check, ChevronsUpDown, Settings2, X } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/animate-ui/components/radix/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/animate-ui/components/radix/dropdown-menu";
 
-export type Option = { value: string | number; label: string };
+export type Option = { value: string | number; label: string; icon?: string };
 // A list item may carry its own settings (fields + values); they open in an Animate UI dialog from a gear icon on the row.
-export type ListItem = string | { id: string; label: string; meta?: string; badge?: string; progress?: number; actions?: Action[]; settings?: { title?: string; description?: string; fields: Field[]; values: Record<string, unknown> } };
+export type ListItem = string | { id: string; label: string; icon?: string; meta?: string; badge?: string; progress?: number; actions?: Action[]; settings?: { title?: string; description?: string; fields: Field[]; values: Record<string, unknown> } };
 export type Field = {
   key: string;
   label: string;
@@ -30,6 +32,8 @@ export type Field = {
 export type Action = { id: string; label: string; variant?: "default" | "outline"; needsSaved?: boolean; always?: boolean };
 export type Section = { id: string; title: string; description?: string; readonly?: boolean; fields: Field[]; actions?: Action[]; poll?: number }; // poll: refetch interval in ms while something is in progress
 export type Values = Record<string, Record<string, unknown>>;
+
+const initials = (s: string) => s.split(/[\s/_-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";
 
 // Apply a change plus its knock-on effects (dependent defaults and option lists) inside one section.
 export function applyChange(section: Section, vals: Record<string, unknown>, key: string, value: unknown) {
@@ -84,14 +88,20 @@ const Control = ({ f, vals, onChange, onSaveList, id, scope = "", onItemAction }
     case "readonly":
       return <span className="block py-2 text-[15px]">{String(v ?? "")}</span>;
     case "list": {
-      // Items are strings or { id, label, meta?, settings? }; settings open in a dialog from the gear beside the remove control.
+      // Items are strings or { id, label, icon?, meta?, settings? }; settings open in a dialog from the gear beside the remove control.
       const items = (Array.isArray(v) ? (v as ListItem[]) : []).map((it) => (typeof it === "string" ? { id: it, label: it } : it));
       return items.length ? (
         <ul className="max-w-[520px] divide-y divide-border rounded-md border border-border">
           {items.map((it) => (
-            <li key={it.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+            <li key={it.id} className="flex items-center gap-2.5 px-3 py-2 text-sm">
+              {it.icon && (
+                <Avatar className="size-7 shrink-0 rounded-md border border-border bg-white">
+                  <AvatarImage src={it.icon} alt={it.label} className="object-contain p-0.5" />
+                  <AvatarFallback className="rounded-md text-[10px] font-semibold">{initials(it.label)}</AvatarFallback>
+                </Avatar>
+              )}
               <span className="min-w-0 flex-1">
-                <span className="block truncate">{it.label}{it.badge && <span className="ml-2 rounded-md bg-green-100 px-1.5 py-px text-[11px] text-green-800 align-middle">{it.badge}</span>}</span>
+                <span className="block truncate font-medium">{it.label}{it.badge && <span className="ml-2 rounded-md bg-green-100 px-1.5 py-px text-[11px] font-normal text-green-800 align-middle">{it.badge}</span>}</span>
                 {it.meta && <span className="block text-xs text-muted-foreground">{it.meta}</span>}
                 {it.progress !== undefined && (
                   <span className="mt-1.5 block h-1.5 w-full max-w-[320px] overflow-hidden rounded-full bg-neutral-200"><span className="block h-full bg-brand" style={{ width: `${Math.max(0, Math.min(100, it.progress))}%` }} /></span>
@@ -121,11 +131,51 @@ const Control = ({ f, vals, onChange, onSaveList, id, scope = "", onItemAction }
       );
     }
     case "select": {
-      const opts: Option[] = (f.options ?? f.optionsBy?.map[String(vals[f.optionsBy.field])] ?? []).map((o) => (typeof o === "object" ? o : { value: o, label: o }));
-      if (!f.options && opts.length === 0) return <Input id={id} className={cls} value={String(v ?? "")} placeholder={f.placeholder ?? "model id"} onChange={(e) => onChange(e.target.value)} />;
+      const baseOpts: Option[] = (f.options ?? f.optionsBy?.map[String(vals[f.optionsBy.field])] ?? []).map((o) => (typeof o === "object" ? o : { value: o, label: o }));
+      if (!f.options && baseOpts.length === 0) return <Input id={id} className={cls} value={String(v ?? "")} placeholder={f.placeholder ?? "model id"} onChange={(e) => onChange(e.target.value)} />;
+      const opts = v !== undefined && v !== "" && !baseOpts.some((o) => String(o.value) === String(v)) ? [{ value: String(v), label: String(v) }, ...baseOpts] : baseOpts;
+      if (opts.some((o) => o.icon)) {
+        const cur = opts.find((o) => String(o.value) === String(v)) ?? opts[0];
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button id={id} type="button" className={`${cls} flex h-9 items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 text-left text-sm hover:bg-neutral-50`}>
+                <span className="flex min-w-0 items-center gap-2">
+                  {cur?.icon && (
+                    <Avatar className="size-5 shrink-0 rounded-sm border border-border/60 bg-white">
+                      <AvatarImage src={cur.icon} alt={cur.label} className="object-contain p-px" />
+                      <AvatarFallback className="rounded-sm text-[9px] font-semibold">{initials(cur.label)}</AvatarFallback>
+                    </Avatar>
+                  )}
+                  <span className="truncate">{cur?.label ?? String(v ?? "")}</span>
+                </span>
+                <ChevronsUpDown className="ml-auto size-4 shrink-0 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="max-h-80 w-[--radix-dropdown-menu-trigger-width] min-w-[260px] overflow-y-auto">
+              {opts.map((o) => {
+                const active = String(o.value) === String(v);
+                return (
+                  <DropdownMenuItem key={String(o.value)} onClick={() => onChange(typeof baseOpts[0]?.value === "number" ? Number(o.value) : o.value)} className="gap-2">
+                    {o.icon ? (
+                      <Avatar className="size-5 shrink-0 rounded-sm border border-border/60 bg-white">
+                        <AvatarImage src={o.icon} alt={o.label} className="object-contain p-px" />
+                        <AvatarFallback className="rounded-sm text-[9px] font-semibold">{initials(o.label)}</AvatarFallback>
+                      </Avatar>
+                    ) : (
+                      <span className="size-5 shrink-0" />
+                    )}
+                    <span className="flex-1 truncate">{o.label}</span>
+                    {active && <Check className="ml-auto size-4 shrink-0 text-brand" />}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      }
       return (
-        <select id={id} className={`${cls} h-9 rounded-md border border-input bg-transparent px-3 text-sm`} value={String(v ?? "")} onChange={(e) => onChange(typeof opts[0]?.value === "number" ? Number(e.target.value) : e.target.value)}>
-          {v !== undefined && v !== "" && !opts.some((o) => String(o.value) === String(v)) && <option value={String(v)}>{String(v)}</option>}
+        <select id={id} className={`${cls} h-9 rounded-md border border-input bg-transparent px-3 text-sm`} value={String(v ?? "")} onChange={(e) => onChange(typeof baseOpts[0]?.value === "number" ? Number(e.target.value) : e.target.value)}>
           {opts.map((o) => <option key={String(o.value)} value={String(o.value)}>{o.label}</option>)}
         </select>
       );

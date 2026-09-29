@@ -1,0 +1,860 @@
+{
+  "version": 1,
+  "id": "codeotter-intro",
+  "title": "CodeOtter — Know what you are merging",
+  "description": "30-second cinematic intro. Fictional organization, repositories, PRs and scores; every user is Dharmesh Gurnani.",
+  "definition": {
+    "scene": {
+      "version": 3,
+      "camera": {
+        "perspective": 1800
+      },
+      "focus": {
+        "distance": 1800,
+        "fStop": 12,
+        "focalLength": 65,
+        "maxBlur": 1.2
+      },
+      "nodes": [
+        {
+          "id": "intro",
+          "transform": {
+            "x": -350
+          }
+        },
+        {
+          "id": "mascot",
+          "transform": {
+            "x": 530
+          }
+        },
+        {
+          "id": "sidebar",
+          "transform": {
+            "x": -660,
+            "y": 0
+          }
+        },
+        {
+          "id": "dashboard",
+          "transform": {
+            "x": 130,
+            "y": 0
+          }
+        },
+        {
+          "id": "review",
+          "transform": {}
+        },
+        {
+          "id": "review-caption",
+          "transform": {
+            "y": 475
+          }
+        },
+        {
+          "id": "outro",
+          "transform": {
+            "x": -350
+          }
+        }
+      ]
+    },
+    "motion": {
+      "durationMs": 30000,
+      "speed": 1,
+      "tracks": [
+        {
+          "target": {
+            "kind": "surface",
+            "id": "intro"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2400,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3300,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "intro"
+          },
+          "property": "scale",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0.92,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3000,
+              "value": 1.02,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 1.02,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "mascot"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2400,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3300,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 27100,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 1,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "mascot"
+          },
+          "property": "scale",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0.93,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3000,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26100,
+              "value": 0.96,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 1,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "mascot"
+          },
+          "property": "rotateY",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -9,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3000,
+              "value": -4,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26100,
+              "value": -6,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "sidebar"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2700,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3700,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11200,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12300,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "dashboard"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4000,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11200,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 12300,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "sidebar"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 130,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3400,
+              "value": 130,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 7500,
+              "value": 40,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11500,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "dashboard"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": -120,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 3400,
+              "value": -120,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 8500,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "review"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13000,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 24800,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26200,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "review-caption"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13400,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 14400,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 23300,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 24500,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "outro"
+          },
+          "property": "opacity",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26100,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 27100,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 1,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "surface",
+            "id": "outro"
+          },
+          "property": "scale",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26100,
+              "value": 0.96,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 1,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "rotateX",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2800,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4200,
+              "value": 9,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10500,
+              "value": 6,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13200,
+              "value": -7,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22600,
+              "value": -5,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26400,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "rotateY",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2800,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4200,
+              "value": -19,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10500,
+              "value": -11,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13200,
+              "value": 15,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22600,
+              "value": 8,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26400,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "rotateZ",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2800,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4200,
+              "value": -3,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10500,
+              "value": -1,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13200,
+              "value": 2,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22600,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "x",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2800,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4200,
+              "value": -140,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10500,
+              "value": 100,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13200,
+              "value": -50,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22600,
+              "value": 80,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26400,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "y",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2800,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4200,
+              "value": -50,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10500,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11900,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13200,
+              "value": -60,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22600,
+              "value": 30,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26400,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "camera"
+          },
+          "property": "z",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2800,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4200,
+              "value": -170,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10500,
+              "value": 110,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11900,
+              "value": 160,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13200,
+              "value": -40,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22600,
+              "value": 80,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26400,
+              "value": 0,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 0,
+              "easing": "cinematic"
+            }
+          ]
+        },
+        {
+          "target": {
+            "kind": "focus"
+          },
+          "property": "distance",
+          "keyframes": [
+            {
+              "timeMs": 0,
+              "value": 1800,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 2800,
+              "value": 1800,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 4200,
+              "value": 1570,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 10500,
+              "value": 1900,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 11900,
+              "value": 1900,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 13200,
+              "value": 1760,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 22600,
+              "value": 1880,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 26400,
+              "value": 1800,
+              "easing": "cinematic"
+            },
+            {
+              "timeMs": 30000,
+              "value": 1800,
+              "easing": "cinematic"
+            }
+          ]
+        }
+      ]
+    },
+    "width": 1920,
+    "height": 1080
+  }
+}

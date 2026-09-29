@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local Flute ownership records, generated adapters, thumbnails and MP4 exports.
+.flute/
+src/flute/ProjectPreview.jsx
+src/flute/catalog.js

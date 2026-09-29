@@ -1,14 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-09-29)
 
+- Hugging Face organization and author avatars shown next to providers and models across Model provider picklists and Local models rows.
+- Side-by-side 30/70 review dashboard with markdown terminal view, per-card re-run actions, and dynamic OpenGraph / SEO metadata.
+- Added a development-only, 74-second Flute cinematic film with camera rails, layered UI reveals, animated scores and simulated local model downloads. Includes repository settings, GitHub, findings and merge gates, fictional records with Dharmesh Gurnani throughout, an isolated read-only demo server, and silent 1080p/60 fps export.
 - GitHub PR comments after review (`gh pr comment`, introduced 2026-09-28): two checkboxes in Settings ("Post scores on PR" and "Add PR review as a comment") automatically post all System One rubric scores / merge gates and/or the review summary with a link to the full details on the CodeOtter application page.
 - Rebranded project to **CodeOtter** (`codeotter`) with a `DESIGN.md` token specification. The mascot is the otter with the score card (`assets/banners/hero-score-card.png`); the candidate mascot sheets, the `brand-showcase.html` exploration and the unused banner variants were removed from the repository. `assets/` now holds only what the README uses.
 - System One models: a second engine next to the language model. TypeSafe Jev scores pull requests from fixed rubrics and answers merge gates (security, complexity, tests, docs, scope, repository guidelines), shown under Pre-merge checks. Runs in parallel with the language model; either engine works alone. Reachable directly from TypeSafe or through OpenRouter.
 - Removed the "Review pull request" header button; open pull requests are reviewed from their repository page.
 - The UI no longer names the storage backend.
 - Local models moved to the Admin section (platform-wide; each organization still picks its own provider) and laid out like Model provider: a Language models section and a System One models section, both used together.
-- Microsoft CodeReviewer (and its comment fine-tune) as a third offline language option: a CodeT5 model that writes one review comment per diff hunk through a Python sidecar; needs a System One model for scores. Requests are no longer cut at Node's default 5-minute limit, so cold local sidecars can finish long reviews.
+- Microsoft CodeReviewer as a third offline language option: a CodeT5 model that writes one review comment per diff hunk through a Python sidecar; needs a System One model for scores. Requests are no longer cut at Node's default 5-minute limit, so cold local sidecars can finish long reviews.
 - Two offline language models, Qwen2.5-Coder 1.5B and 7B, served by llama.cpp's `llama-server` as a second sidecar; a review can run fully offline with a local language model and a local System One model.
 - Two offline System One models, run locally through the ggmlc `laya` runtime: Laya typed-decisions (455 MB) and Kev 0.8B (828 MB). A Admin → Local models page lists downloaded and available models with Download / Use / Delete and download progress; nothing downloads by itself. Plus a custom `/v1/systemone` endpoint provider for self-hosted models.
 - With a System One model configured, every score comes from it: the five review scores and blast radius from rubrics, plus title and description checks as gates. The language model is then not asked for scores.

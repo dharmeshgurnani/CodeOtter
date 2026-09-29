@@ -7,7 +7,14 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cinematic:init": "flute init --adapter react",
+    "cinematic:finish": "node scripts/cinematic-audio.mjs",
+    "cinematic": "vite --config vite.cinematic.config.ts",
+    "cinematic:export": "node scripts/render-cinematic-film.mjs",
+    "cinematic:compose": "node scripts/compose-cinematic-film.mjs",
+    "cinematic:render-build": "vite build --config vite.cinematic.render.config.ts",
+    "cinematic:render-serve": "vite preview --config vite.cinematic.render.config.ts"
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.19",
@@ -36,7 +43,9 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "@webprodigies/flute": "^0.1.2",
     "oxlint": "^1.81.0",
+    "playwright": "1.58.2",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   }

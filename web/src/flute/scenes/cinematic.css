@@ -1,0 +1,26 @@
+[data-flute-capture="scene"] { background: #fafaf9 !important; }
+/* The light marketing direction intentionally overrides Flute's default black stage. */
+[data-flute-scene] { background: radial-gradient(ellipse at 76% 38%, #f7f0e7 0%, transparent 55%), linear-gradient(135deg, #ffffff 10%, #f4f6f7 100%) !important; }
+.cinematic-title { color: #292524; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: Inter, Arial, sans-serif; }
+.cinematic-title .eyebrow { color: #78716c; font-size: 20px; letter-spacing: .25em; margin-bottom: 32px; }
+.cinematic-title > [data-flute-content] { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; }
+[data-flute-id="sidebar"] > [data-flute-content], [data-flute-id="dashboard"] > [data-flute-content], [data-flute-id="review"] > [data-flute-content] { height: 100%; }
+.cinematic-title h1 { font-size: 125px; line-height: 1; letter-spacing: -.07em; font-weight: 650; margin: 0 0 32px; }
+.cinematic-mascot { display: block; width: 640px; height: 700px; object-fit: cover; object-position: center; }
+.cinematic-title h1 span { color: inherit; }
+.cinematic-title p { color: #57534e; font-size: 38px; letter-spacing: -.02em; }
+.title-rule { width: 80px; height: 2px; background: #d6d3d1; margin: 40px 0 25px; }
+.cinematic-title small { font-size: 18px; letter-spacing: .16em; color: #78716c; }
+.cinematic-title .credit { font-size: 18px; color: #78716c; margin-top: 35px; }
+.cinematic-page { height: 100%; background: white; border: 1px solid #ddd; border-radius: 14px; overflow: hidden; color: #1f1f1f; }
+.cinematic-page header { height: 55px; display: flex; align-items: center; gap: 28px; padding: 0 26px; border-bottom: 1px solid #e6e6e6; font-size: 15px; }
+.cinematic-page header b { color: #c2410c; }
+.cinematic-page header em { margin-left: auto; font-style: normal; letter-spacing: .1em; font-size: 11px; color: #737373; }
+.cinematic-page main { padding: 24px; }
+.cinematic-page .cinematic-review-scroll { height: calc(100% - 55px); overflow-y: auto; scrollbar-width: none; }
+.cinematic-sidebar { height: 100%; border-radius: 14px; background: #f7f7f7; overflow: hidden; }
+.cinematic-sidebar [data-slot="sidebar-container"] { position: absolute; height: 100%; }
+.cinematic-caption { color: #292524; text-align: center; }
+.cinematic-caption span { color: #78716c; letter-spacing: .18em; font-size: 17px; }
+.cinematic-caption h2 { font-size: 40px; font-weight: 500; letter-spacing: -.03em; margin: 12px 0 0; }
+@media (prefers-reduced-motion: reduce) { .cinematic-page *, .cinematic-sidebar * { animation: none !important; transition: none !important; } }
