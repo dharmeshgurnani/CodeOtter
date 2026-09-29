@@ -14,7 +14,15 @@ export type Pr = {
   files: PrFile[];
 };
 export type OpenPr = Pick<Pr, "number" | "title" | "url" | "author" | "additions" | "deletions" | "changedFiles"> & { updatedAt: string };
-export type Finding = { file: string; severity: "high" | "medium" | "low" | "nit"; title: string; detail: string; dismissed?: boolean };
+export type Finding = {
+  file: string;
+  line?: number;
+  severity: "high" | "medium" | "low" | "nit";
+  title: string;
+  detail: string;
+  suggestion?: string;
+  dismissed?: boolean;
+};
 export type Review = {
   pr: Pr;
   headSha?: string;

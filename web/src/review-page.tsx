@@ -108,7 +108,10 @@ function formatFindingEntry(f: Finding, idx: number) {
   const normTitle = title.replace(/…$/, "").trim().toLowerCase();
   const startsWithTitle = normTitle.length > 0 && explanation.toLowerCase().startsWith(normTitle);
   const body = startsWithTitle ? explanation : title && explanation && title !== explanation ? `**${title}** — ${explanation}` : explanation || title;
-  const out = [`### ${idx + 1}. [${f.severity.toUpperCase()}] \`${f.file}\``, body];
+  const out = [`### ${idx + 1}. [${f.severity.toUpperCase()}] \`${f.file}${f.line ? `:${f.line}` : ""}\`${f.line ? ` (\`L${f.line}\`)` : ""}`, body];
+  if (f.suggestion?.trim()) {
+    out.push("```suggestion", f.suggestion.trim(), "```");
+  }
   if (hunk) {
     out.push("```diff", hunk, "```");
   }
@@ -380,6 +383,9 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
   const [rerunReq, setRerunReq] = useState<{ id: number; part: "scores" | "llm" | "all" } | null>(null);
   const [dismissingKey, setDismissingKey] = useState<string>("");
   const [learningNotice, setLearningNotice] = useState<string>("");
+  const [copiedFixKey, setCopiedFixKey] = useState<string>("");
+  const [postingSuggestionKey, setPostingSuggestionKey] = useState<string>("");
+  const [postedSuggestionKeys, setPostedSuggestionKeys] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setR(null);
@@ -389,6 +395,9 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
     setRerunReq(null);
     setDismissingKey("");
     setLearningNotice("");
+    setCopiedFixKey("");
+    setPostingSuggestionKey("");
+    setPostedSuggestionKeys({});
   }, [pr, repoHint]);
 
   useEffect(() => {
@@ -522,6 +531,46 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
       setLearningNotice(`Could not save learning: ${(e as Error).message}`);
     } finally {
       setDismissingKey("");
+    }
+  };
+
+  const handleCopySuggestion = (fKey: string, suggestion: string) => {
+    try {
+      navigator.clipboard?.writeText(suggestion);
+      setCopiedFixKey(fKey);
+      setTimeout(() => setCopiedFixKey((cur) => (cur === fKey ? "" : cur)), 1800);
+    } catch {}
+  };
+
+  const handlePostSuggestion = async (f: Finding, idx: number) => {
+    const fKey = `${idx}:${f.file}:${f.title}`;
+    setPostingSuggestionKey(fKey);
+    setLearningNotice("");
+    try {
+      const res = await fetch("/api/review-suggestions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prUrl: p.url,
+          repo,
+          findingIdx: idx,
+          file: f.file,
+          line: f.line,
+          severity: f.severity,
+          title: f.title,
+          detail: f.detail,
+          suggestion: f.suggestion,
+        }),
+      });
+      const d = await res.json().catch(() => ({ error: `${res.status}` }));
+      if (!res.ok || d.error) throw new Error(d.error || `${res.status}`);
+      setPostedSuggestionKeys((prev) => ({ ...prev, [fKey]: true }));
+      const lineTag = f.line ? `:L${f.line}` : "";
+      setLearningNotice(`Posted inline committable suggestion for ${f.file}${lineTag} to GitHub PR #${p.number}.`);
+    } catch (e) {
+      setLearningNotice(`Could not post inline suggestion: ${(e as Error).message}`);
+    } finally {
+      setPostingSuggestionKey("");
     }
   };
 
@@ -689,15 +738,23 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
                 if (f.dismissed) return null;
                 const fKey = `${idx}:${f.file}:${f.title}`;
                 const busy = dismissingKey === fKey;
+                const postingSug = postingSuggestionKey === fKey;
+                const postedSug = !!postedSuggestionKeys[fKey];
+                const copiedFix = copiedFixKey === fKey;
                 const sevTone = f.severity === "high" ? "bg-red-100 text-red-900" : f.severity === "medium" ? "bg-amber-100 text-amber-900" : f.severity === "low" ? "bg-blue-100 text-blue-900" : "bg-neutral-100 text-neutral-700";
                 return (
                   <li key={fKey} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                    <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase ${sevTone}`}>
                           {f.severity}
                         </span>
                         <InlineCode>{f.file}</InlineCode>
+                        {f.line ? (
+                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-emerald-900">
+                            L{f.line}
+                          </span>
+                        ) : null}
                         <span className="font-medium text-neutral-900">{f.title}</span>
                       </div>
                       {f.detail && (
@@ -705,24 +762,60 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
                           {f.detail.split("\n\n@@")[0]?.replace(/\s+/g, " ").trim()}
                         </p>
                       )}
-                    </div>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => handleDismissFinding(f, idx)}
-                      className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-border bg-neutral-50 px-2.5 py-1 text-xs font-medium text-neutral-800 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-900 disabled:opacity-50"
-                    >
-                      {busy ? (
-                        <>
-                          <Loader2 className="size-3 animate-spin text-brand" />
-                          <span>Saving rule…</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>Dismiss & remember rule</span>
-                        </>
+                      {f.suggestion && (
+                        <div className="rounded border border-emerald-200 bg-emerald-50/70 px-2 py-1 font-mono text-[11.5px] text-emerald-900">
+                          <span className="select-none pr-1.5 font-bold text-emerald-600">+</span>
+                          <span className="break-all">{f.suggestion.split("\n")[0]}</span>
+                        </div>
                       )}
-                    </button>
+                    </div>
+                    <div className="shrink-0 flex flex-wrap items-center gap-1.5">
+                      {f.suggestion && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopySuggestion(fKey, f.suggestion!)}
+                          className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-900 hover:bg-emerald-100"
+                        >
+                          <span>{copiedFix ? "✓ Copied fix" : "Copy fix"}</span>
+                        </button>
+                      )}
+                      {(f.suggestion || f.file) && (
+                        <button
+                          type="button"
+                          disabled={postingSug || postedSug}
+                          onClick={() => handlePostSuggestion(f, idx)}
+                          className="inline-flex items-center gap-1 rounded-md border border-sky-300 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-900 hover:bg-sky-100 disabled:opacity-60"
+                        >
+                          {postingSug ? (
+                            <>
+                              <Loader2 className="size-3 animate-spin text-sky-700" />
+                              <span>Posting to GitHub…</span>
+                            </>
+                          ) : postedSug ? (
+                            <span>✓ Posted to GitHub</span>
+                          ) : (
+                            <span>Post inline suggestion to GitHub</span>
+                          )}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => handleDismissFinding(f, idx)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-neutral-50 px-2.5 py-1 text-xs font-medium text-neutral-800 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-900 disabled:opacity-50"
+                      >
+                        {busy ? (
+                          <>
+                            <Loader2 className="size-3 animate-spin text-brand" />
+                            <span>Saving rule…</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Dismiss & remember rule</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </li>
                 );
               })}

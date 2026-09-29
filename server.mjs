@@ -596,7 +596,7 @@ async function askModel(prompt, c) {
   return (await res.json()).choices[0].message.content.replace(/<think>[\s\S]*?<\/think>/g, "");
 }
 
-const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, temperature: 0.2, postScores: false, postReview: false };
+const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false };
 const reviewConfig = async () => ({ ...REVIEW_DEFAULTS, ...((await store.getSetting("review")) || {}) });
 
 // Repository review guides: AGENTS.md and/or CLAUDE.md at the repo root (both are used when both exist, since one is
@@ -926,12 +926,17 @@ async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress
         return norm.includes(titleCandidate.toLowerCase().slice(0, 40)) || (h.file && norm.includes(`[${h.file.toLowerCase()}]`) && norm.includes(first.toLowerCase().slice(0, 24)));
       });
       if (isDismissedByRule) continue;
-      findings.push({
-        file: h.file,
-        severity: /bug|wrong|incorrect|leak|crash|null|undefined|security|inject|unsafe|race|deadlock|error/i.test(text) ? "medium" : "low",
-        title: titleCandidate,
-        detail: `${text}\n\n${h.header}\n${h.diff.trim()}`,
-      });
+      findings.push(
+        deriveSuggestionFromDetail(
+          {
+            file: h.file,
+            severity: /bug|wrong|incorrect|leak|crash|null|undefined|security|inject|unsafe|race|deadlock|error/i.test(text) ? "medium" : "low",
+            title: titleCandidate,
+            detail: `${text}\n\n${h.header}\n${h.diff.trim()}`,
+          },
+          activeDiff,
+        ),
+      );
     }
     const doneHunks = Math.min(hunks.length, start + batch.length);
     onProgress?.({
@@ -951,6 +956,129 @@ async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress
   };
 }
 
+function findFileLineInDiff(file, diff) {
+  if (!file || !diff) return 0;
+  const lines = String(diff).split("\n");
+  let inFile = false;
+  let curLine = 0;
+  for (const l of lines) {
+    if (l.startsWith("diff --git")) {
+      inFile = l.endsWith(` b/${file}`) || l.includes(` b/${file} `);
+      curLine = 0;
+      continue;
+    }
+    if (l.startsWith("+++ ")) {
+      const target = l.slice(4).replace(/^b\//, "").trim();
+      inFile = target === file;
+      continue;
+    }
+    if (!inFile) continue;
+    const hm = l.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hm) {
+      curLine = parseInt(hm[1], 10);
+      continue;
+    }
+    if (curLine > 0) {
+      if (l.startsWith("+") && !l.startsWith("+++")) return curLine;
+      if (l.startsWith("-") && !l.startsWith("---")) return curLine;
+      if (l.startsWith(" ")) curLine++;
+    }
+  }
+  return 0;
+}
+
+function deriveSuggestionFromDetail(f, diff = "") {
+  const str = (x, max) => String(x ?? "").slice(0, max);
+  const SEV_MAP = {
+    blocker: "high",
+    major: "medium",
+    minor: "low",
+    high: "high",
+    medium: "medium",
+    low: "low",
+    nit: "nit",
+  };
+  const rawSev = String(f?.severity || "low").toLowerCase();
+  const severity = SEV_MAP[rawSev] || "low";
+  const file = str(f?.file, 300).trim();
+  const title = str(f?.title, 300).trim();
+  let detail = str(f?.detail, 4000);
+
+  // 1. Determine target line in new file
+  let line = Number.isFinite(Number(f?.line)) && Number(f.line) > 0 ? Math.round(Number(f.line)) : 0;
+  if (!line && detail) {
+    const hunkMatch = detail.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@([^\n]*)\n([\s\S]*)/);
+    if (hunkMatch) {
+      let curLine = parseInt(hunkMatch[1], 10);
+      let foundLine = 0;
+      for (const hl of hunkMatch[3].split("\n")) {
+        if (hl.startsWith("+++") || hl.startsWith("---")) continue;
+        if (hl.startsWith("+") || hl.startsWith("-")) {
+          foundLine = curLine;
+          break;
+        }
+        if (hl.startsWith(" ")) curLine++;
+      }
+      line = foundLine || parseInt(hunkMatch[1], 10);
+    } else {
+      const hmSimple = detail.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (hmSimple) line = parseInt(hmSimple[1], 10);
+    }
+  }
+  if (!line && detail) {
+    const lineRef = detail.match(/(?:\bline\s+|[:#]L|\bL)(\d{1,6})\b/i);
+    if (lineRef) line = parseInt(lineRef[1], 10);
+  }
+  if (!line && file && diff) {
+    line = findFileLineInDiff(file, diff);
+  }
+
+  // 2. Determine replacement suggestion snippet (without markdown backticks)
+  let suggestion = "";
+  if (typeof f?.suggestion === "string" && f.suggestion.trim()) {
+    suggestion = f.suggestion
+      .trim()
+      .replace(/^```(?:suggestion|[a-zA-Z0-9_-]*)\r?\n?/i, "")
+      .replace(/\r?\n?```$/i, "")
+      .replace(/\r?\n$/, "");
+  }
+  if (!suggestion && detail) {
+    const sugFence = detail.match(/```suggestion\r?\n([\s\S]*?)```/i);
+    if (sugFence) {
+      suggestion = sugFence[1].replace(/\r?\n$/, "");
+      detail = detail.replace(sugFence[0], "").trim();
+    } else {
+      const explanationPart = detail.split("\n\n@@")[0] || detail;
+      const codeFence = explanationPart.match(/```(?:[a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/);
+      if (codeFence && codeFence[1].trim()) {
+        const inner = codeFence[1].replace(/\r?\n$/, "");
+        if (!inner.startsWith("@@")) {
+          const plusLines = inner
+            .split("\n")
+            .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
+            .map((l) => l.slice(1));
+          suggestion = plusLines.length ? plusLines.join("\n") : inner;
+        }
+      } else {
+        const inlineReplace = explanationPart.match(/(?:replace\s+with|change\s+to|use\s+instead|suggested\s+fix|fix)\s*[:：]?\s*`([^`\n]{3,240})`/i);
+        if (inlineReplace) {
+          suggestion = inlineReplace[1].trim();
+        }
+      }
+    }
+  }
+
+  return {
+    file,
+    ...(line > 0 ? { line } : {}),
+    severity,
+    title,
+    detail,
+    ...(suggestion ? { suggestion: str(suggestion, 2000) } : {}),
+    ...(f?.dismissed ? { dismissed: true } : {}),
+  };
+}
+
 function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null) {
   const issueBlock = linkedIssues?.length
     ? `\nLinked GitHub Issues & Requirements (MANDATORY: explicitly verify whether the pull request diff fulfills all requirements and acceptance criteria described in these linked issues, and flag any unfulfilled or partially met requirement in findings):\n${linkedIssues
@@ -963,9 +1091,9 @@ function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = tru
   const incrementalBlock = incrementalCtx?.promptBlock ? `\n${incrementalCtx.promptBlock}\n` : "";
   return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the repository team learnings, the linked GitHub issues and acceptance criteria, the git commit history, and the code diff. Reply with ONLY a JSON object:
 {"summary":"3-5 sentence architectural walkthrough covering what changed, commit progression, fulfillment of linked issue requirements, and adherence to repository guidelines","verdict":"approve|comment|request_changes",
-${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},\n` : ""} "findings":[{"file":"path","severity":"high|medium|low|nit","title":"short","detail":"why + concrete fix (cite AGENTS.md/CLAUDE.md rule, linked issue #number requirement, or commit if relevant)"}],
+${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},\n` : ""} "findings":[{"severity":"blocker|major|minor|nit|high|medium|low","file":"path","line":42,"title":"short","detail":"specific line/behaviour and fix (cite AGENTS.md/CLAUDE.md rule, linked issue #number requirement, or commit if relevant)","suggestion":"optional exact replacement code"}],
  "walkthrough":[{"file":"path","change":"concise summary of change in this file"}]}
-Be concrete; cite exact files and rules. Respect all Repository Team Learnings and never flag dismissed patterns. Max ${r.maxFindings} findings, most severe first. Today is ${new Date().toISOString().slice(0, 10)}.
+For each finding, include the integer target \`line\` number in the new file and an optional \`suggestion\` containing the exact replacement code snippet for the target line/block (without markdown backticks) so the fix can be applied in one click. Be concrete; cite exact files and rules. Respect all Repository Team Learnings and never flag dismissed patterns. Max ${r.maxFindings} findings, most severe first. Today is ${new Date().toISOString().slice(0, 10)}.
 
 PR #${pr.number}: ${pr.title}
 Author: ${pr.author.login}  Base: ${pr.baseRefName} <- Head: ${pr.headRefName}${pr.headSha ? ` (${pr.headSha.slice(0, 7)})` : ""}  Files: ${pr.changedFiles}  +${pr.additions} -${pr.deletions}
@@ -987,12 +1115,11 @@ async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores 
   }
   const n = (x) => Math.max(0, Math.min(100, Math.round(Number(x)) || 0));
   const str = (x, max) => String(x ?? "").slice(0, max);
-  const SEV = ["high", "medium", "low", "nit"];
   return {
     summary: str(out.summary, 2500),
     verdict: ["approve", "comment", "request_changes"].includes(out.verdict) ? out.verdict : "comment",
     scores: Object.fromEntries(["quality", "correctness_risk", "test_coverage", "readability", "pr_hygiene"].map((k) => [k, n(out.scores?.[k])])),
-    findings: (Array.isArray(out.findings) ? out.findings : []).slice(0, 20).map((f) => ({ file: str(f?.file, 300), severity: SEV.includes(f?.severity) ? f.severity : "low", title: str(f?.title, 300), detail: str(f?.detail, 4000), ...(f?.dismissed ? { dismissed: true } : {}) })),
+    findings: (Array.isArray(out.findings) ? out.findings : []).slice(0, 20).map((f) => deriveSuggestionFromDetail(f, diff)),
     walkthrough: (Array.isArray(out.walkthrough) ? out.walkthrough : []).slice(0, 100).filter((w) => w && typeof w.file === "string").map((w) => ({ file: str(w.file, 300), change: str(w.change, 500) })),
     rawOutput: str(text, 20000),
   };
@@ -1063,7 +1190,15 @@ async function startOrPollReview(ref, force, repo, part = "") {
   if (!force && cached && hasValidScores(cached.review?.scores)) {
     const repoLearnings = await getRepoLearnings(repoOf(cached.pr));
     const headSha = extractHeadSha(cached.pr, cached.gitHistory) || cached.headSha;
-    return { ...cached, ...(headSha ? { headSha, pr: { ...cached.pr, headSha } } : {}), learnings: repoLearnings };
+    const normFindings = Array.isArray(cached.review?.findings)
+      ? cached.review.findings.map((f) => deriveSuggestionFromDetail(f, ""))
+      : [];
+    return {
+      ...cached,
+      ...(headSha ? { headSha, pr: { ...cached.pr, headSha } } : {}),
+      learnings: repoLearnings,
+      review: { ...cached.review, findings: normFindings },
+    };
   }
   if (!force && cached && !hasValidScores(cached.review?.scores)) {
     part = cached.review?.summary ? "scores" : "";
@@ -1312,11 +1447,14 @@ async function startOrPollReview(ref, force, repo, part = "") {
         at: new Date().toISOString(),
       };
       const repoCfg = ((await store.getSetting("guides")) || {})[repoOf(live.pr)] || {};
+      const rsCfg = ((await store.getSetting("repoSettings")) || {})[repoOf(live.pr)] || {};
       const doPostScores = repoCfg.postScores ?? rc.postScores;
       const doPostReview = repoCfg.postReview ?? rc.postReview;
+      const doPostInlineSuggestions = repoCfg.postInlineSuggestions ?? rsCfg.postInlineSuggestions ?? rc.postInlineSuggestions;
       await syncPrComments(result, repoOf(live.pr), {
         postScores: !!(runScores && doPostScores && (typed || review?.scores)),
         postReview: !!(runLlm && doPostReview && review?.summary),
+        postInlineSuggestions: !!(runLlm && doPostInlineSuggestions && (review?.findings || []).some((f) => !f.dismissed && (f.suggestion || f.line))),
       });
       await store.put(result);
       entry.state = result;
@@ -1331,8 +1469,135 @@ async function startOrPollReview(ref, force, repo, part = "") {
   return live;
 }
 
-async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, postReview = false } = {}) {
-  if (!postScores && !postReview) return [];
+async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = null } = {}) {
+  if (!r?.pr?.number || !repo || !REPO_RE.test(repo)) throw new Error("Invalid PR or repository");
+  const allFindings = Array.isArray(r.review?.findings) ? r.review.findings : [];
+  const candidates =
+    findingIdx !== null && findingIdx !== undefined
+      ? [allFindings[Number(findingIdx)]].filter(Boolean)
+      : allFindings.filter((f) => !f?.dismissed && f?.file && (f?.suggestion || f?.line));
+  if (!candidates.length) return { posted: 0, mode: "none", comments: [] };
+
+  const rawHeadSha = String(
+    r.pr?.headRefOid ||
+      (r.headSha && r.headSha.length >= 40 ? r.headSha : "") ||
+      (r.pr?.headSha && r.pr.headSha.length >= 40 ? r.pr.headSha : "") ||
+      r.gitHistory?.prCommits?.at(-1)?.fullSha ||
+      r.headSha ||
+      r.pr?.headSha ||
+      "",
+  ).trim();
+
+  const comments = candidates
+    .map((rawF) => {
+      const f = deriveSuggestionFromDetail(rawF, "");
+      if (!f.file) return null;
+      const targetLine = Number(f.line) > 0 ? Math.round(Number(f.line)) : 1;
+      const explanation = String(f.detail || "").split("\n\n@@")[0].trim();
+      const bodyLines = [
+        `<!-- codeotter:suggestion:${f.file}:${targetLine} -->`,
+        `🦦 **CodeOtter [${String(f.severity || "low").toUpperCase()}]** — **${f.title || "Suggested fix"}** (\`${f.file}:L${targetLine}\`)`,
+        ...(explanation ? ["", explanation] : []),
+        ...(f.suggestion
+          ? [
+              "",
+              "```suggestion",
+              String(f.suggestion).replace(/\r?\n$/, ""),
+              "```",
+            ]
+          : []),
+      ];
+      return {
+        path: f.file,
+        line: targetLine,
+        side: "RIGHT",
+        body: bodyLines.join("\n"),
+        finding: f,
+      };
+    })
+    .filter(Boolean);
+
+  if (!comments.length) return { posted: 0, mode: "none", comments: [] };
+
+  const buildReviewArgs = (includeCommitId) => {
+    const args = [
+      "api",
+      "--method",
+      "POST",
+      `repos/${repo}/pulls/${r.pr.number}/reviews`,
+      "-f",
+      "event=COMMENT",
+      "-f",
+      `body=🦦 **CodeOtter Inline Suggestion${comments.length === 1 ? "" : "s"}** (${comments.length} committable fix${comments.length === 1 ? "" : "es"})`,
+    ];
+    if (includeCommitId && rawHeadSha) {
+      args.push("-f", `commit_id=${rawHeadSha}`);
+    }
+    for (const c of comments) {
+      args.push(
+        "-f",
+        `comments[][path]=${c.path}`,
+        "-F",
+        `comments[][line]=${c.line}`,
+        "-f",
+        `comments[][side]=${c.side}`,
+        "-f",
+        `comments[][body]=${c.body}`,
+      );
+    }
+    return args;
+  };
+
+  try {
+    const args = buildReviewArgs(rawHeadSha.length >= 7);
+    await ghAsync(args).catch(() => gh(args));
+    return {
+      posted: comments.length,
+      mode: "inline_review",
+      comments: comments.map((c) => ({ path: c.path, line: c.line })),
+    };
+  } catch {
+    try {
+      if (rawHeadSha) {
+        const argsNoSha = buildReviewArgs(false);
+        await ghAsync(argsNoSha).catch(() => gh(argsNoSha));
+        return {
+          posted: comments.length,
+          mode: "inline_review",
+          comments: comments.map((c) => ({ path: c.path, line: c.line })),
+        };
+      }
+    } catch {}
+    // Fallback to a line-referenced PR comment if the target line isn't part of the GitHub diff hunk
+    const fallbackBody = [
+      `<!-- codeotter:suggestion-comment -->`,
+      `### 🦦 CodeOtter — Inline Suggestion${comments.length === 1 ? "" : "s"}`,
+      ...comments.flatMap((c) => [
+        "",
+        `#### \`${c.path}:L${c.line}\` — **${c.finding.title || "Suggested fix"}** (\`${String(c.finding.severity || "low").toUpperCase()}\`)`,
+        ...(c.finding.detail ? [String(c.finding.detail).split("\n\n@@")[0].trim()] : []),
+        ...(c.finding.suggestion
+          ? [
+              "```suggestion",
+              String(c.finding.suggestion).replace(/\r?\n$/, ""),
+              "```",
+            ]
+          : []),
+      ]),
+    ].join("\n");
+    await ghAsync("pr", "comment", r.pr.url, "--body", fallbackBody).catch(() =>
+      gh(["pr", "comment", r.pr.url, "--body", fallbackBody]),
+    );
+    return {
+      posted: comments.length,
+      mode: "pr_comment_fallback",
+      comments: comments.map((c) => ({ path: c.path, line: c.line })),
+    };
+  }
+}
+
+async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, postReview = false, postInlineSuggestions = false } = {}) {
+  if (!postScores && !postReview && !postInlineSuggestions) return [];
   let existingComments = [];
   try {
     const raw = await ghAsync(["api", `repos/${repo}/issues/${r.pr.number}/comments?per_page=100`]).catch(() =>
@@ -1367,6 +1632,14 @@ async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, post
   if (postReview) {
     try {
       posted.push(await upsert("<!-- codeotter:review -->", formatReviewComment(r), "review"));
+    } catch (e) {
+      r.commentError = [r.commentError, e.message].filter(Boolean).join("; ");
+    }
+  }
+  if (postInlineSuggestions) {
+    try {
+      const inlineRes = await postInlineSuggestionsOnPr(r, repo);
+      if (inlineRes.posted > 0) posted.push(`inline suggestions (${inlineRes.posted})`);
     } catch (e) {
       r.commentError = [r.commentError, e.message].filter(Boolean).join("; ");
     }
@@ -1551,7 +1824,7 @@ function formatReviewComment(r) {
   const appLink = `${APP_URL}/review?pr=${encodeURIComponent(pr.url)}`;
   const [vl] = VERDICT[v.verdict] || ["Commented"];
   const e = effort(blast);
-  const actionable = (v.findings || []).filter((f) => !f.dismissed && f.severity !== "nit");
+  const actionable = (v.findings || []).filter((f) => !f.dismissed && f.severity !== "nit").map((f) => deriveSuggestionFromDetail(f, ""));
   const resolved = incremental?.resolvedFindings || [];
   const lines = [
     `<!-- codeotter:review -->`,
@@ -1577,6 +1850,27 @@ function formatReviewComment(r) {
     "",
     `#### Summary`,
     v.summary,
+    ...(actionable.length
+      ? [
+          "",
+          `#### Actionable Findings (${actionable.length})`,
+          ...actionable.flatMap((f, idx) => {
+            const explanation = String(f.detail || "").split("\n\n@@")[0].trim();
+            return [
+              "",
+              `${idx + 1}. **[${String(f.severity || "low").toUpperCase()}] \`${f.file}${f.line ? `:L${f.line}` : ""}\`** — **${f.title}**`,
+              ...(explanation ? [`   ${explanation}`] : []),
+              ...(f.suggestion
+                ? [
+                    "```suggestion",
+                    String(f.suggestion).replace(/\r?\n$/, ""),
+                    "```",
+                  ]
+                : []),
+            ];
+          }),
+        ]
+      : []),
     ...(resolved.length
       ? [
           "",
@@ -1714,9 +2008,10 @@ function renderScore(r) {
   const e = effort(blast);
   const actionable = (v.findings || []).filter((f) => !f.dismissed && f.severity !== "nit");
   const nits = (v.findings || []).filter((f) => !f.dismissed && f.severity === "nit");
-  const finding = (f) => {
+  const finding = (rawF) => {
+    const f = deriveSuggestionFromDetail(rawF, "");
     const [ic, kind, sev] = KIND[f.severity] || KIND.low;
-    return `<div class="fnd"><div class="fh"><code>${esc(f.file)}</code></div><div class="fb"><b>${ic} ${kind}${sev ? `<span class="sev">| 🔴 ${sev}</span>` : ""}</b><b style="font-weight:600">${esc(f.title)}</b><span>${esc(f.detail)}</span></div></div>`;
+    return `<div class="fnd"><div class="fh"><code>${esc(f.file)}${f.line ? `:L${f.line}` : ""}</code></div><div class="fb"><b>${ic} ${kind}${sev ? `<span class="sev">| 🔴 ${sev}</span>` : ""}</b><b style="font-weight:600">${esc(f.title)}</b><span>${esc(f.detail)}</span>${f.suggestion ? `<pre style="margin-top:8px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;padding:8px 10px;color:#065f46;font-size:12.5px">+ ${esc(f.suggestion)}</pre>` : ""}</div></div>`;
   };
   const when = new Date(r.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   return page(
@@ -1778,6 +2073,7 @@ const SETTINGS_PAGES = {
         const rs = repoSettings[r] || {};
         const postScores = g.postScores ?? rc.postScores;
         const postReview = g.postReview ?? rc.postReview;
+        const postInlineSuggestions = g.postInlineSuggestions ?? rs.postInlineSuggestions ?? rc.postInlineSuggestions;
         const learnings = normalizeLearningList(rs.learnings ?? g.learnings ?? []);
         const settings = {
           title: r,
@@ -1785,12 +2081,14 @@ const SETTINGS_PAGES = {
             files.length ? { key: "useGuides", label: "Auto-detected", type: "checkbox", text: label } : { key: "none", label: "Auto-detected", type: "readonly" },
             { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a comment to the PR with all System One scores" },
             { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add the review summary and a link to the full report" },
+            { key: "postInlineSuggestions", label: "Post inline suggestions", type: "checkbox", text: "Post inline committable suggestion comments on PR diff lines" },
             { key: "learnings", label: "Team learnings", type: "list", removable: true, hint: "Dismissed review findings remembered as persistent team rules for this repository." },
           ],
           values: {
             ...(files.length ? { useGuides: g.use ?? true } : { none: "none" }),
             postScores: !!postScores,
             postReview: !!postReview,
+            postInlineSuggestions: !!postInlineSuggestions,
             learnings,
           },
         };
@@ -1798,6 +2096,7 @@ const SETTINGS_PAGES = {
           files.length ? label : "",
           postScores ? "Post scores" : "",
           postReview ? "Post review" : "",
+          postInlineSuggestions ? "Inline suggestions" : "",
           learnings.length ? `${learnings.length} learning${learnings.length === 1 ? "" : "s"}` : "",
         ]
           .filter(Boolean)
@@ -1852,10 +2151,12 @@ const SETTINGS_PAGES = {
           ...("useGuides" in sv ? { use: !!sv.useGuides } : {}),
           ...("postScores" in sv ? { postScores: !!sv.postScores } : {}),
           ...("postReview" in sv ? { postReview: !!sv.postReview } : {}),
+          ...("postInlineSuggestions" in sv ? { postInlineSuggestions: !!sv.postInlineSuggestions } : {}),
           ...(nextLearnings !== undefined ? { learnings: nextLearnings } : {}),
         };
         repoSettings[id] = {
           ...(repoSettings[id] || {}),
+          ...("postInlineSuggestions" in sv ? { postInlineSuggestions: !!sv.postInlineSuggestions } : {}),
           ...(nextLearnings !== undefined ? { learnings: nextLearnings } : {}),
         };
       }
@@ -1916,6 +2217,7 @@ const SETTINGS_PAGES = {
             { key: "temperature", label: "Temperature", type: "range", min: 0, max: 1, step: 0.1, hint: "Ignored by Anthropic models, which do not take sampling parameters." },
             { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a GitHub PR comment with all System One scores after review" },
             { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add a GitHub PR comment with the review summary and link to the full report" },
+            { key: "postInlineSuggestions", label: "Post inline suggestions", type: "checkbox", text: "Post inline committable suggestion comments on PR diff lines" },
           ],
           actions: [{ id: "save", label: "Save" }],
         },
@@ -1950,11 +2252,12 @@ const SETTINGS_PAGES = {
           temperature: Math.min(1, Math.max(0, Number(v.temperature) || 0)),
           postScores: !!v.postScores,
           postReview: !!v.postReview,
+          postInlineSuggestions: !!v.postInlineSuggestions,
         };
         await store.setSetting("review", nextReview);
         const guides = (await store.getSetting("guides")) || {};
         for (const k of Object.keys(guides)) {
-          guides[k] = { ...guides[k], postScores: nextReview.postScores, postReview: nextReview.postReview };
+          guides[k] = { ...guides[k], postScores: nextReview.postScores, postReview: nextReview.postReview, postInlineSuggestions: nextReview.postInlineSuggestions };
         }
         await store.setSetting("guides", guides);
       }
@@ -2409,6 +2712,66 @@ http
           }
         }
         return json({ ok: true, learnings, review: updatedReview });
+      }
+      if (url.pathname === "/api/review-suggestions" && req.method === "POST") {
+        const g = await gate(req, res, "admin");
+        if (!g.ok) return;
+        const body = await readJson(req);
+        const prUrl = String(body.prUrl || "").trim();
+        if (!prUrl || !PR_URL_RE.test(prUrl)) throw new Error("Invalid pull request URL");
+        const repo = String(body.repo || prUrl.split("/").slice(3, 5).join("/")).trim();
+        if (!repo || !REPO_RE.test(repo)) throw new Error("Invalid repository");
+        const prNumMatch = prUrl.match(/\/pull\/(\d+)$/);
+        const prNum = prNumMatch ? Number(prNumMatch[1]) : 0;
+        const stored = await store.get(prUrl).catch(() => null);
+        const active = activeReviews.get(prUrl)?.state || null;
+        let target = stored || active;
+        if (!target) {
+          target = {
+            pr: { url: prUrl, number: prNum },
+            headSha: String(body.headSha || ""),
+            review: {
+              findings: body.file
+                ? [
+                    {
+                      file: String(body.file || ""),
+                      line: Number(body.line) || 0,
+                      severity: String(body.severity || "low"),
+                      title: String(body.title || ""),
+                      detail: String(body.detail || ""),
+                      suggestion: String(body.suggestion || ""),
+                    },
+                  ]
+                : [],
+            },
+          };
+        } else if (body.findingIdx !== undefined && body.findingIdx !== null) {
+          const idx = Number(body.findingIdx);
+          if (Array.isArray(target.review?.findings) && target.review.findings[idx]) {
+            const existingF = target.review.findings[idx];
+            target.review.findings[idx] = deriveSuggestionFromDetail(
+              {
+                ...existingF,
+                ...(body.line ? { line: Number(body.line) } : {}),
+                ...(body.suggestion !== undefined ? { suggestion: String(body.suggestion) } : {}),
+              },
+              "",
+            );
+          }
+        }
+        const resInfo = await postInlineSuggestionsOnPr(target, repo, {
+          findingIdx: body.findingIdx !== undefined && body.findingIdx !== null ? Number(body.findingIdx) : null,
+        });
+        if (stored && resInfo.posted > 0) {
+          const tag = resInfo.comments[0]
+            ? `inline suggestion (${resInfo.comments[0].path}:L${resInfo.comments[0].line})`
+            : `inline suggestions (${resInfo.posted})`;
+          const nextPosted = [...new Set([...(stored.commentsPosted || []), tag])];
+          const updated = { ...stored, commentsPosted: nextPosted, review: target.review };
+          await store.put(updated);
+          if (activeReviews.get(prUrl)) activeReviews.get(prUrl).state = updated;
+        }
+        return json({ ok: true, ...resInfo });
       }
       if (url.pathname === "/api/score" || (url.pathname === "/score" && url.searchParams.get("pr"))) {
         if (!(await gate(req, res)).ok) return;

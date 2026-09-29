@@ -345,6 +345,72 @@ function MermaidDiagram({ code, isDark }: { code: string; isDark: boolean }) {
   );
 }
 
+function SuggestionCodeCard({ code, isDark }: { code: string; isDark: boolean }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    try {
+      navigator.clipboard?.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {}
+  };
+
+  return (
+    <div
+      className={cn(
+        "my-2.5 overflow-hidden rounded-lg border",
+        isDark ? "border-emerald-500/40 bg-[#071912]" : "border-emerald-300 bg-emerald-50/40",
+      )}
+    >
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-2 border-b px-3 py-1.5 text-[11px]",
+          isDark
+            ? "border-emerald-500/30 bg-emerald-950/60 text-emerald-200"
+            : "border-emerald-200 bg-emerald-100/70 text-emerald-900",
+        )}
+      >
+        <div className="flex items-center gap-2">
+          <span className="inline-block size-2 rounded-full bg-emerald-500" />
+          <span className="font-mono font-semibold tracking-tight">Suggested Fix (suggestion)</span>
+        </div>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className={cn(
+            "rounded border px-2 py-0.5 font-mono text-[10.5px] font-medium transition-colors",
+            isDark
+              ? "border-emerald-500/50 bg-emerald-900/70 text-emerald-100 hover:bg-emerald-800"
+              : "border-emerald-300 bg-white text-emerald-900 hover:bg-emerald-50",
+          )}
+        >
+          {copied ? "✓ Copied fix" : "Copy fix"}
+        </button>
+      </div>
+      <pre
+        className={cn(
+          "overflow-x-auto p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words",
+          isDark ? "text-emerald-200" : "text-emerald-950",
+        )}
+      >
+        {code.split("\n").map((line, i) => (
+          <div
+            key={i}
+            className={cn(
+              "flex items-start rounded px-1.5 py-0.5",
+              isDark ? "bg-emerald-500/10 text-emerald-300" : "bg-emerald-100/70 text-emerald-900",
+            )}
+          >
+            <span className="select-none pr-2 font-bold text-emerald-500">+</span>
+            <span className="flex-1">{line}</span>
+          </div>
+        ))}
+      </pre>
+    </div>
+  );
+}
+
 export function MarkdownView({
   content,
   variant = "light",
@@ -515,6 +581,9 @@ export function MarkdownView({
             const raw = String(children).replace(/\n$/, "");
             if (codeClass?.includes("language-mermaid")) {
               return <MermaidDiagram code={raw} isDark={isDark} />;
+            }
+            if (codeClass?.includes("language-suggestion")) {
+              return <SuggestionCodeCard code={raw} isDark={isDark} />;
             }
             const isDiff = codeClass?.includes("language-diff");
             return (

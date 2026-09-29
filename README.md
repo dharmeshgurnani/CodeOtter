@@ -91,9 +91,9 @@ Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face insi
 <tr>
 <td width="50%" valign="middle">
 
-### `AGENTS.md` / `CLAUDE.md`, Repo Learnings, Incremental Delta Reviews &amp; GitHub PR Sync
+### `AGENTS.md` / `CLAUDE.md`, Repo Learnings, Inline `suggestion` Fixes, Incremental Delta Reviews &amp; GitHub PR Sync
 
-Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository to enforce team rules on every diff hunk. Dismiss any review finding with **1-click ("Dismiss & remember rule")** to persist a repository team learning that is automatically injected into future LLM and System 1 review prompts (and managed under **Settings → Repositories → ⚙️**). Re-reviewing a pull request performs an **incremental commit-by-commit delta review** (`prevSha → headSha`), inspecting new commits and tracking resolved prior findings. Enable **Post scores on PR** and **Add PR review as a comment** to publish and **update in-place (upsert)** formatted scorecards and review summaries directly on GitHub pull requests without creating duplicate comment noise.
+Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository to enforce team rules on every diff hunk. Findings include line-level `:L<line>` anchors and exact `suggestion` code replacements rendered as interactive **Suggested Fix** cards with 1-click **"Copy fix"** and **"Post inline suggestion to GitHub"** (`POST /api/review-suggestions`), posting committable ` ```suggestion ` blocks directly onto the pull request diff line so authors can click **"Commit suggestion"** on GitHub. Dismiss any review finding with **1-click ("Dismiss & remember rule")** to persist a repository team learning that is automatically injected into future LLM and System 1 review prompts (and managed under **Settings → Repositories → ⚙️**). Re-reviewing a pull request performs an **incremental commit-by-commit delta review** (`prevSha → headSha`), inspecting new commits and tracking resolved prior findings. Enable **Post scores on PR**, **Add PR review as a comment**, and **Post inline suggestions** to publish and **update in-place (upsert)** formatted scorecards, review summaries, and inline committable fixes on GitHub pull requests.
 
 [Security &amp; Privacy →](#-security--privacy)
 
