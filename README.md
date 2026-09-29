@@ -184,14 +184,14 @@ flowchart LR
 
 ### 1. Language Model (System 2 — Prose & Cohorts)
 Produces the human-readable review narrative:
-- **Executive Walkthrough**: High-level context of what changed and why.
+- **Executive Walkthrough**: High-level context of what changed, commit progression, and linked issue requirement validation (`Closes #123`, `Fixes #456`).
 - **File Cohorts**: Groups related file modifications into logical review units.
 - **Actionable Findings**: Severity-ranked issues (`⚠️ High / Major`, `⚠️ Medium / Minor`, `🛠️ Low / Refactor`, `🧹 Nitpick`).
 
 ### 2. System One Model (System 1 — Typed Scores & Merge Gates)
 Evaluates structured rubrics and merge-policy criteria in a single lightning-fast pass:
 - **6 Calibrated Scores (`0–100`)**: `Quality`, `Blast Radius`, `Correctness Risk`, `Test Coverage`, `Readability`, and `PR Hygiene`.
-- **8 Pre-Merge Policy Gates**: `Title check`, `Description check`, `Security` (injection, auth bypass, secrets, SSRF, XSS), `Complexity`, `Tests`, `Documentation`, `Scope`, and `Repository guidelines` (`AGENTS.md` / `CLAUDE.md` compliance).
+- **9 Pre-Merge Policy Gates**: `Title check`, `Description check`, `Security` (injection, auth bypass, secrets, SSRF, XSS), `Complexity`, `Tests`, `Documentation`, `Scope`, `Repository guidelines` (`AGENTS.md` / `CLAUDE.md` compliance), and `Issue requirements` (validates diff against linked GitHub issue acceptance criteria).
 
 *Both engines run in parallel; reviews take only as long as the slowest pass. Either engine can also operate standalone.*
 

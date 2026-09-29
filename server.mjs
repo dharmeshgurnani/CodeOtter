@@ -508,15 +508,17 @@ const pbStore = {
 const store = PB_URL ? pbStore : fileStore;
 
 // GitHub CLI. stderr is captured so "gh auth login" / "Not Found" reach the UI instead of the terminal.
-const gh = (...args) => {
+const gh = (...rawArgs) => {
+  const args = Array.isArray(rawArgs[0]) ? rawArgs[0] : rawArgs;
   try {
     return execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "pipe"] });
   } catch (e) {
     throw new Error(`gh ${args.slice(0, 2).join(" ")}: ${String(e.stderr || e.message).trim().split("\n")[0] || "failed"}`);
   }
 };
-const ghAsync = (...args) =>
-  new Promise((resolve, reject) => {
+const ghAsync = (...rawArgs) => {
+  const args = Array.isArray(rawArgs[0]) ? rawArgs[0] : rawArgs;
+  return new Promise((resolve, reject) => {
     const p = spawn("gh", args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let out = "";
     let err = "";
@@ -528,6 +530,7 @@ const ghAsync = (...args) =>
       else reject(new Error(`gh ${args.slice(0, 2).join(" ")}: ${String(err).trim().split("\n")[0] || "failed"}`));
     });
   });
+};
 const OWNER_RE = /^[\w.-]+$/;
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const PR_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
@@ -673,6 +676,70 @@ async function fetchGitHistory(repo, pr) {
   return { prCommits, baseCommits, formatted };
 }
 
+const ISSUE_REF_RE = /(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?|#)\s*(?:([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+))?#(\d+)/gi;
+const STANDALONE_ISSUE_RE = /(?:^|[^\w/])(?:([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+))?#(\d+)\b/g;
+const BRANCH_ISSUE_RE = /(?:^|[/_-])(?:issue|fix|bug|feat|closes|resolves|gh)[/_-]?(\d+)\b|^(\d+)[/_-]/gi;
+
+function parseLinkedIssueRefs(baseRepo, pr) {
+  if (!baseRepo || !REPO_RE.test(baseRepo)) return [];
+  const seen = new Set();
+  const out = [];
+  const addRef = (repoCandidate, numStr) => {
+    const num = Number(numStr);
+    if (!Number.isInteger(num) || num <= 0) return;
+    const issueRepo = repoCandidate ? String(repoCandidate).trim() : baseRepo;
+    const [ownerPart, namePart] = issueRepo.split("/");
+    if (!REPO_RE.test(issueRepo) || !OWNER_RE.test(ownerPart || "") || !OWNER_RE.test(namePart || "")) return;
+    if (issueRepo === baseRepo && num === Number(pr?.number)) return;
+    const key = `${issueRepo}#${num}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ repo: issueRepo, number: num });
+  };
+
+  const textSources = [String(pr?.title || ""), String(pr?.body || "")];
+  for (const src of textSources) {
+    for (const m of src.matchAll(ISSUE_REF_RE)) addRef(m[1], m[2]);
+    for (const m of src.matchAll(STANDALONE_ISSUE_RE)) addRef(m[1], m[2]);
+  }
+  const branch = String(pr?.headRefName || "");
+  if (branch) {
+    for (const m of branch.matchAll(BRANCH_ISSUE_RE)) addRef(baseRepo, m[1] || m[2]);
+  }
+  return out.slice(0, 3);
+}
+
+async function fetchLinkedIssues(baseRepo, pr) {
+  const refs = parseLinkedIssueRefs(baseRepo, pr);
+  if (!refs.length) return [];
+  const list = await Promise.all(
+    refs.slice(0, 3).map(async ({ repo: issueRepo, number: num }) => {
+      if (!REPO_RE.test(issueRepo)) return null;
+      try {
+        const raw = await ghAsync(["issue", "view", String(num), "-R", issueRepo, "--json", "number,title,body,state,url,labels"]).catch(() =>
+          gh(["issue", "view", String(num), "-R", issueRepo, "--json", "number,title,body,state,url,labels"]),
+        );
+        const iss = JSON.parse(raw);
+        if (!iss || !iss.number) return null;
+        return {
+          number: Number(iss.number) || num,
+          repo: issueRepo,
+          title: String(iss.title || "").trim().slice(0, 300),
+          body: String(iss.body || "").trim().slice(0, 1200),
+          state: String(iss.state || "OPEN").toUpperCase(),
+          url: String(iss.url || `https://github.com/${issueRepo}/issues/${num}`),
+          labels: Array.isArray(iss.labels)
+            ? iss.labels.map((l) => (typeof l === "string" ? l : String(l?.name || ""))).filter(Boolean).slice(0, 12)
+            : [],
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return list.filter(Boolean);
+}
+
 // Score rubrics (5 levels, index 0..4, mapped to 0..100) and merge gates (yes/no). `risk` gates pass when the answer is no.
 const S1_SCORES = {
   quality: ["Broken or wrong", "Works but sloppy", "Acceptable", "Clean and idiomatic", "Exemplary"],
@@ -691,9 +758,10 @@ const S1_GATES = [
   { id: "docs", label: "Documentation", q: "Documentation is updated wherever behaviour visible to users or developers changed.", risk: false },
   { id: "scope", label: "Scope", q: "The pull request does one focused thing.", risk: false },
   { id: "guidelines", label: "Repository guidelines", q: "The change violates the repository's review guidelines.", risk: true, needsGuide: true },
+  { id: "issue_requirements", label: "Issue requirements", q: "Does the pull request diff fulfill the requirements and acceptance criteria described in the linked issue(s)?", risk: false, needsIssues: true },
 ];
-async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory) {
-  const state = {
+function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = []) {
+  return {
     pull_request: {
       title: pr.title,
       description: (pr.body || "").slice(0, 3000),
@@ -704,13 +772,28 @@ async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory) {
       files: pr.files.map((f) => `${f.path} +${f.additions} -${f.deletions}`).slice(0, 200),
     },
     change_facts: (({ files, lines, dirs, hotspots, testFiles }) => ({ files, lines, areas: dirs, sensitive_areas: hotspots, test_files: testFiles }))(blastRadius(pr.files)),
+    ...(linkedIssues?.length
+      ? {
+          linked_issues: linkedIssues.map((iss) => ({
+            number: iss.number,
+            repo: iss.repo,
+            title: iss.title,
+            state: iss.state,
+            labels: iss.labels || [],
+            requirements: (iss.body || "").slice(0, 1200),
+          })),
+        }
+      : {}),
     ...(guide ? { review_guidelines: guide.text.slice(0, c.contextChars ? Math.floor(c.contextChars / 4) : 12000) } : {}),
     ...(gitHistory?.formatted ? { git_change_history: gitHistory.formatted.slice(0, 4000) } : {}),
     diff: diff.slice(0, c.contextChars || 80000),
   };
+}
+async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = []) {
+  const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues);
   const questions = {};
   for (const [k, levels] of Object.entries(S1_SCORES)) questions[`score_${k}`] = { type: "score", instructions: `Rate the pull request's ${k.replace("_", " ")}.`, criteria: levels };
-  for (const g of S1_GATES) if (!g.needsGuide || guide) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
+  for (const g of S1_GATES) if ((!g.needsGuide || guide) && (!g.needsIssues || linkedIssues?.length)) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
   const a = await askSystemOne(state, questions, c, onPartial ? (partial) => {
     const readyScores = {};
     for (const k of Object.keys(S1_SCORES)) {
@@ -744,11 +827,12 @@ function splitHunks(diff, maxHunks = 40, maxChars = 2000) {
   push();
   return out.filter((h) => !/\.(lock|min\.js|map|snap)$/.test(h.file)).sort((a, b) => b.diff.length - a.diff.length).slice(0, maxHunks);
 }
-async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress = null) {
+async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress = null, linkedIssues = []) {
   const hunks = splitHunks(diff);
   const files = [...new Set(hunks.map((h) => h.file))];
   const commitNote = gitHistory?.prCommits?.length ? ` Analyzed ${gitHistory.prCommits.length} commit(s) (${gitHistory.prCommits.slice(0, 3).map((x) => x.sha).join(", ")})` : "";
   const guideNote = guide?.file ? ` against ${guide.file} guidelines` : "";
+  const issueNote = linkedIssues?.length ? ` Validated against linked issue(s) ${linkedIssues.map((i) => `#${i.number}`).join(", ")}.` : "";
   const port = await ensureSidecar(c.local);
   const seen = new Set();
   const findings = [];
@@ -781,14 +865,14 @@ async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress
     }
     const doneHunks = Math.min(hunks.length, start + batch.length);
     onProgress?.({
-      summary: `CodeOtter inspected ${doneHunks} of ${hunks.length} diff hunks across ${files.length} changed files${guideNote}.${commitNote} Found ${findings.length} actionable observation(s) so far.`,
+      summary: `CodeOtter inspected ${doneHunks} of ${hunks.length} diff hunks across ${files.length} changed files${guideNote}.${commitNote}${issueNote} Found ${findings.length} actionable observation(s) so far.`,
       findings: findings.slice(0, 20),
       walkthrough: files.map((f) => ({ file: f, change: `${hunks.filter((h) => h.file === f).length} hunk(s) reviewed` })),
       rawOutput: rawLog.join("\n\n"),
     });
   }
   return {
-    summary: `CodeOtter reviewed ${hunks.length} diff hunks across ${files.length} changed files${guideNote}.${commitNote} Found ${findings.length} actionable observation(s).`,
+    summary: `CodeOtter reviewed ${hunks.length} diff hunks across ${files.length} changed files${guideNote}.${commitNote}${issueNote} Found ${findings.length} actionable observation(s).`,
     verdict: findings.some((f) => f.severity === "medium") ? "comment" : findings.length ? "comment" : "approve",
     scores: { quality: 0, correctness_risk: 0, test_coverage: 0, readability: 0, pr_hygiene: 0 },
     findings: findings.slice(0, 20),
@@ -797,11 +881,15 @@ async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress
   };
 }
 
-async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null) {
-  if (c.api === "codereviewer") return reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress);
-  const prompt = `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the git commit history, and the code diff. Reply with ONLY a JSON object:
-{"summary":"3-5 sentence architectural walkthrough covering what changed, commit progression, and adherence to repository guidelines","verdict":"approve|comment|request_changes",
-${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},\n` : ""} "findings":[{"file":"path","severity":"high|medium|low|nit","title":"short","detail":"why + concrete fix (cite AGENTS.md/CLAUDE.md rule or commit if relevant)"}],
+function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = []) {
+  const issueBlock = linkedIssues?.length
+    ? `\nLinked GitHub Issues & Requirements (MANDATORY: explicitly verify whether the pull request diff fulfills all requirements and acceptance criteria described in these linked issues, and flag any unfulfilled or partially met requirement in findings):\n${linkedIssues
+        .map((iss) => `Issue #${iss.number} (${iss.repo}, ${iss.state}): ${iss.title}${iss.labels?.length ? ` [${iss.labels.join(", ")}]` : ""}\n${(iss.body || "(no body provided)").slice(0, 1200)}`)
+        .join("\n\n")}\n`
+    : "";
+  return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the linked GitHub issues and acceptance criteria, the git commit history, and the code diff. Reply with ONLY a JSON object:
+{"summary":"3-5 sentence architectural walkthrough covering what changed, commit progression, fulfillment of linked issue requirements, and adherence to repository guidelines","verdict":"approve|comment|request_changes",
+${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},\n` : ""} "findings":[{"file":"path","severity":"high|medium|low|nit","title":"short","detail":"why + concrete fix (cite AGENTS.md/CLAUDE.md rule, linked issue #number requirement, or commit if relevant)"}],
  "walkthrough":[{"file":"path","change":"concise summary of change in this file"}]}
 Be concrete; cite exact files and rules. Max ${r.maxFindings} findings, most severe first. Today is ${new Date().toISOString().slice(0, 10)}.
 
@@ -809,10 +897,14 @@ PR #${pr.number}: ${pr.title}
 Author: ${pr.author.login}  Base: ${pr.baseRefName} <- Head: ${pr.headRefName}  Files: ${pr.changedFiles}  +${pr.additions} -${pr.deletions}
 Description:
 ${(pr.body || "(none)").slice(0, c.contextChars ? Math.min(3000, Math.floor(c.contextChars / 10)) : 3000)}
-${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
+${issueBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
 Diff (may be truncated):
 ${diff.slice(0, Math.min(r.diffChars, c.contextChars || Infinity))}`;
-  const text = await askModel(prompt, { ...c, temperature: r.temperature });
+}
+
+async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = []) {
+  if (c.api === "codereviewer") return reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress, linkedIssues);
+  const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues), { ...c, temperature: r.temperature });
   let out;
   try {
     out = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
@@ -932,6 +1024,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
     engines,
     model: modelLabel,
     guide: cached?.guide || null,
+    linkedIssues: cached?.linkedIssues || [],
     gitHistory: cached?.gitHistory || { prCommits: Array.isArray(pr.commits) ? pr.commits.map((cm) => ({ sha: String(cm.oid || "").slice(0, 7), message: String(cm.messageHeadline || "").trim(), author: cm.authors?.[0]?.login || pr.author?.login || "" })) : [], baseCommits: [] },
     at: new Date().toISOString(),
     pending: {
@@ -959,8 +1052,12 @@ async function startOrPollReview(ref, force, repo, part = "") {
         live.blast = { ...fb, ...(keepScore ? { score: live.blast.score, source: live.blast.source || prevBlast?.source || "s1" } : {}) };
       }
       live.guide = guide?.file || null;
-      const gitHistory = await fetchGitHistory(repoOf(live.pr), live.pr);
+      const [gitHistory, linkedIssues] = await Promise.all([
+        fetchGitHistory(repoOf(live.pr), live.pr),
+        fetchLinkedIssues(repoOf(live.pr), live.pr),
+      ]);
       live.gitHistory = { prCommits: gitHistory.prCommits, baseCommits: gitHistory.baseCommits };
+      live.linkedIssues = linkedIssues;
 
       const s1Task = runScores && s1.enabled
         ? scoreWithSystemOne(live.pr, diff, s1, guide, ({ readyScores, gates, done }) => {
@@ -975,7 +1072,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
               live.pending.scores = false;
               live.pending.gates = false;
             }
-          }, gitHistory)
+          }, gitHistory, linkedIssues)
         : Promise.resolve(null);
 
       const needLlmForScores = runScores && !s1.enabled;
@@ -984,7 +1081,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
             if (runLlm) {
               live.review = { ...live.review, ...partial, scores: live.review.scores };
             }
-          }).then((nav) => {
+          }, linkedIssues).then((nav) => {
             const scores = (!runScores || s1.enabled)
               ? (hasValidScores(live.review.scores) ? live.review.scores : initialScores)
               : (hasValidScores(nav.scores) ? nav.scores : initialScores);
@@ -1016,7 +1113,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
         review = { ...review, scores: initialScores };
       }
       const finalGates = typed?.gates || (live.gates?.length ? live.gates : cached?.gates) || [];
-      const result = { pr: live.pr, blast: live.blast, review, gates: finalGates, engines, model: modelLabel, guide: guide?.file || null, gitHistory: live.gitHistory, at: new Date().toISOString() };
+      const result = { pr: live.pr, blast: live.blast, review, gates: finalGates, engines, model: modelLabel, guide: guide?.file || null, linkedIssues: live.linkedIssues || [], gitHistory: live.gitHistory, at: new Date().toISOString() };
       const repoCfg = ((await store.getSetting("guides")) || {})[repoOf(live.pr)] || {};
       const doPostScores = repoCfg.postScores ?? rc.postScores;
       const doPostReview = repoCfg.postReview ?? rc.postReview;
@@ -1059,7 +1156,7 @@ async function score(ref, force, repo) {
 }
 
 function formatScoresComment(r) {
-  const { pr, blast, review: v, gates = [] } = r;
+  const { pr, blast, review: v, gates = [], linkedIssues = [] } = r;
   const appLink = `${APP_URL}/review?pr=${encodeURIComponent(pr.url)}`;
   const levelOf = (key, val) => S1_SCORES[key]?.[Math.min(4, Math.max(0, Math.round((Number(val) || 0) / 25)))] || "";
   const rows = [
@@ -1072,18 +1169,27 @@ function formatScoresComment(r) {
   ];
   const lines = [
     `### 🦦 CodeOtter — Review Scores`,
+    ...(linkedIssues.length
+      ? ["", `**Linked issue(s):** ${linkedIssues.map((i) => `[#${i.number} ${i.title}](${i.url})`).join(" · ")}`]
+      : []),
     "",
     `| Metric | Score | Assessment |`,
     `| :--- | :---: | :--- |`,
     ...rows.map(([label, score, desc]) => `| **${label}** | **${score}** / 100 | ${desc} |`),
   ];
-  if (gates.length) {
+  const checkRows = [
+    ...gates.map((g) => `| ${g.label} | ${g.pass ? "✅ Passed" : "⚠️ Warning"} (${Math.round(g.yes * 100)}% yes) |`),
+    ...(linkedIssues.length && !gates.some((g) => g.id === "issue_requirements")
+      ? [`| Issue requirements | ${v.verdict !== "request_changes" && v.scores.quality >= 60 ? "✅ Passed" : "⚠️ Warning"} (${linkedIssues.map((i) => `#${i.number}`).join(", ")}) |`]
+      : []),
+  ];
+  if (checkRows.length) {
     lines.push(
       "",
       "#### Pre-merge checks",
       "| Gate | Status |",
       "| :--- | :--- |",
-      ...gates.map((g) => `| ${g.label} | ${g.pass ? "✅ Passed" : "⚠️ Warning"} (${Math.round(g.yes * 100)}% yes) |`),
+      ...checkRows,
     );
   }
   lines.push(
@@ -1093,6 +1199,7 @@ function formatScoresComment(r) {
   );
   return lines.join("\n");
 }
+const formatScorecardComment = formatScoresComment;
 
 function cleanMermaidText(s, max = 42) {
   const clean = String(s || "")
@@ -1206,7 +1313,7 @@ function buildBlastMermaid(r) {
 }
 
 function formatReviewComment(r) {
-  const { pr, blast, review: v } = r;
+  const { pr, blast, review: v, linkedIssues = [] } = r;
   const appLink = `${APP_URL}/review?pr=${encodeURIComponent(pr.url)}`;
   const [vl] = VERDICT[v.verdict] || ["Commented"];
   const e = effort(blast);
@@ -1215,6 +1322,16 @@ function formatReviewComment(r) {
     `### 🦦 CodeOtter — PR Review Summary`,
     "",
     `**Verdict:** ${vl} · **Review effort:** 🎯 ${e.n} (${e.label}, ~${e.mins} min) · **Actionable findings:** ${actionable.length}`,
+    ...(linkedIssues.length
+      ? [
+          "",
+          `#### Linked Issues & Requirements`,
+          ...linkedIssues.map((i) => {
+            const req = (i.body || "").trim().replace(/\s+/g, " ").slice(0, 220);
+            return `- [#${i.number} ${i.title}](${i.url})${i.state ? ` (${i.state})` : ""}${req ? ` — ${req}${(i.body || "").trim().length > 220 ? "…" : ""}` : ""}`;
+          }),
+        ]
+      : []),
     "",
     `#### Summary`,
     v.summary,

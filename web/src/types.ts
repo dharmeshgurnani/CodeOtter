@@ -27,6 +27,7 @@ export type Review = {
   };
   model: string;
   guide?: string | null;
+  linkedIssues?: { number: number; repo?: string; title: string; body?: string; state?: string; url: string; labels?: string[] }[];
   gitHistory?: {
     prCommits?: { sha: string; message: string; author?: string }[];
     baseCommits?: { sha: string; message: string; author?: string }[];

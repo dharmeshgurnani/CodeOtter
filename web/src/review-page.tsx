@@ -248,6 +248,19 @@ function buildAiReviewMarkdown(r: Review) {
   lines.push(`- **Branch**: \`${p.headRefName}\` -> \`${p.baseRefName}\` by @${p.author.login}`);
   lines.push(`- **Scope**: ${p.changedFiles} changed file(s) (+${p.additions} / -${p.deletions})`);
   lines.push(`- **Repository Guidelines**: ${guide ? `Loaded \`${guide}\` and enforced against diff hunks` : "Standard CodeOtter engineering rules"}`);
+  if (r.linkedIssues?.length) {
+    lines.push(
+      `- **Linked Issues (${r.linkedIssues.length})**: ${r.linkedIssues
+        .map((i) => `[#${i.number} ${i.title}](${i.url})${i.state ? ` (${i.state})` : ""}`)
+        .join(" · ")}`,
+    );
+    for (const iss of r.linkedIssues) {
+      const reqText = (iss.body || "").trim().replace(/\s+/g, " ").slice(0, 280);
+      if (reqText) {
+        lines.push(`  - **#${iss.number} Requirements**: ${reqText}${(iss.body || "").trim().length > 280 ? "…" : ""}`);
+      }
+    }
+  }
   if (r.commentsPosted?.length) {
     lines.push(`- **GitHub Sync**: Posted comment(s) to PR (${r.commentsPosted.join(", ")})`);
   }
@@ -454,6 +467,19 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
               <GitCommitHorizontal className="size-3" /> {prCommits.length} commit{prCommits.length === 1 ? "" : "s"} in PR
             </span>
           )}
+          {(r.linkedIssues ?? []).map((iss) => (
+            <a
+              key={`${iss.repo || repo}#${iss.number}`}
+              href={iss.url}
+              target="_blank"
+              rel="noreferrer"
+              title={iss.body ? `#${iss.number} ${iss.title}\n\n${iss.body.slice(0, 300)}` : `#${iss.number} ${iss.title}`}
+              className="inline-flex items-center gap-1 rounded-md bg-blue-50 border border-blue-200/80 px-2 py-0.5 text-xs font-medium text-blue-900 hover:bg-blue-100/80 hover:underline"
+            >
+              <span>#{iss.number}</span>
+              <span className="max-w-[220px] truncate">{iss.title}</span>
+            </a>
+          ))}
         </div>
 
         {bodyText && (
@@ -560,7 +586,16 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
               <Md head={["Check", "Status"]} rows={[
                 ...(r.gates?.length || pending?.gates ? [] : [["Title check", check(v.scores.pr_hygiene >= 60)], ["Description check", check((p.body ?? "").length > 80)]]),
                 ["Tests touched", check(b.testFiles > 0)],
-                ...(r.gates ?? []).map((g) => [g.label, <>{check(g.pass)} <span className="text-muted-foreground">({Math.round(g.yes * 100)}% yes)</span></>] as React.ReactNode[]),
+                ...(r.linkedIssues?.length && !(r.gates ?? []).some((g) => g.id === "issue_requirements")
+                  ? [[
+                      "Issue requirements",
+                      <>{check(v.verdict !== "request_changes" && v.scores.quality >= 60)} <span className="text-muted-foreground">({r.linkedIssues.map((i) => `#${i.number}`).join(", ")})</span></>,
+                    ] as React.ReactNode[]]
+                  : []),
+                ...(r.gates ?? []).map((g) => [
+                  g.label,
+                  <>{check(g.pass)} <span className="text-muted-foreground">({Math.round(g.yes * 100)}% yes{g.id === "issue_requirements" && r.linkedIssues?.length ? ` · ${r.linkedIssues.map((i) => `#${i.number}`).join(", ")}` : ""})</span></>,
+                ] as React.ReactNode[]),
                 ...(pending?.gates ? [["Merge gates", <InlineLoader key="g" text="Checking policy gates…" />] as React.ReactNode[]] : []),
               ]} />
             </details>
