@@ -190,7 +190,16 @@ function NavUser({ user, signInAvailable, onLogin, onLogout }: { user: User | nu
   );
 }
 
-export function AppSidebar({ repos, route, openCounts, settingsPages, org, setOrg, user, signInAvailable, onLogin, onLogout, go }: Props) {
+export function AppSidebar({ repos, route, openCounts, settingsPages, org, setOrg, user, signInAvailable, onLogin, onLogout, go: rawGo }: Props) {
+  const { isMobile, setOpenMobile } = useSidebar();
+  const go = (path: string) => {
+    if (isMobile) setOpenMobile(false);
+    rawGo(path);
+  };
+  const handleLogin = () => {
+    if (isMobile) setOpenMobile(false);
+    onLogin();
+  };
   // Active organization (owned by App, scopes every page): drives which repositories are listed. Follows the route
   // when a page from another organization is opened (home links, direct URLs).
   const orgs = [...new Set(repos.map((r) => r.split("/")[0]))];
@@ -283,7 +292,7 @@ export function AppSidebar({ repos, route, openCounts, settingsPages, org, setOr
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        <NavUser user={user} signInAvailable={signInAvailable} onLogin={onLogin} onLogout={onLogout} />
+        <NavUser user={user} signInAvailable={signInAvailable} onLogin={handleLogin} onLogout={onLogout} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

@@ -36,8 +36,8 @@ export const Pill = ({ tone: t, children }: { tone?: string; children: React.Rea
 };
 
 const Table = ({ head, children }: { head: string[]; children: React.ReactNode }) => (
-  <div className="rounded-[10px] border border-border overflow-hidden">
-    <table className="w-full border-collapse">
+  <div className="rounded-[10px] border border-border overflow-x-auto">
+    <table className="responsive-table w-full border-collapse">
       <thead>
         <tr>
           {head.map((h, i) => (
@@ -49,7 +49,9 @@ const Table = ({ head, children }: { head: string[]; children: React.ReactNode }
     </table>
   </div>
 );
-const Td = ({ children, className = "", colSpan }: { children: React.ReactNode; className?: string; colSpan?: number }) => <td colSpan={colSpan} className={`px-4 py-3 border-t border-border text-[15px] align-top ${className}`}>{children}</td>;
+const Td = ({ children, className = "", colSpan, label }: { children: React.ReactNode; className?: string; colSpan?: number; label?: string }) => (
+  <td colSpan={colSpan} data-label={label} className={`px-4 py-3 border-t border-border text-[15px] align-top ${className}`}>{children}</td>
+);
 // One shape for every API response: JSON on success, {error} on failure; a 403 with login:true means "go sign in".
 const api = async (path: string, init?: RequestInit) => {
   const r = await fetch(path, init);
@@ -146,16 +148,19 @@ export default function App() {
   return (
     <SidebarProvider defaultOpen={sidebarDefaultOpen()}>
       <AppSidebar repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(board)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
-      <SidebarInset>
-        <div className="flex items-center justify-between border-b border-border px-6 py-3 text-base">
-          <span className="flex items-center gap-3"><SidebarTrigger />{title}</span>
-          <span className="flex gap-2.5">
+      <SidebarInset className="min-w-0">
+        <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3 text-base sm:px-6">
+          <span className="flex min-w-0 items-center gap-2.5">
+            <SidebarTrigger className="shrink-0" />
+            <span className="truncate">{title}</span>
+          </span>
+          <span className="flex shrink-0 gap-2">
             {path === "/review" && prRef && /^https?:/.test(prRef) && (
-              <Button asChild><a href={prRef} target="_blank" rel="noreferrer">Open in GitHub</a></Button>
+              <Button asChild size="sm" className="sm:h-9 sm:px-4 sm:text-sm"><a href={prRef} target="_blank" rel="noreferrer">Open in GitHub</a></Button>
             )}
           </span>
         </div>
-        <div className="w-full px-10 py-7">
+        <div className="w-full px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-7">
           {error && <p className="text-red-700">{error}</p>}
           {path === "/review" ? (
             <ReviewPage pr={prRef} repo={prRepo} force={query.get("force") ?? ""} onDone={load} />
@@ -202,10 +207,10 @@ function ReviewedList({ board, go, reviewUrl, repo }: ListProps) {
         return (
           <tr key={r.pr.url}>
             <Td><Link className="text-brand" path={reviewUrl(r.pr.url)} go={go}>#{r.pr.number}</Link> {r.pr.title} <Pill>{repo}</Pill></Td>
-            <Td>🎯 {e.n} ({e.label})</Td>
-            <Td><Pill tone={tone(r.review.scores.quality)}>{r.review.scores.quality}</Pill></Td>
-            <Td><Pill tone={tone(r.blast.score, true)}>{r.blast.score}</Pill></Td>
-            <Td className="text-right whitespace-nowrap"><Pill tone={vt}>{vl}</Pill> <Link className="text-brand ml-3" path={reviewUrl(r.pr.url)} go={go}>Review details →</Link></Td>
+            <Td label="Review effort">🎯 {e.n} ({e.label})</Td>
+            <Td label="Quality"><Pill tone={tone(r.review.scores.quality)}>{r.review.scores.quality}</Pill></Td>
+            <Td label="Blast radius"><Pill tone={tone(r.blast.score, true)}>{r.blast.score}</Pill></Td>
+            <Td className="sm:text-right whitespace-nowrap"><Pill tone={vt}>{vl}</Pill> <Link className="text-brand ml-3" path={reviewUrl(r.pr.url)} go={go}>Review details →</Link></Td>
           </tr>
         );
       })}
@@ -223,9 +228,9 @@ function OpenList({ board, go, reviewUrl, repo }: ListProps) {
       {rows.map((p) => (
         <tr key={p.url}>
           <Td><a className="text-brand hover:underline" href={p.url} target="_blank" rel="noreferrer">#{p.number}</a> {p.title}</Td>
-          <Td>{p.author.login}</Td>
-          <Td>{p.changedFiles} files <span className="text-green-700">+{p.additions}</span> <span className="text-red-700">-{p.deletions}</span></Td>
-          <Td className="text-right"><Link className="text-brand" path={reviewUrl(p.url)} go={go}>Review →</Link></Td>
+          <Td label="Author">{p.author.login}</Td>
+          <Td label="Size">{p.changedFiles} files <span className="text-green-700">+{p.additions}</span> <span className="text-red-700">-{p.deletions}</span></Td>
+          <Td className="sm:text-right"><Link className="text-brand" path={reviewUrl(p.url)} go={go}>Review →</Link></Td>
         </tr>
       ))}
     </Table>

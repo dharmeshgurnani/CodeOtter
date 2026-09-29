@@ -63,15 +63,21 @@ export function JsonReport({ sections, go }: { sections: ReportSection[]; go: (p
             </div>
           )}
           {s.kind === "table" && (
-            <div className="overflow-hidden rounded-[10px] border border-border">
-              <table className="w-full border-collapse text-sm">
+            <div className="overflow-x-auto rounded-[10px] border border-border">
+              <table className="responsive-table w-full border-collapse text-sm">
                 <thead>
                   <tr>{s.columns.map((c) => <th key={c} className="bg-[#efefef] px-4 py-2 text-left font-medium text-neutral-700">{c}</th>)}</tr>
                 </thead>
                 <tbody>
                   {s.rows.length === 0 && <tr><td colSpan={s.columns.length} className="px-4 py-3 text-muted-foreground">{s.empty ?? "Nothing yet."}</td></tr>}
                   {s.rows.map((r, i) => (
-                    <tr key={i}>{r.map((c, j) => <td key={j} className="border-t border-border px-4 py-2 align-top"><CellView c={c} go={go} /></td>)}</tr>
+                    <tr key={i}>
+                      {r.map((c, j) => (
+                        <td key={j} data-label={j > 0 ? s.columns[j] || undefined : undefined} className="border-t border-border px-4 py-2 align-top">
+                          <CellView c={c} go={go} />
+                        </td>
+                      ))}
+                    </tr>
                   ))}
                 </tbody>
               </table>

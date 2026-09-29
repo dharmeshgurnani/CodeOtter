@@ -14,7 +14,7 @@ const SectionHeading = ({ w = "w-28", sub = true }: { w?: string; sub?: boolean 
 export function TableSkeleton({ cols = 5, rows = 4, widths }: { cols?: number; rows?: number; widths?: string[] }) {
   const ws = widths ?? Array.from({ length: cols }, (_, i) => (i === 0 ? "w-3/4" : "w-16"));
   return (
-    <div className="overflow-hidden rounded-[10px] border border-border">
+    <div className="overflow-x-auto rounded-[10px] border border-border">
       <table className="w-full border-collapse">
         <thead>
           <tr>{ws.map((_, i) => <th key={i} className="bg-[#efefef] px-4 py-2.5 text-left"><Line w={i === 0 ? "w-28" : "w-14"} h="h-3" className="bg-neutral-300/60" /></th>)}</tr>
@@ -70,15 +70,15 @@ export function FormSkeleton({ sections = [4, 3] }: { sections?: number[] }) {
           <SectionHeading w={si === 0 ? "w-20" : "w-16"} />
           <div className="divide-y divide-border rounded-[10px] border border-border">
             {Array.from({ length: n }, (_, i) => (
-              <div key={i} className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-[200px_1fr] sm:gap-4">
-                <div className="pt-2"><Line w="w-24" h="h-3.5" /></div>
+              <div key={i} className="grid grid-cols-1 gap-1.5 px-4 py-3 sm:grid-cols-[200px_1fr] sm:gap-4">
+                <div className="sm:pt-2"><Line w="w-24" h="h-3.5" /></div>
                 <div>
                   <Skeleton className="h-9 w-full max-w-[520px] rounded-md" />
-                  <Line w="w-72" h="h-3" className="mt-2 opacity-60" />
+                  <Line w="w-48 sm:w-72" h="h-3" className="mt-2 opacity-60" />
                 </div>
               </div>
             ))}
-            <div className="flex gap-2.5 px-4 py-3"><Skeleton className="h-9 w-16 rounded-md" /><Skeleton className="h-9 w-32 rounded-md" /></div>
+            <div className="flex flex-wrap gap-2.5 px-4 py-3"><Skeleton className="h-9 w-16 rounded-md" /><Skeleton className="h-9 w-32 rounded-md" /></div>
           </div>
         </section>
       ))}
@@ -88,19 +88,19 @@ export function FormSkeleton({ sections = [4, 3] }: { sections?: number[] }) {
 
 export function ReviewSkeleton({ note }: { note?: string }) {
   const Card = ({ dark = false, children }: { dark?: boolean; children: React.ReactNode }) => (
-    <div className={`h-[540px] flex flex-col overflow-hidden rounded-[10px] border border-border ${dark ? "bg-[#0d1117]" : "bg-white"}`}>
+    <div className={`h-auto lg:h-[540px] flex flex-col overflow-hidden rounded-[10px] border border-border ${dark ? "bg-[#0d1117]" : "bg-white"}`}>
       <div className="flex items-center gap-2 border-b border-border bg-[#efefef] px-4 py-2.5">
         <Skeleton className="size-4 rounded-full bg-neutral-300/60" />
         <Line w="w-40" h="h-3.5" className="bg-neutral-300/60" />
       </div>
-      <div className="flex-1 p-5">{children}</div>
+      <div className="flex-1 p-4 sm:p-5">{children}</div>
     </div>
   );
   return (
     <div className="space-y-5" aria-busy="true" aria-label="Loading">
       <div>
         <div className="mb-2 flex items-center gap-2"><Line w="w-2/3" h="h-5" /><Skeleton className="h-5 w-20 rounded-md" /></div>
-        <div className="mb-3 flex items-center gap-2"><Line w="w-40" h="h-3" /><Line w="w-24" h="h-3" /><Line w="w-32" h="h-3" /></div>
+        <div className="mb-3 flex flex-wrap items-center gap-2"><Line w="w-40" h="h-3" /><Line w="w-24" h="h-3" /><Line w="w-32" h="h-3" /></div>
         <div className="rounded-[10px] border border-border bg-neutral-50/60 px-4 py-3 space-y-2">
           <Line w="w-20" h="h-3" />
           <Line w="w-full" h="h-3.5" />
@@ -117,7 +117,7 @@ export function ReviewSkeleton({ note }: { note?: string }) {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[3fr_7fr] items-stretch">
         <Card>
           <div className="my-2 grid grid-cols-3 gap-4 justify-items-center">
-            {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="size-[88px] rounded-full" />)}
+            {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="size-[78px] sm:size-[88px] rounded-full" />)}
           </div>
           <div className="mt-6 space-y-3">
             <Line w="w-36" h="h-3.5" />

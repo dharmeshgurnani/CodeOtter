@@ -86,43 +86,45 @@ const Control = ({ f, vals, onChange, onSaveList, id, scope = "", onItemAction }
   const cls = "w-full max-w-[520px]";
   switch (f.type) {
     case "readonly":
-      return <span className="block py-2 text-[15px]">{String(v ?? "")}</span>;
+      return <span className="block py-2 text-[15px] break-all">{String(v ?? "")}</span>;
     case "list": {
       // Items are strings or { id, label, icon?, meta?, settings? }; settings open in a dialog from the gear beside the remove control.
       const items = (Array.isArray(v) ? (v as ListItem[]) : []).map((it) => (typeof it === "string" ? { id: it, label: it } : it));
       return items.length ? (
         <ul className="max-w-[520px] divide-y divide-border rounded-md border border-border">
           {items.map((it) => (
-            <li key={it.id} className="flex items-center gap-2.5 px-3 py-2 text-sm">
+            <li key={it.id} className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 px-3 py-2 text-sm">
               {it.icon && (
                 <Avatar className="size-7 shrink-0 rounded-md border border-border bg-white">
                   <AvatarImage src={it.icon} alt={it.label} className="object-contain p-0.5" />
                   <AvatarFallback className="rounded-md text-[10px] font-semibold">{initials(it.label)}</AvatarFallback>
                 </Avatar>
               )}
-              <span className="min-w-0 flex-1">
+              <span className="min-w-[160px] flex-1">
                 <span className="block truncate font-medium">{it.label}{it.badge && <span className="ml-2 rounded-md bg-green-100 px-1.5 py-px text-[11px] font-normal text-green-800 align-middle">{it.badge}</span>}</span>
                 {it.meta && <span className="block text-xs text-muted-foreground">{it.meta}</span>}
                 {it.progress !== undefined && (
                   <span className="mt-1.5 block h-1.5 w-full max-w-[320px] overflow-hidden rounded-full bg-neutral-200"><span className="block h-full bg-brand" style={{ width: `${Math.max(0, Math.min(100, it.progress))}%` }} /></span>
                 )}
               </span>
-              {it.actions?.map((a) => (
-                <Button key={a.id} size="sm" variant={a.variant ?? "default"} onClick={() => onItemAction?.(it.id, a.id)}>{a.label}</Button>
-              ))}
-              {it.settings && (
-                <ItemSettingsDialog
-                  item={it}
-                  onChange={(values) => {
-                    const next = items.map((x) => (x.id === it.id ? { ...x, settings: { ...x.settings!, values } } : x));
-                    onChange(next);
-                    onSaveList?.(next);
-                  }}
-                />
-              )}
-              {f.removable !== false && (
-                <button type="button" aria-label={`Remove ${it.label}`} className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-neutral-100 hover:text-red-700" onClick={() => onChange(items.filter((x) => x.id !== it.id))}><X className="size-4" /></button>
-              )}
+              <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                {it.actions?.map((a) => (
+                  <Button key={a.id} size="sm" variant={a.variant ?? "default"} onClick={() => onItemAction?.(it.id, a.id)}>{a.label}</Button>
+                ))}
+                {it.settings && (
+                  <ItemSettingsDialog
+                    item={it}
+                    onChange={(values) => {
+                      const next = items.map((x) => (x.id === it.id ? { ...x, settings: { ...x.settings!, values } } : x));
+                      onChange(next);
+                      onSaveList?.(next);
+                    }}
+                  />
+                )}
+                {f.removable !== false && (
+                  <button type="button" aria-label={`Remove ${it.label}`} className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-neutral-100 hover:text-red-700" onClick={() => onChange(items.filter((x) => x.id !== it.id))}><X className="size-4" /></button>
+                )}
+              </span>
             </li>
           ))}
         </ul>
@@ -241,13 +243,13 @@ export function JsonForm({
                 .map((f) => {
                   const link = f.link ?? f.linkBy?.map[String(vals[f.linkBy.field])];
                   return (
-                    <div key={f.key} className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-[200px_1fr] sm:gap-4">
-                      <label className="pt-2 text-sm font-medium text-neutral-800" htmlFor={f.type === "checkbox" || f.type === "readonly" || f.type === "list" ? undefined : `f-${s.id}-${f.key}`}>{f.label}</label>
-                      <div>
+                    <div key={f.key} className="grid grid-cols-1 gap-1.5 px-4 py-3 sm:grid-cols-[200px_1fr] sm:gap-4">
+                      <label className="sm:pt-2 text-sm font-medium text-neutral-800" htmlFor={f.type === "checkbox" || f.type === "readonly" || f.type === "list" ? undefined : `f-${s.id}-${f.key}`}>{f.label}</label>
+                      <div className="min-w-0">
                         <Control f={f} vals={vals} id={`f-${s.id}-${f.key}`} scope={s.id} onChange={(v) => onChange(s.id, applyChange(s, vals, f.key, v))} onSaveList={(v) => onAction(s.id, "save", undefined, applyChange(s, vals, f.key, v))} onItemAction={(itemId, actionId) => onAction(s.id, actionId, itemId)} />
                         {(f.hint || link) && (
                           <span className="mt-1 block text-xs text-muted-foreground">
-                            {f.type === "readonly" ? <code className="rounded bg-neutral-100 px-1.5">{f.hint}</code> : f.hint}
+                            {f.type === "readonly" ? <code className="break-all rounded bg-neutral-100 px-1.5">{f.hint}</code> : f.hint}
                             {link && <> <a className="text-brand hover:underline" href={link.url} target="_blank" rel="noreferrer">{link.label}</a></>}
                           </span>
                         )}
@@ -256,7 +258,7 @@ export function JsonForm({
                   );
                 })}
               {s.actions?.length ? (
-                <div className="flex items-center gap-2.5 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2.5 px-4 py-3">
                   {s.actions.map((a) => (
                     <Button key={a.id} variant={a.variant ?? "default"} disabled={busy !== "" || (a.always ? false : a.needsSaved ? dirty : !dirty)} onClick={() => onAction(s.id, a.id)}>
                       {busy === `${s.id}:${a.id}` ? `${a.label}…` : a.label}

@@ -26,12 +26,12 @@ export function LoginPage({ error, onLogin, go }: { error: string; onLogin: () =
   return (
     <div className="grid min-h-svh grid-cols-1 bg-white lg:grid-cols-[minmax(420px,5fr)_7fr]">
       {/* Left: the only way in */}
-      <div className="flex flex-col px-8 py-8 sm:px-14">
+      <div className="flex flex-col px-5 py-6 sm:px-14 sm:py-8">
         <a className="flex items-center gap-2.5 no-underline" onClick={() => go("/")}>
           <span className="size-7 rounded-full bg-gradient-to-br from-amber-400 to-brand" />
           <span className="text-[15px] font-semibold text-neutral-900">CodeOtter</span>
         </a>
-        <div className="flex flex-1 flex-col justify-center py-16">
+        <div className="flex flex-1 flex-col justify-center py-10 sm:py-16">
           <div className="w-full max-w-[380px]">
             <h1 className="text-[28px] font-semibold tracking-tight text-neutral-900">Sign in</h1>
             <p className="mt-2 text-[15px] text-neutral-600">Review pull requests for quality, blast radius and actionable comments. One account, your GitHub.</p>
@@ -53,7 +53,7 @@ export function LoginPage({ error, onLogin, go }: { error: string; onLogin: () =
             <p className="mt-8 text-xs leading-relaxed text-neutral-500">Only your public profile and email are requested. Reviews run on the model you configure; nothing is sent anywhere else.</p>
           </div>
         </div>
-        <div className="flex gap-5 text-xs text-neutral-500">
+        <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-500">
           <a className="no-underline hover:underline" href="https://github.com/dharmeshgurnani/CodeOtter#readme" target="_blank" rel="noreferrer">Documentation</a>
           <a className="no-underline hover:underline" href="https://github.com/dharmeshgurnani/CodeOtter" target="_blank" rel="noreferrer">Source</a>
           <a className="no-underline hover:underline" href="/" onClick={(e) => { e.preventDefault(); go("/"); }}>Continue without signing in</a>

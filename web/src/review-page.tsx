@@ -65,28 +65,30 @@ function ClaudeThinkingBar({ guide, commitsCount }: { guide?: string | null; com
 }
 
 const Md = ({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) => (
-  <table className="my-1.5 w-full border-collapse text-sm">
-    <thead><tr>{head.map((h) => <th key={h} className="border border-border bg-neutral-50 px-2.5 py-1.5 text-left font-semibold">{h}</th>)}</tr></thead>
-    <tbody>{rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j} className="border border-border px-2.5 py-1.5 align-top">{c}</td>)}</tr>)}</tbody>
-  </table>
+  <div className="my-1.5 overflow-x-auto">
+    <table className="w-full border-collapse text-sm">
+      <thead><tr>{head.map((h) => <th key={h} className="border border-border bg-neutral-50 px-2.5 py-1.5 text-left font-semibold">{h}</th>)}</tr></thead>
+      <tbody>{rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j} className="border border-border px-2.5 py-1.5 align-top">{c}</td>)}</tr>)}</tbody>
+    </table>
+  </div>
 );
 
 export const Ring = ({ label, value: raw, invert, loading }: { label: string; value: number; invert?: boolean; loading?: boolean }) => {
   if (loading) {
     return (
-      <div className="relative flex size-[88px] flex-col items-center justify-center rounded-full border-[6px] border-neutral-200 bg-white">
+      <div className="relative flex size-[78px] sm:size-[88px] flex-col items-center justify-center rounded-full border-[6px] border-neutral-200 bg-white">
         <Loader2 className="size-5 animate-spin text-brand mb-0.5" />
-        <span className="relative text-[11px] leading-none text-muted-foreground">{label}</span>
+        <span className="relative text-[10px] sm:text-[11px] leading-none text-muted-foreground">{label}</span>
       </div>
     );
   }
   const value = Math.max(0, Math.min(100, Number(raw) || 0));
   const c = { ok: "#15803d", warn: "#b45309", bad: "#b91c1c" }[tone(value, invert)];
   return (
-    <div className="relative flex size-[88px] flex-col items-center justify-center rounded-full" style={{ background: `conic-gradient(${c} ${value}%, #e9e9e9 0)` }}>
-      <span className="absolute inset-[7px] rounded-full bg-white" />
-      <b className="relative text-xl">{value}</b>
-      <span className="relative text-[11px] leading-none text-muted-foreground">{label}</span>
+    <div className="relative flex size-[78px] sm:size-[88px] flex-col items-center justify-center rounded-full" style={{ background: `conic-gradient(${c} ${value}%, #e9e9e9 0)` }}>
+      <span className="absolute inset-[6px] sm:inset-[7px] rounded-full bg-white" />
+      <b className="relative text-lg sm:text-xl">{value}</b>
+      <span className="relative text-[10px] sm:text-[11px] leading-none text-muted-foreground">{label}</span>
     </div>
   );
 };
@@ -365,8 +367,8 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
                       const pf = p.files.find((f) => f.path === w.file);
                       const gitStatus = pf ? (pf.deletions === 0 && pf.additions > 0 ? "untracked" : pf.additions === 0 && pf.deletions > 0 ? "deleted" : "modified") : "modified";
                       return (
-                        <FileItem key={w.file} gitStatus={gitStatus} className="flex flex-wrap items-center justify-between gap-3">
-                          <span className="font-mono text-[13px] text-neutral-900">
+                        <FileItem key={w.file} gitStatus={gitStatus} className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="min-w-0 break-all font-mono text-[13px] text-neutral-900 sm:break-normal">
                             {w.file.split("/").pop()}
                             {pf && (
                               <span className="ml-2 font-sans text-xs">
@@ -391,7 +393,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
       {/* Side-by-side (30% / 70%): CodeOtter · Scores & Merge Gates + CodeOtter AI Review */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[3fr_7fr] items-stretch">
         {/* CodeOtter Scorecard & Pre-Merge Gates (30%) */}
-        <div className="min-w-0 h-[540px] flex flex-col overflow-hidden rounded-[10px] border border-border bg-white">
+        <div className="min-w-0 h-auto lg:h-[540px] flex flex-col overflow-hidden rounded-[10px] border border-border bg-white">
           <div className="shrink-0 flex items-center justify-between gap-2 border-b border-border bg-[#efefef] px-4 py-2.5 text-sm">
             <div className="flex min-w-0 items-center gap-2">
               <ShieldCheck className="size-4 shrink-0 text-brand" />
@@ -408,8 +410,8 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
               <RotateCw className={`size-3.5 ${pending?.scores ? "animate-spin text-brand" : ""}`} />
             </button>
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3.5 text-[15px]">
-            <div className="mb-3 flex items-center justify-between rounded-md bg-neutral-100/80 px-3 py-1.5 text-xs text-muted-foreground">
+          <div className="flex-1 min-h-0 lg:overflow-y-auto px-4 py-3.5 text-[15px]">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-1 rounded-md bg-neutral-100/80 px-3 py-1.5 text-xs text-muted-foreground">
               <span>Review effort</span>
               <span className="font-medium text-neutral-800">
                 {isScoreLoading("blast_radius") && r.engines?.s1 ? "Calculating effort…" : `🎯 Effort ${e.n} (${e.label}) · ⏱️ ~${e.mins} min`}
@@ -441,7 +443,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
         {/* Single CodeOtter AI Review Dark Terminal Card (fixed height, inner scrollable rendered markdown) */}
         <AnimateCode
           code={buildAiReviewMarkdown(r)}
-          className="min-w-0 h-[540px] flex flex-col overflow-hidden rounded-[10px] border border-border bg-[#0d1117] text-neutral-200"
+          className="min-w-0 max-h-[75vh] min-h-[380px] lg:max-h-none lg:h-[540px] flex flex-col overflow-hidden rounded-[10px] border border-border bg-[#0d1117] text-neutral-200"
         >
           <CodeHeader
             icon={Sparkles}
@@ -462,7 +464,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
           >
             <b className="font-semibold text-neutral-900">CodeOtter AI Review</b>
           </CodeHeader>
-          <div className="flex-1 min-h-0 overflow-y-auto p-5 bg-[#0d1117]">
+          <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-5 bg-[#0d1117]">
             <MarkdownView
               content={buildAiReviewMarkdown(r)}
               variant="dark"
