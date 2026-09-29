@@ -51,7 +51,7 @@ Run it **100% offline** on your workstation with open-weight Hugging Face models
 
 ### Side-by-Side 30/70 Review Dashboard
 
-Inspect calibrated **0–100 score gauges** (`Quality`, `Blast Radius`, `Risk`, `Tests`, `Readability`, `PR Hygiene`) on the left while reading the streaming **Markdown review terminal**, cohort file walkthroughs, and severity-ranked findings on the right. Re-run scores or narrative independently with one click.
+Inspect calibrated **0–100 score gauges** (`Quality`, `Blast Radius`, `Risk`, `Tests`, `Readability`, `PR Hygiene`) on the left while reading the streaming **Markdown review terminal**, interactive **Architecture & Blast Radius Mermaid diagram** (100% offline SVG flowchart renderer with raw Mermaid source toggle), cohort file walkthroughs, and severity-ranked findings on the right. Re-run scores or narrative independently with one click.
 
 [Quickstart →](#-quickstart)
 

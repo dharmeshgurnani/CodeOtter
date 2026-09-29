@@ -1094,6 +1094,117 @@ function formatScoresComment(r) {
   return lines.join("\n");
 }
 
+function cleanMermaidText(s, max = 42) {
+  const clean = String(s || "")
+    .replace(/["[\]`<>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+function buildBlastMermaid(r) {
+  const { pr: p, blast: b = {}, review: v = {} } = r;
+  const files = p.files?.length
+    ? p.files
+    : (v.walkthrough || []).map((w) => ({ path: w.file, additions: 0, deletions: 0 }));
+  const walkMap = new Map();
+  for (const w of v.walkthrough || []) {
+    if (w?.file && w?.change) walkMap.set(w.file, w.change);
+  }
+
+  const out = [
+    "flowchart LR",
+    "  classDef pr fill:#111c2d,stroke:#38bdf8,stroke-width:2px,color:#f8fafc",
+    "  classDef cohort fill:#131b26,stroke:#64748b,stroke-width:1.5px,color:#f1f5f9",
+    "  classDef file fill:#0b1017,stroke:#334155,stroke-width:1px,color:#e2e8f0",
+    "  classDef hotspot fill:#291507,stroke:#f59e0b,stroke-width:2px,color:#fef3c7",
+    "  classDef test fill:#072415,stroke:#22c55e,stroke-width:1.5px,color:#dcfce7",
+  ];
+
+  const prHead = cleanMermaidText(p.headRefName || "head", 20);
+  const prBase = cleanMermaidText(p.baseRefName || "main", 18);
+  out.push(
+    `  PR["PR #${p.number}: ${prHead} -> ${prBase}<br/>${p.changedFiles} file(s) (+${p.additions} / -${p.deletions}) · Blast ${b.score ?? 0}/100"]:::pr`,
+  );
+
+  const cohortMap = new Map();
+  for (const f of files) {
+    const parts = f.path.split("/");
+    const key = parts.length > 1 ? parts.slice(0, Math.min(2, parts.length - 1)).join("/") : "(root)";
+    cohortMap.set(key, [...(cohortMap.get(key) || []), f]);
+  }
+
+  const cohortEntries = [...cohortMap.entries()].slice(0, 6);
+  const cohortNodeIds = new Map();
+
+  cohortEntries.forEach(([cohortKey, cFiles], cIdx) => {
+    const cid = `C${cIdx}`;
+    cohortNodeIds.set(cohortKey, cid);
+    const add = cFiles.reduce((n, f) => n + (f.additions || 0), 0);
+    const del = cFiles.reduce((n, f) => n + (f.deletions || 0), 0);
+    out.push(`  ${cid}["${cleanMermaidText(cohortKey, 26)} (${cFiles.length})<br/>+${add} / -${del}"]:::cohort`);
+    out.push(`  PR --> ${cid}`);
+  });
+
+  let fileCounter = 0;
+  const maxFilesShown = 8;
+  const hotspotLinks = new Map();
+  for (const h of b.hotspots || []) hotspotLinks.set(h, new Set());
+
+  cohortEntries.forEach(([cohortKey, cFiles]) => {
+    const cid = cohortNodeIds.get(cohortKey);
+    for (const f of cFiles) {
+      for (const [hName, re] of HOTSPOTS) {
+        if (re.test(f.path)) {
+          if (!hotspotLinks.has(hName)) hotspotLinks.set(hName, new Set());
+          hotspotLinks.get(hName).add(cid);
+        }
+      }
+      if (fileCounter >= maxFilesShown) continue;
+      const fid = `F${fileCounter++}`;
+      const base = f.path.split("/").pop() || f.path;
+      const isTest = /test|spec|__tests__/i.test(f.path);
+      const wChange = walkMap.get(f.path);
+      const summaryBit = wChange ? ` · ${cleanMermaidText(wChange, 22)}` : "";
+      const role = isTest ? "test" : "file";
+      const prefix = isTest ? "🧪 " : "";
+      out.push(
+        `  ${fid}["${prefix}${cleanMermaidText(base, 24)}<br/>+${f.additions} / -${f.deletions}${summaryBit}"]:::${role}`,
+      );
+      out.push(`  ${cid} --> ${fid}`);
+    }
+  });
+
+  if (files.length > maxFilesShown) {
+    const rem = files.length - maxFilesShown;
+    out.push(`  FMORE["+${rem} more modified file(s)<br/>In ${cohortMap.size} cohort(s)"]:::file`);
+    out.push(`  ${cohortNodeIds.values().next().value || "PR"} --> FMORE`);
+  }
+
+  let hIdx = 0;
+  for (const [hName, fromIds] of hotspotLinks.entries()) {
+    const hid = `H${hIdx++}`;
+    out.push(`  ${hid}["⚠️ Hotspot: ${cleanMermaidText(hName, 24)}<br/>Blast radius impact"]:::hotspot`);
+    if (fromIds.size) {
+      for (const src of fromIds) out.push(`  ${src} -.-> ${hid}`);
+    } else {
+      out.push(`  PR -.-> ${hid}`);
+    }
+  }
+
+  const testCount = b.testFiles ?? files.filter((f) => /test|spec|__tests__/i.test(f.path)).length;
+  if (testCount > 0) {
+    out.push(`  TVERIFY["🧪 ${testCount} Test File(s)<br/>Verifying cohort changes"]:::test`);
+    const firstCohort = cohortNodeIds.values().next().value || "PR";
+    out.push(`  ${firstCohort} --> TVERIFY`);
+  } else {
+    out.push(`  TNONE["⚠️ 0 Test Files<br/>No test coverage in diff"]:::hotspot`);
+    out.push(`  PR -.-> TNONE`);
+  }
+
+  return out.join("\n");
+}
+
 function formatReviewComment(r) {
   const { pr, blast, review: v } = r;
   const appLink = `${APP_URL}/review?pr=${encodeURIComponent(pr.url)}`;
@@ -1107,6 +1218,11 @@ function formatReviewComment(r) {
     "",
     `#### Summary`,
     v.summary,
+    "",
+    `## [2.5/4] Architecture & Blast Radius Graph`,
+    "```mermaid",
+    buildBlastMermaid(r),
+    "```",
     "",
     `---`,
     `🔗 **[View full review details on CodeOtter →](${appLink})**`,
