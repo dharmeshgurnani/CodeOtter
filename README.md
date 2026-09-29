@@ -33,54 +33,98 @@
 
 ## What is CodeOtter?
 
-**CodeOtter** is an open-source, self-hosted pull request review platform designed for engineering teams who demand deep code intelligence without compromising privacy or paying thousands in monthly SaaS subscriptions.
+**CodeOtter** is an open-source, self-hosted pull request review platform built for engineering teams who want calibrated code intelligence without sending private code to third-party SaaS clouds or paying **$24–$30/developer/month**.
 
-Commercial hosted review bots charge **$24–$30/developer/month** and require continuous third-party cloud access to your private codebase. Meanwhile, standard AI prompts piped to `git diff` produce wall-of-text hallucinations and uncalibrated scores.
+Run it **100% offline** on your workstation with open-weight Hugging Face models (`llama.cpp` + `ggmlc` sidecars), or connect your own keys for Claude, OpenAI, MiniMax, or OpenRouter.
 
-CodeOtter solves this with a **parallel dual-engine architecture**:
-1. **Deterministic System 1 Engine**: Evaluates 6 calibrated rubric scores and enforces 8 pre-merge policy gates.
-2. **Deep System 2 Engine**: Generates concise executive summaries, cohort file walkthroughs, and severity-ranked actionable findings.
+<p align="center">
+  <a href="assets/videos/codeotter-cinematic-film-silent.mp4"><picture><source srcset="assets/videos/hero-showcase.gif" type="image/gif"><img src="assets/videos/hero-showcase.jpg" alt="CodeOtter AI Code Review Dashboard" width="960" /></picture></a>
+</p>
 
-Run it 100% offline on your laptop with open-weight models, or connect it to your preferred AI API provider.
+---
 
-<br/>
+## Features
 
-<div align="center">
-  <video src="assets/videos/codeotter-cinematic-film-silent.mp4" poster="assets/videos/codeotter-cinematic-film-poster.png" autoplay loop muted playsinline controls width="100%" style="max-width: 960px; border-radius: 12px;">
-    <a href="assets/videos/codeotter-cinematic-film-silent.mp4">
-      <img src="assets/videos/codeotter-cinematic-film-silent.gif" alt="CodeOtter Cinematic Product Film" width="100%" style="max-width: 960px; border-radius: 12px;" />
-    </a>
-  </video>
-</div>
-
-<br/>
-
-| Step | Action | Description |
-| :---: | :--- | :--- |
-| **01** | **Connect Repository** | Auto-detects `AGENTS.md` and `CLAUDE.md` guidelines at the repository root. |
-| **02** | **Dual Engine Review** | System 1 computes rubric scores & merge gates in parallel with System 2 cohort walkthroughs. |
-| **03** | **Enforce, Comment & Merge** | Automatically post System 1 scores and/or the review summary (with a link to the full CodeOtter report) as GitHub PR comments (`gh pr comment`), inspect blast-radius hotspots, and clear the merge gate. |
-
-<br/>
-
-<div align="center">
 <table>
-  <tr>
-    <td align="center"><strong>Works<br/>with</strong></td>
-    <td align="center"><img src="assets/logos/github.svg" width="32" alt="GitHub" /><br/><sub>GitHub PRs</sub></td>
-    <td align="center"><img src="assets/logos/claude.svg" width="32" alt="Claude" /><br/><sub>Claude</sub></td>
-    <td align="center"><img src="assets/logos/openai.svg" width="32" alt="OpenAI" /><br/><sub>OpenAI</sub></td>
-    <td align="center"><img src="assets/logos/ollama.svg" width="32" alt="Ollama" /><br/><sub>Ollama</sub></td>
-    <td align="center"><img src="assets/logos/openrouter.svg" width="32" alt="OpenRouter" /><br/><sub>OpenRouter</sub></td>
-    <td align="center"><img src="assets/logos/docker.svg" width="32" alt="Docker" /><br/><sub>Docker</sub></td>
-    <td align="center"><img src="assets/logos/bash.svg" width="32" alt="CLI" /><br/><sub>gh CLI</sub></td>
-    <td align="center"><img src="assets/logos/http.svg" width="32" alt="HTTP" /><br/><sub>REST API</sub></td>
-  </tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Side-by-Side 30/70 Review Dashboard
+
+Inspect calibrated **0–100 score gauges** (`Quality`, `Blast Radius`, `Risk`, `Tests`, `Readability`, `PR Hygiene`) on the left while reading the streaming **Markdown review terminal**, cohort file walkthroughs, and severity-ranked findings on the right. Re-run scores or narrative independently with one click.
+
+[Quickstart →](#-quickstart)
+
+</td>
+<td width="50%">
+  <a href="assets/videos/codeotter-cinematic-film-silent.mp4"><picture><source srcset="assets/videos/tile-review-dashboard.gif" type="image/gif"><img src="assets/videos/tile-review-dashboard.jpg" alt="CodeOtter 30/70 Review Dashboard and Markdown Terminal" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Deterministic System 1 Scores &amp; Merge Gates
+
+Standard LLM prompts hallucinate numbers. CodeOtter pairs your language model with a **System 1 decision engine** (`POST /v1/systemone`) that evaluates **6 rubric scores** and **8 yes/no pre-merge gates** (`Title`, `Description`, `Security`, `Complexity`, `Tests`, `Docs`, `Scope`, `Guidelines`) in a single fast pass.
+
+[Dual Engine Architecture →](#-how-it-works-the-dual-engine)
+
+</td>
+<td width="50%">
+  <a href="assets/videos/codeotter-cinematic-film-silent.mp4"><picture><source srcset="assets/videos/tile-system-one.gif" type="image/gif"><img src="assets/videos/tile-system-one.jpg" alt="System 1 Rubric Scores and Pre-Merge Safety Gates" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### 100% Offline Local Models
+
+Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face inside **Admin → Local models**. CodeOtter automatically manages `llama-server` (`llama.cpp`), `laya` (`ggmlc`), and Python sidecars with discrete Vulkan/Metal GPU detection.
+
+[Offline Mode →](#-100-offline-mode-zero-cloud)
+
+</td>
+<td width="50%">
+  <a href="assets/videos/codeotter-cinematic-film-silent.mp4"><picture><source srcset="assets/videos/tile-local-models.gif" type="image/gif"><img src="assets/videos/tile-local-models.jpg" alt="One-click Local Models Manager in CodeOtter" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### `AGENTS.md` / `CLAUDE.md` &amp; GitHub PR Sync
+
+Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository to enforce team rules on every diff hunk. Enable **Post scores on PR** and **Add PR review as a comment** to publish formatted scorecards directly on GitHub pull requests via `gh pr comment`.
+
+[Security &amp; Privacy →](#-security--privacy)
+
+</td>
+<td width="50%">
+  <a href="assets/videos/codeotter-cinematic-film-silent.mp4"><picture><source srcset="assets/videos/tile-github-sync.gif" type="image/gif"><img src="assets/videos/tile-github-sync.jpg" alt="Repository Guidelines and Automated GitHub PR Comments" width="100%" /></picture></a>
+</td>
+</tr>
 </table>
 
-<em>Run with 100% offline local open weights, hosted model APIs, or private endpoints.</em>
+---
 
-</div>
+## Supported Models &amp; Providers
+
+Works with **any local open-weight model or hosted API** — mix and match System 1 and System 2 engines freely.
+
+<p>
+  <a href="https://huggingface.co/Anthropic"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/1670531762351-6200d0a443eb0913fa2df7cc.png" alt="Anthropic" width="16" valign="middle" /> Claude Opus / Sonnet</kbd></a> &nbsp;
+  <a href="https://huggingface.co/openai"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/68783facef79a05727260de3/UPX5RQxiPGA-ZbBmArIKq.png" alt="OpenAI" width="16" valign="middle" /> OpenAI GPT-5</kbd></a> &nbsp;
+  <a href="https://huggingface.co/Qwen"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg" alt="Qwen" width="16" valign="middle" /> Qwen2.5-Coder (1.5B / 7B)</kbd></a> &nbsp;
+  <a href="https://huggingface.co/MiniMaxAI"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/676e38ad04af5bec20bc9faf/dUd-LsZEX0H_d4qefO_g6.jpeg" alt="MiniMax" width="16" valign="middle" /> MiniMax-M3</kbd></a> &nbsp;
+  <a href="https://huggingface.co/deepseek-ai"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/6538815d1bdb3c40db94fbfa/xMBly9PUMphrFVMxLX4kq.png" alt="DeepSeek" width="16" valign="middle" /> DeepSeek-Coder / V3</kbd></a> &nbsp;
+  <a href="https://huggingface.co/meta-llama"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/646cf8084eefb026fb8fd8bc/oCTqufkdTkjyGodsx1vo1.png" alt="Meta Llama" width="16" valign="middle" /> Llama 3.1 / 3.3</kbd></a> &nbsp;
+  <a href="https://huggingface.co/microsoft/codereviewer"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/1583646260758-5e64858c87403103f9f1055d.png" alt="Microsoft" width="16" valign="middle" /> Microsoft CodeReviewer</kbd></a> &nbsp;
+  <a href="https://huggingface.co/mys/laya-typed-decisions-GGUF"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/1596903074565-noauth.jpeg" alt="Laya" width="16" valign="middle" /> Laya Typed-Decisions</kbd></a> &nbsp;
+  <a href="https://huggingface.co/mys/kev-0.8b-GGUF"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg" alt="Kev" width="16" valign="middle" /> Kev 0.8B (S1)</kbd></a> &nbsp;
+  <a href="https://console.typesafe.ai"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/1596903074565-noauth.jpeg" alt="TypeSafe Jev" width="16" valign="middle" /> TypeSafe Jev</kbd></a> &nbsp;
+  <a href="https://ollama.com"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/noauth/MMgt1jNfE_ML3JWg3hz41.png" alt="Ollama" width="16" valign="middle" /> Ollama</kbd></a> &nbsp;
+  <a href="https://openrouter.ai"><kbd><img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" alt="OpenRouter" width="16" valign="middle" /> OpenRouter</kbd></a> &nbsp;
+  <kbd>+ any OpenAI-compatible or local GGUF endpoint</kbd>
+</p>
 
 ---
 
