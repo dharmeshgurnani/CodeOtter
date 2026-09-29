@@ -13,7 +13,7 @@ export type Pr = {
   files: PrFile[];
 };
 export type OpenPr = Pick<Pr, "number" | "title" | "url" | "author" | "additions" | "deletions" | "changedFiles"> & { updatedAt: string };
-export type Finding = { file: string; severity: "high" | "medium" | "low" | "nit"; title: string; detail: string };
+export type Finding = { file: string; severity: "high" | "medium" | "low" | "nit"; title: string; detail: string; dismissed?: boolean };
 export type Review = {
   pr: Pr;
   blast: { score: number; files: number; lines: number; dirs: number; hotspots: string[]; testFiles: number; source?: "s1" };
@@ -27,6 +27,7 @@ export type Review = {
   };
   model: string;
   guide?: string | null;
+  learnings?: string[];
   linkedIssues?: { number: number; repo?: string; title: string; body?: string; state?: string; url: string; labels?: string[] }[];
   gitHistory?: {
     prCommits?: { sha: string; message: string; author?: string }[];

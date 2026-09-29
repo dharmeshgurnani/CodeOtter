@@ -2,6 +2,7 @@
 
 ## 0.2.0 (2026-09-29)
 
+- Repo "Learnings": 1-click "Dismiss & remember rule" on review findings saves a persistent per-repository rule (`repoSettings[repo].learnings`), injects team learnings into LLM and System 1 review prompts, displays active learnings badges on PR reviews, and lets admins inspect/remove learned rules in Settings → Repositories.
 - Hugging Face organization and author avatars shown next to providers and models across Model provider picklists and Local models rows.
 - Side-by-side 30/70 review dashboard with markdown terminal view, per-card re-run actions, and dynamic OpenGraph / SEO metadata.
 - Added a development-only, 74-second Flute cinematic film with camera rails, layered UI reveals, animated scores and simulated local model downloads. Includes repository settings, GitHub, findings and merge gates, fictional records with Dharmesh Gurnani throughout, an isolated read-only demo server, and silent 1080p/60 fps export.

@@ -248,6 +248,11 @@ function buildAiReviewMarkdown(r: Review) {
   lines.push(`- **Branch**: \`${p.headRefName}\` -> \`${p.baseRefName}\` by @${p.author.login}`);
   lines.push(`- **Scope**: ${p.changedFiles} changed file(s) (+${p.additions} / -${p.deletions})`);
   lines.push(`- **Repository Guidelines**: ${guide ? `Loaded \`${guide}\` and enforced against diff hunks` : "Standard CodeOtter engineering rules"}`);
+  if (r.learnings?.length) {
+    lines.push(
+      `- **Team Learnings Enforced (${r.learnings.length})**: ${r.learnings.map((l) => `\`${l}\``).join(" · ")}`,
+    );
+  }
   if (r.linkedIssues?.length) {
     lines.push(
       `- **Linked Issues (${r.linkedIssues.length})**: ${r.linkedIssues
@@ -306,8 +311,10 @@ function buildAiReviewMarkdown(r: Review) {
     lines.push(`Completed review across ${p.changedFiles} changed file(s).`);
   }
 
-  const actionable = (v.findings || []).filter((f) => f.severity !== "nit");
-  const nits = (v.findings || []).filter((f) => f.severity === "nit");
+  const activeFindings = (v.findings || []).filter((f) => !f.dismissed);
+  const dismissedFindings = (v.findings || []).filter((f) => f.dismissed);
+  const actionable = activeFindings.filter((f) => f.severity !== "nit");
+  const nits = activeFindings.filter((f) => f.severity === "nit");
 
   if (actionable.length) {
     lines.push("");
@@ -330,6 +337,11 @@ function buildAiReviewMarkdown(r: Review) {
     });
   }
 
+  if (dismissedFindings.length) {
+    lines.push("");
+    lines.push(`_🧠 ${dismissedFindings.length} finding(s) dismissed and remembered as persistent repository team learning(s)._`);
+  }
+
   if (v.rawOutput?.trim()) {
     lines.push("");
     lines.push(`## Full Review Stream Log`);
@@ -347,12 +359,17 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
   const [animateWrite, setAnimateWrite] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
   const [rerunReq, setRerunReq] = useState<{ id: number; part: "scores" | "llm" } | null>(null);
+  const [dismissingKey, setDismissingKey] = useState<string>("");
+  const [learningNotice, setLearningNotice] = useState<string>("");
+
   useEffect(() => {
     setR(null);
     setErr("");
     setAnimateWrite(false);
     setDescExpanded(false);
     setRerunReq(null);
+    setDismissingKey("");
+    setLearningNotice("");
   }, [pr, repoHint]);
 
   useEffect(() => {
@@ -442,6 +459,52 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
   const prCommits = r.gitHistory?.prCommits ?? [];
   const bodyText = (p.body || "").trim();
   const isLongDesc = bodyText.length > 240 || bodyText.split("\n").length > 4;
+  const activeFindings = v.findings.filter((f) => !f.dismissed);
+  const activeLearnings = r.learnings ?? [];
+
+  const handleDismissFinding = async (f: Finding, idx: number) => {
+    const fKey = `${idx}:${f.file}:${f.title}`;
+    setDismissingKey(fKey);
+    setLearningNotice("");
+    const rule = `[${f.file}] Ignore pattern: ${f.title || (f.detail || "").split("\n")[0].slice(0, 80)}`;
+    try {
+      const res = await fetch("/api/learnings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prUrl: p.url,
+          repo,
+          file: f.file,
+          title: f.title,
+          detail: f.detail,
+          rule,
+        }),
+      });
+      const d = await res.json().catch(() => ({ error: `${res.status}` }));
+      if (!res.ok || d.error) throw new Error(d.error || `${res.status}`);
+      setR((prev) => {
+        if (!prev) return prev;
+        const nextFindings = (prev.review.findings || []).map((item, i) =>
+          i === idx || (item.file === f.file && item.title === f.title && !item.dismissed)
+            ? { ...item, dismissed: true }
+            : item,
+        );
+        return {
+          ...prev,
+          learnings: Array.isArray(d.learnings) ? d.learnings : [...(prev.learnings || []), rule],
+          review: {
+            ...prev.review,
+            findings: nextFindings,
+          },
+        };
+      });
+      setLearningNotice(`Saved rule to ${repo}: ${rule}`);
+    } catch (e) {
+      setLearningNotice(`Could not save learning: ${(e as Error).message}`);
+    } finally {
+      setDismissingKey("");
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -460,6 +523,14 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
           {r.guide && (
             <span className="inline-flex items-center gap-1 rounded-md bg-orange-50 border border-orange-200/70 px-2 py-0.5 text-xs font-medium text-orange-900">
               <BookOpen className="size-3" /> Guidelines: {r.guide}
+            </span>
+          )}
+          {activeLearnings.length > 0 && (
+            <span
+              title={activeLearnings.join("\n")}
+              className="inline-flex items-center gap-1 rounded-md bg-purple-50 border border-purple-200/80 px-2 py-0.5 text-xs font-medium text-purple-900"
+            >
+              <span>🧠 {activeLearnings.length} team learning{activeLearnings.length === 1 ? "" : "s"} active</span>
             </span>
           )}
           {prCommits.length > 0 && (
@@ -542,6 +613,98 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
           </Files>
         </div>
       </div>
+
+      {/* Actionable Findings & Learnings Interactive Bar */}
+      {(v.findings.length > 0 || activeLearnings.length > 0) && (
+        <div className="rounded-[10px] border border-border bg-white overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-[#efefef] px-4 py-2.5 text-sm">
+            <div className="flex items-center gap-2">
+              <span aria-hidden="true">🧠</span>
+              <b className="font-semibold text-neutral-900">Actionable Findings & Team Learnings</b>
+              <span className="rounded-md bg-neutral-200/90 px-2 py-0.5 text-xs font-medium text-neutral-800">
+                {activeFindings.length} active finding{activeFindings.length === 1 ? "" : "s"}
+              </span>
+              {activeLearnings.length > 0 && (
+                <span className="rounded-md bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-900">
+                  {activeLearnings.length} persistent rule{activeLearnings.length === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+            <a href="/settings/repos" className="text-xs font-medium text-brand hover:underline">
+              Manage rules in Settings →
+            </a>
+          </div>
+
+          {learningNotice && (
+            <div className="border-b border-purple-200 bg-purple-50/70 px-4 py-2 text-xs text-purple-900">
+              {learningNotice}
+            </div>
+          )}
+
+          {activeFindings.length > 0 ? (
+            <ul className="divide-y divide-border">
+              {v.findings.map((f, idx) => {
+                if (f.dismissed) return null;
+                const fKey = `${idx}:${f.file}:${f.title}`;
+                const busy = dismissingKey === fKey;
+                const sevTone = f.severity === "high" ? "bg-red-100 text-red-900" : f.severity === "medium" ? "bg-amber-100 text-amber-900" : f.severity === "low" ? "bg-blue-100 text-blue-900" : "bg-neutral-100 text-neutral-700";
+                return (
+                  <li key={fKey} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase ${sevTone}`}>
+                          {f.severity}
+                        </span>
+                        <InlineCode>{f.file}</InlineCode>
+                        <span className="font-medium text-neutral-900">{f.title}</span>
+                      </div>
+                      {f.detail && (
+                        <p className="truncate text-xs text-muted-foreground">
+                          {f.detail.split("\n\n@@")[0]?.replace(/\s+/g, " ").trim()}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleDismissFinding(f, idx)}
+                      className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-border bg-neutral-50 px-2.5 py-1 text-xs font-medium text-neutral-800 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-900 disabled:opacity-50"
+                    >
+                      {busy ? (
+                        <>
+                          <Loader2 className="size-3 animate-spin text-brand" />
+                          <span>Saving rule…</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Dismiss & remember rule</span>
+                        </>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="px-4 py-2.5 text-xs text-muted-foreground">
+              All findings in this review have been addressed or dismissed as persistent team learnings.
+            </div>
+          )}
+
+          {activeLearnings.length > 0 && (
+            <details className="border-t border-border bg-neutral-50/60 px-4 py-2 text-xs">
+              <summary className="cursor-pointer font-medium text-neutral-700">
+                Enforced repository learnings ({activeLearnings.length})
+              </summary>
+              <ul className="mt-1.5 space-y-1 pl-4 list-disc text-muted-foreground font-mono">
+                {activeLearnings.map((rule, i) => (
+                  <li key={`${i}-${rule}`}>{rule}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
 
       {/* Side-by-side (30% / 70%): CodeOtter · Scores & Merge Gates + CodeOtter AI Review */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[3fr_7fr] items-stretch">

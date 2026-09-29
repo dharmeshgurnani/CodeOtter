@@ -91,9 +91,9 @@ Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face insi
 <tr>
 <td width="50%" valign="middle">
 
-### `AGENTS.md` / `CLAUDE.md` &amp; GitHub PR Sync
+### `AGENTS.md` / `CLAUDE.md`, Repo Learnings &amp; GitHub PR Sync
 
-Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository to enforce team rules on every diff hunk. Enable **Post scores on PR** and **Add PR review as a comment** to publish formatted scorecards directly on GitHub pull requests via `gh pr comment`.
+Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository to enforce team rules on every diff hunk. Dismiss any review finding with **1-click ("Dismiss & remember rule")** to persist a repository team learning that is automatically injected into future LLM and System 1 review prompts (and managed under **Settings → Repositories → ⚙️**). Enable **Post scores on PR** and **Add PR review as a comment** to publish formatted scorecards directly on GitHub pull requests via `gh pr comment`.
 
 [Security &amp; Privacy →](#-security--privacy)
 

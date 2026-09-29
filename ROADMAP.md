@@ -2,6 +2,7 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | Repo "Learnings" (1-click dismiss finding to persistent per-repository team rule, injected into LLM & System 1 prompts and editable in Settings → Repositories) | 2026-09-29 |
 | [x] | Linked Issue & Requirement Validation (`Closes #123` acceptance criteria in LLM prompt, System 1 `issue_requirements` merge gate, and PR badges) | 2026-09-29 |
 | [x] | Architecture & Blast Radius Mermaid Diagram (`flowchart LR` SVG graph in review terminal and GitHub PR comments) | 2026-09-29 |
 | [x] | Hugging Face model & provider icons in selection lists and local model rows | 2026-09-29 |

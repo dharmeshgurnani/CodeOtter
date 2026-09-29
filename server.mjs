@@ -641,6 +641,33 @@ async function guideFor(repo, ref = "") {
   return { file: files.join(" + "), text: files.map((f) => `--- ${f} ---\n${guideText(repo, f, ref).slice(0, per)}`).join("\n\n") };
 }
 
+function normalizeLearningList(list) {
+  return [
+    ...new Set(
+      (Array.isArray(list) ? list : [])
+        .map((x) => String(typeof x === "object" && x !== null ? x.id || x.label || "" : x).trim())
+        .filter(Boolean),
+    ),
+  ].slice(-50);
+}
+
+async function getRepoLearnings(repo) {
+  if (!repo) return [];
+  const [rs, guides] = await Promise.all([store.getSetting("repoSettings"), store.getSetting("guides")]);
+  return normalizeLearningList(rs?.[repo]?.learnings ?? guides?.[repo]?.learnings ?? []);
+}
+
+async function setRepoLearnings(repo, list) {
+  const normalized = normalizeLearningList(list);
+  const [rs0, guides0] = await Promise.all([store.getSetting("repoSettings"), store.getSetting("guides")]);
+  const repoSettings = { ...(rs0 || {}) };
+  repoSettings[repo] = { ...(repoSettings[repo] || {}), learnings: normalized };
+  const guides = { ...(guides0 || {}) };
+  guides[repo] = { ...(guides[repo] || {}), learnings: normalized };
+  await Promise.all([store.setSetting("repoSettings", repoSettings), store.setSetting("guides", guides)]);
+  return normalized;
+}
+
 async function fetchGitHistory(repo, pr) {
   const prCommits = Array.isArray(pr.commits)
     ? pr.commits.map((c) => ({
@@ -760,7 +787,7 @@ const S1_GATES = [
   { id: "guidelines", label: "Repository guidelines", q: "The change violates the repository's review guidelines.", risk: true, needsGuide: true },
   { id: "issue_requirements", label: "Issue requirements", q: "Does the pull request diff fulfill the requirements and acceptance criteria described in the linked issue(s)?", risk: false, needsIssues: true },
 ];
-function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = []) {
+function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = [], learnings = []) {
   return {
     pull_request: {
       title: pr.title,
@@ -785,12 +812,17 @@ function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = []
         }
       : {}),
     ...(guide ? { review_guidelines: guide.text.slice(0, c.contextChars ? Math.floor(c.contextChars / 4) : 12000) } : {}),
+    ...(learnings?.length
+      ? {
+          repository_team_learnings: `Repository Team Learnings (Never flag these dismissed patterns):\n${learnings.map((l, i) => `${i + 1}. ${l}`).join("\n")}`,
+        }
+      : {}),
     ...(gitHistory?.formatted ? { git_change_history: gitHistory.formatted.slice(0, 4000) } : {}),
     diff: diff.slice(0, c.contextChars || 80000),
   };
 }
-async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = []) {
-  const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues);
+async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = [], learnings = []) {
+  const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues, learnings);
   const questions = {};
   for (const [k, levels] of Object.entries(S1_SCORES)) questions[`score_${k}`] = { type: "score", instructions: `Rate the pull request's ${k.replace("_", " ")}.`, criteria: levels };
   for (const g of S1_GATES) if ((!g.needsGuide || guide) && (!g.needsIssues || linkedIssues?.length)) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
@@ -827,12 +859,13 @@ function splitHunks(diff, maxHunks = 40, maxChars = 2000) {
   push();
   return out.filter((h) => !/\.(lock|min\.js|map|snap)$/.test(h.file)).sort((a, b) => b.diff.length - a.diff.length).slice(0, maxHunks);
 }
-async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress = null, linkedIssues = []) {
+async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress = null, linkedIssues = [], learnings = []) {
   const hunks = splitHunks(diff);
   const files = [...new Set(hunks.map((h) => h.file))];
   const commitNote = gitHistory?.prCommits?.length ? ` Analyzed ${gitHistory.prCommits.length} commit(s) (${gitHistory.prCommits.slice(0, 3).map((x) => x.sha).join(", ")})` : "";
   const guideNote = guide?.file ? ` against ${guide.file} guidelines` : "";
   const issueNote = linkedIssues?.length ? ` Validated against linked issue(s) ${linkedIssues.map((i) => `#${i.number}`).join(", ")}.` : "";
+  const learningNote = learnings?.length ? ` Enforced ${learnings.length} repository team learning(s).` : "";
   const port = await ensureSidecar(c.local);
   const seen = new Set();
   const findings = [];
@@ -856,23 +889,29 @@ async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress
       if (!text || text.length < 12 || seen.has(text.toLowerCase())) continue;
       seen.add(text.toLowerCase());
       const first = text.split(/(?<=[.!?])\s/)[0];
+      const titleCandidate = first.length > 90 ? first.slice(0, 87) + "…" : first;
+      const isDismissedByRule = (learnings || []).some((rule) => {
+        const norm = String(rule).toLowerCase();
+        return norm.includes(titleCandidate.toLowerCase().slice(0, 40)) || (h.file && norm.includes(`[${h.file.toLowerCase()}]`) && norm.includes(first.toLowerCase().slice(0, 24)));
+      });
+      if (isDismissedByRule) continue;
       findings.push({
         file: h.file,
         severity: /bug|wrong|incorrect|leak|crash|null|undefined|security|inject|unsafe|race|deadlock|error/i.test(text) ? "medium" : "low",
-        title: first.length > 90 ? first.slice(0, 87) + "…" : first,
+        title: titleCandidate,
         detail: `${text}\n\n${h.header}\n${h.diff.trim()}`,
       });
     }
     const doneHunks = Math.min(hunks.length, start + batch.length);
     onProgress?.({
-      summary: `CodeOtter inspected ${doneHunks} of ${hunks.length} diff hunks across ${files.length} changed files${guideNote}.${commitNote}${issueNote} Found ${findings.length} actionable observation(s) so far.`,
+      summary: `CodeOtter inspected ${doneHunks} of ${hunks.length} diff hunks across ${files.length} changed files${guideNote}.${commitNote}${issueNote}${learningNote} Found ${findings.length} actionable observation(s) so far.`,
       findings: findings.slice(0, 20),
       walkthrough: files.map((f) => ({ file: f, change: `${hunks.filter((h) => h.file === f).length} hunk(s) reviewed` })),
       rawOutput: rawLog.join("\n\n"),
     });
   }
   return {
-    summary: `CodeOtter reviewed ${hunks.length} diff hunks across ${files.length} changed files${guideNote}.${commitNote}${issueNote} Found ${findings.length} actionable observation(s).`,
+    summary: `CodeOtter reviewed ${hunks.length} diff hunks across ${files.length} changed files${guideNote}.${commitNote}${issueNote}${learningNote} Found ${findings.length} actionable observation(s).`,
     verdict: findings.some((f) => f.severity === "medium") ? "comment" : findings.length ? "comment" : "approve",
     scores: { quality: 0, correctness_risk: 0, test_coverage: 0, readability: 0, pr_hygiene: 0 },
     findings: findings.slice(0, 20),
@@ -881,30 +920,33 @@ async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress
   };
 }
 
-function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = []) {
+function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = [], learnings = []) {
   const issueBlock = linkedIssues?.length
     ? `\nLinked GitHub Issues & Requirements (MANDATORY: explicitly verify whether the pull request diff fulfills all requirements and acceptance criteria described in these linked issues, and flag any unfulfilled or partially met requirement in findings):\n${linkedIssues
         .map((iss) => `Issue #${iss.number} (${iss.repo}, ${iss.state}): ${iss.title}${iss.labels?.length ? ` [${iss.labels.join(", ")}]` : ""}\n${(iss.body || "(no body provided)").slice(0, 1200)}`)
         .join("\n\n")}\n`
     : "";
-  return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the linked GitHub issues and acceptance criteria, the git commit history, and the code diff. Reply with ONLY a JSON object:
+  const learningsBlock = learnings?.length
+    ? `\nRepository Team Learnings (Never flag these dismissed patterns):\n${learnings.map((l) => `- ${l}`).join("\n")}\n`
+    : "";
+  return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the repository team learnings, the linked GitHub issues and acceptance criteria, the git commit history, and the code diff. Reply with ONLY a JSON object:
 {"summary":"3-5 sentence architectural walkthrough covering what changed, commit progression, fulfillment of linked issue requirements, and adherence to repository guidelines","verdict":"approve|comment|request_changes",
 ${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},\n` : ""} "findings":[{"file":"path","severity":"high|medium|low|nit","title":"short","detail":"why + concrete fix (cite AGENTS.md/CLAUDE.md rule, linked issue #number requirement, or commit if relevant)"}],
  "walkthrough":[{"file":"path","change":"concise summary of change in this file"}]}
-Be concrete; cite exact files and rules. Max ${r.maxFindings} findings, most severe first. Today is ${new Date().toISOString().slice(0, 10)}.
+Be concrete; cite exact files and rules. Respect all Repository Team Learnings and never flag dismissed patterns. Max ${r.maxFindings} findings, most severe first. Today is ${new Date().toISOString().slice(0, 10)}.
 
 PR #${pr.number}: ${pr.title}
 Author: ${pr.author.login}  Base: ${pr.baseRefName} <- Head: ${pr.headRefName}  Files: ${pr.changedFiles}  +${pr.additions} -${pr.deletions}
 Description:
 ${(pr.body || "(none)").slice(0, c.contextChars ? Math.min(3000, Math.floor(c.contextChars / 10)) : 3000)}
-${issueBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
+${issueBlock}${learningsBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
 Diff (may be truncated):
 ${diff.slice(0, Math.min(r.diffChars, c.contextChars || Infinity))}`;
 }
 
-async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = []) {
-  if (c.api === "codereviewer") return reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress, linkedIssues);
-  const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues), { ...c, temperature: r.temperature });
+async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = [], learnings = []) {
+  if (c.api === "codereviewer") return reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress, linkedIssues, learnings);
+  const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues, learnings), { ...c, temperature: r.temperature });
   let out;
   try {
     out = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
@@ -918,7 +960,7 @@ async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores 
     summary: str(out.summary, 2500),
     verdict: ["approve", "comment", "request_changes"].includes(out.verdict) ? out.verdict : "comment",
     scores: Object.fromEntries(["quality", "correctness_risk", "test_coverage", "readability", "pr_hygiene"].map((k) => [k, n(out.scores?.[k])])),
-    findings: (Array.isArray(out.findings) ? out.findings : []).slice(0, 20).map((f) => ({ file: str(f?.file, 300), severity: SEV.includes(f?.severity) ? f.severity : "low", title: str(f?.title, 300), detail: str(f?.detail, 4000) })),
+    findings: (Array.isArray(out.findings) ? out.findings : []).slice(0, 20).map((f) => ({ file: str(f?.file, 300), severity: SEV.includes(f?.severity) ? f.severity : "low", title: str(f?.title, 300), detail: str(f?.detail, 4000), ...(f?.dismissed ? { dismissed: true } : {}) })),
     walkthrough: (Array.isArray(out.walkthrough) ? out.walkthrough : []).slice(0, 100).filter((w) => w && typeof w.file === "string").map((w) => ({ file: str(w.file, 300), change: str(w.change, 500) })),
     rawOutput: str(text, 20000),
   };
@@ -986,7 +1028,10 @@ async function startOrPollReview(ref, force, repo, part = "") {
     : stored;
 
   // If not forced, return cached only if its scores are valid (auto-heal records whose scores were zeroed)
-  if (!force && cached && hasValidScores(cached.review?.scores)) return cached;
+  if (!force && cached && hasValidScores(cached.review?.scores)) {
+    const repoLearnings = await getRepoLearnings(repoOf(cached.pr));
+    return { ...cached, learnings: repoLearnings };
+  }
   if (!force && cached && !hasValidScores(cached.review?.scores)) {
     part = cached.review?.summary ? "scores" : "";
   }
@@ -1001,6 +1046,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
 
   // Use cached PR metadata immediately on Re-review if available, or fetch non-blockingly via ghAsync
   const pr = cached?.pr || JSON.parse(await ghAsync("pr", "view", ...spec, "--json", "number,title,body,author,url,baseRefName,headRefName,additions,deletions,changedFiles,files,commits,state"));
+  const initialLearnings = await getRepoLearnings(repoOf(pr));
   const prevBlast = cached?.blast;
   const blast = !runScores && prevBlast ? { ...prevBlast } : blastRadius(pr.files);
   const engines = { llm: llmReady ? `${c.provider}/${c.model}` : null, s1: s1.enabled ? `${s1.provider}/${s1.model}` : null };
@@ -1024,6 +1070,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
     engines,
     model: modelLabel,
     guide: cached?.guide || null,
+    learnings: initialLearnings,
     linkedIssues: cached?.linkedIssues || [],
     gitHistory: cached?.gitHistory || { prCommits: Array.isArray(pr.commits) ? pr.commits.map((cm) => ({ sha: String(cm.oid || "").slice(0, 7), message: String(cm.messageHeadline || "").trim(), author: cm.authors?.[0]?.login || pr.author?.login || "" })) : [], baseCommits: [] },
     at: new Date().toISOString(),
@@ -1040,10 +1087,11 @@ async function startOrPollReview(ref, force, repo, part = "") {
   entry.promise = (async () => {
     try {
       // Refresh PR metadata in background if we started from cached.pr
-      const [freshPrJson, diff, guide] = await Promise.all([
+      const [freshPrJson, diff, guide, learnings] = await Promise.all([
         cached?.pr ? ghAsync("pr", "view", ...spec, "--json", "number,title,body,author,url,baseRefName,headRefName,additions,deletions,changedFiles,files,commits,state").catch(() => null) : Promise.resolve(null),
         ghAsync("pr", "diff", ...spec),
         Promise.resolve().then(() => guideFor(repoOf(pr), pr.headRefName)),
+        getRepoLearnings(repoOf(pr)),
       ]);
       if (freshPrJson) {
         live.pr = JSON.parse(freshPrJson);
@@ -1052,6 +1100,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
         live.blast = { ...fb, ...(keepScore ? { score: live.blast.score, source: live.blast.source || prevBlast?.source || "s1" } : {}) };
       }
       live.guide = guide?.file || null;
+      live.learnings = learnings;
       const [gitHistory, linkedIssues] = await Promise.all([
         fetchGitHistory(repoOf(live.pr), live.pr),
         fetchLinkedIssues(repoOf(live.pr), live.pr),
@@ -1072,7 +1121,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
               live.pending.scores = false;
               live.pending.gates = false;
             }
-          }, gitHistory, linkedIssues)
+          }, gitHistory, linkedIssues, learnings)
         : Promise.resolve(null);
 
       const needLlmForScores = runScores && !s1.enabled;
@@ -1081,7 +1130,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
             if (runLlm) {
               live.review = { ...live.review, ...partial, scores: live.review.scores };
             }
-          }, linkedIssues).then((nav) => {
+          }, linkedIssues, learnings).then((nav) => {
             const scores = (!runScores || s1.enabled)
               ? (hasValidScores(live.review.scores) ? live.review.scores : initialScores)
               : (hasValidScores(nav.scores) ? nav.scores : initialScores);
@@ -1113,7 +1162,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
         review = { ...review, scores: initialScores };
       }
       const finalGates = typed?.gates || (live.gates?.length ? live.gates : cached?.gates) || [];
-      const result = { pr: live.pr, blast: live.blast, review, gates: finalGates, engines, model: modelLabel, guide: guide?.file || null, linkedIssues: live.linkedIssues || [], gitHistory: live.gitHistory, at: new Date().toISOString() };
+      const result = { pr: live.pr, blast: live.blast, review, gates: finalGates, engines, model: modelLabel, guide: guide?.file || null, learnings, linkedIssues: live.linkedIssues || [], gitHistory: live.gitHistory, at: new Date().toISOString() };
       const repoCfg = ((await store.getSetting("guides")) || {})[repoOf(live.pr)] || {};
       const doPostScores = repoCfg.postScores ?? rc.postScores;
       const doPostReview = repoCfg.postReview ?? rc.postReview;
@@ -1317,7 +1366,7 @@ function formatReviewComment(r) {
   const appLink = `${APP_URL}/review?pr=${encodeURIComponent(pr.url)}`;
   const [vl] = VERDICT[v.verdict] || ["Commented"];
   const e = effort(blast);
-  const actionable = (v.findings || []).filter((f) => f.severity !== "nit");
+  const actionable = (v.findings || []).filter((f) => !f.dismissed && f.severity !== "nit");
   const lines = [
     `### 🦦 CodeOtter — PR Review Summary`,
     "",
@@ -1463,8 +1512,8 @@ function renderScore(r) {
   const { pr, blast, review: v } = r;
   const [vl, vt] = VERDICT[v.verdict] || ["Commented", "warn"];
   const e = effort(blast);
-  const actionable = v.findings.filter((f) => f.severity !== "nit");
-  const nits = v.findings.filter((f) => f.severity === "nit");
+  const actionable = (v.findings || []).filter((f) => !f.dismissed && f.severity !== "nit");
+  const nits = (v.findings || []).filter((f) => !f.dismissed && f.severity === "nit");
   const finding = (f) => {
     const [ic, kind, sev] = KIND[f.severity] || KIND.low;
     return `<div class="fnd"><div class="fh"><code>${esc(f.file)}</code></div><div class="fb"><b>${ic} ${kind}${sev ? `<span class="sev">| 🔴 ${sev}</span>` : ""}</b><b style="font-weight:600">${esc(f.title)}</b><span>${esc(f.detail)}</span></div></div>`;
@@ -1517,28 +1566,42 @@ const SETTINGS_PAGES = {
     // Scoped to the active organization: only its repositories are listed, offered, or touched on save.
     async load({ org } = {}) {
       const list = (await repos()).filter((r) => !org || r.startsWith(`${org}/`));
-      const guides = (await store.getSetting("guides")) || {};
-      const rc = await reviewConfig();
+      const [guides, repoSettings, rc] = await Promise.all([
+        store.getSetting("guides").then((x) => x || {}),
+        store.getSetting("repoSettings").then((x) => x || {}),
+        reviewConfig(),
+      ]);
       const items = list.map((r) => {
         const files = guideFiles(r); // real check at the repository root via the GitHub API
         const label = files.join(" + ");
         const g = guides[r] || {};
+        const rs = repoSettings[r] || {};
         const postScores = g.postScores ?? rc.postScores;
         const postReview = g.postReview ?? rc.postReview;
+        const learnings = normalizeLearningList(rs.learnings ?? g.learnings ?? []);
         const settings = {
           title: r,
           fields: [
             files.length ? { key: "useGuides", label: "Auto-detected", type: "checkbox", text: label } : { key: "none", label: "Auto-detected", type: "readonly" },
             { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a comment to the PR with all System One scores" },
             { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add the review summary and a link to the full report" },
+            { key: "learnings", label: "Team learnings", type: "list", removable: true, hint: "Dismissed review findings remembered as persistent team rules for this repository." },
           ],
           values: {
             ...(files.length ? { useGuides: g.use ?? true } : { none: "none" }),
             postScores: !!postScores,
             postReview: !!postReview,
+            learnings,
           },
         };
-        const meta = [files.length ? label : "", postScores ? "Post scores" : "", postReview ? "Post review" : ""].filter(Boolean).join(" · ");
+        const meta = [
+          files.length ? label : "",
+          postScores ? "Post scores" : "",
+          postReview ? "Post review" : "",
+          learnings.length ? `${learnings.length} learning${learnings.length === 1 ? "" : "s"}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
         return { id: r, label: r, meta: meta || undefined, settings };
       });
       const sections = [
@@ -1575,20 +1638,30 @@ const SETTINGS_PAGES = {
         }
       }
       await store.setSetting("repos", next);
-      const guides = (await store.getSetting("guides")) || {};
+      const [guides, repoSettings] = await Promise.all([
+        store.getSetting("guides").then((x) => ({ ...(x || {}) })),
+        store.getSetting("repoSettings").then((x) => ({ ...(x || {}) })),
+      ]);
       for (const it of listed) {
         const sv = it.settings?.values;
         if (!sv) continue;
         const id = clean(it.id);
+        const nextLearnings = "learnings" in sv ? normalizeLearningList(sv.learnings) : undefined;
         guides[id] = {
           ...(guides[id] || {}),
           ...("useGuides" in sv ? { use: !!sv.useGuides } : {}),
           ...("postScores" in sv ? { postScores: !!sv.postScores } : {}),
           ...("postReview" in sv ? { postReview: !!sv.postReview } : {}),
+          ...(nextLearnings !== undefined ? { learnings: nextLearnings } : {}),
+        };
+        repoSettings[id] = {
+          ...(repoSettings[id] || {}),
+          ...(nextLearnings !== undefined ? { learnings: nextLearnings } : {}),
         };
       }
       for (const k of Object.keys(guides)) if (!next.includes(k)) delete guides[k];
-      await store.setSetting("guides", guides);
+      for (const k of Object.keys(repoSettings)) if (!next.includes(k)) delete repoSettings[k];
+      await Promise.all([store.setSetting("guides", guides), store.setSetting("repoSettings", repoSettings)]);
     },
   },
   model: {
@@ -2083,6 +2156,59 @@ http
         if (scope.org && !OWNER_RE.test(scope.org)) throw new Error("Bad organization");
         if (req.method === "POST") await page.save(await readJson(req), scope, user);
         return json(await page.load(scope, user));
+      }
+      if (url.pathname === "/api/learnings" && req.method === "POST") {
+        const g = await gate(req, res, "admin");
+        if (!g.ok) return;
+        const body = await readJson(req);
+        const prUrl = String(body.prUrl || "").trim();
+        const repo = String(body.repo || (prUrl ? prUrl.split("/").slice(3, 5).join("/") : "")).trim();
+        if (!repo || !REPO_RE.test(repo)) throw new Error("Invalid repository");
+        const fileBit = String(body.file || "").trim();
+        const titleBit = String(body.title || "").trim();
+        const detailBit = String(body.detail || "").trim().split("\n")[0].slice(0, 140);
+        const ruleText = String(
+          body.rule ||
+          (fileBit && titleBit
+            ? `[${fileBit}] Ignore pattern: ${titleBit}`
+            : titleBit
+              ? `Ignore pattern: ${titleBit}`
+              : fileBit && detailBit
+                ? `[${fileBit}] Ignore pattern: ${detailBit}`
+                : detailBit || "Ignore dismissed finding pattern"),
+        )
+          .trim()
+          .slice(0, 300);
+        const prev = await getRepoLearnings(repo);
+        const learnings = await setRepoLearnings(repo, [...prev, ruleText]);
+        let updatedReview = null;
+        if (prUrl && PR_URL_RE.test(prUrl)) {
+          const stored = await store.get(prUrl).catch(() => null);
+          const active = activeReviews.get(prUrl)?.state || null;
+          const target = stored || active;
+          if (target) {
+            const markDismissed = (rObj) => {
+              if (!rObj?.review?.findings) return rObj;
+              let matched = false;
+              const nextFindings = rObj.review.findings.map((f) => {
+                if (!matched && !f.dismissed) {
+                  const sameFile = !fileBit || String(f.file || "") === fileBit;
+                  const sameTitle = !titleBit || String(f.title || "") === titleBit;
+                  if (sameFile && sameTitle) {
+                    matched = true;
+                    return { ...f, dismissed: true };
+                  }
+                }
+                return f;
+              });
+              return { ...rObj, learnings, review: { ...rObj.review, findings: nextFindings } };
+            };
+            updatedReview = markDismissed(target);
+            if (stored) await store.put(updatedReview);
+            if (activeReviews.get(prUrl)) activeReviews.get(prUrl).state = markDismissed(activeReviews.get(prUrl).state);
+          }
+        }
+        return json({ ok: true, learnings, review: updatedReview });
       }
       if (url.pathname === "/api/score" || (url.pathname === "/score" && url.searchParams.get("pr"))) {
         if (!(await gate(req, res)).ok) return;

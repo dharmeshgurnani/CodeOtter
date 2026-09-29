@@ -65,7 +65,7 @@ function ItemSettingsDialog({ item, onChange }: { item: Exclude<ListItem, string
           {s.fields.map((f) => (
             <div key={f.key} className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-[160px_1fr] sm:gap-4">
               <label className="pt-2 text-sm font-medium text-neutral-800" htmlFor={f.type === "checkbox" || f.type === "readonly" || f.type === "list" ? undefined : `d-${item.id}-${f.key}`}>{f.label}</label>
-              <div>
+              <div className="min-w-0">
                 <Control f={f} vals={vals} id={`d-${item.id}-${f.key}`} scope={`d-${item.id}`} onChange={(v) => setVals(applyChange(section, vals, f.key, v))} />
                 {f.hint && <span className="mt-1 block text-xs text-muted-foreground">{f.hint}</span>}
               </div>
