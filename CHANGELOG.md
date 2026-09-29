@@ -2,6 +2,7 @@
 
 ## 0.2.0 (2026-09-29)
 
+- Incremental Commit-by-Commit Delta Reviews & In-Place GitHub PR Comment Upsert: tracks reviewed `headSha` (`headRefOid`), compares `prevSha...headSha` commits and diffs on re-review, verifies and reports resolved prior findings (`✅ Resolved since prevSha`), displays commit/incremental delta badges and a "Re-run delta review" action on the PR review page, and updates existing GitHub PR comments in place (`<!-- codeotter:scores -->` and `<!-- codeotter:review -->`) via `PATCH /repos/:owner/:repo/issues/comments/:id` instead of posting duplicate comments.
 - Repo "Learnings": 1-click "Dismiss & remember rule" on review findings saves a persistent per-repository rule (`repoSettings[repo].learnings`), injects team learnings into LLM and System 1 review prompts, displays active learnings badges on PR reviews, and lets admins inspect/remove learned rules in Settings → Repositories.
 - Hugging Face organization and author avatars shown next to providers and models across Model provider picklists and Local models rows.
 - Side-by-side 30/70 review dashboard with markdown terminal view, per-card re-run actions, and dynamic OpenGraph / SEO metadata.

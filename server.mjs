@@ -432,6 +432,9 @@ const fileStore = {
       .filter((f) => f.endsWith(".json"))
       .map((f) => JSON.parse(readFileSync(join(SCORES, f), "utf8")))
       .sort((a, b) => b.at.localeCompare(a.at)),
+  reviews() {
+    return this.all();
+  },
 };
 
 let pbToken = "";
@@ -483,6 +486,9 @@ const pbStore = {
     await pb(hit ? `collections/reviews/records/${hit.id}` : "collections/reviews/records", { method: hit ? "PATCH" : "POST", body });
   },
   all: async () => (await pb("collections/reviews/records?perPage=500&sort=-at")).items.map((i) => i.data),
+  reviews() {
+    return this.all();
+  },
   getOAuth: async () => (await pb("collections/users")).oauth2,
   // Sign-in: PocketBase's manual OAuth2 flow. No superuser token involved; these are public user endpoints.
   authMethods: async () => (await fetch(`${PB_URL}/api/collections/users/auth-methods`)).json(),
@@ -668,10 +674,28 @@ async function setRepoLearnings(repo, list) {
   return normalized;
 }
 
+function extractHeadSha(pr, gitHistory = null) {
+  return String(
+    pr?.headRefOid ||
+    pr?.headSha ||
+    pr?.commits?.at(-1)?.oid ||
+    gitHistory?.prCommits?.at(-1)?.sha ||
+    "",
+  ).trim();
+}
+
+function shaMatch(a, b) {
+  const sa = String(a || "").trim().toLowerCase();
+  const sb = String(b || "").trim().toLowerCase();
+  if (!sa || !sb || sa.length < 7 || sb.length < 7) return false;
+  return sa.startsWith(sb) || sb.startsWith(sa);
+}
+
 async function fetchGitHistory(repo, pr) {
   const prCommits = Array.isArray(pr.commits)
     ? pr.commits.map((c) => ({
         sha: String(c.oid || "").slice(0, 7),
+        fullSha: String(c.oid || ""),
         message: String(c.messageHeadline || c.messageBody || "").trim(),
         body: String(c.messageBody || "").trim(),
         author: c.authors?.[0]?.login || c.authors?.[0]?.name || pr.author?.login || "",
@@ -787,7 +811,7 @@ const S1_GATES = [
   { id: "guidelines", label: "Repository guidelines", q: "The change violates the repository's review guidelines.", risk: true, needsGuide: true },
   { id: "issue_requirements", label: "Issue requirements", q: "Does the pull request diff fulfill the requirements and acceptance criteria described in the linked issue(s)?", risk: false, needsIssues: true },
 ];
-function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = [], learnings = []) {
+function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null) {
   return {
     pull_request: {
       title: pr.title,
@@ -795,10 +819,12 @@ function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = []
       author: pr.author.login,
       base: pr.baseRefName,
       head: pr.headRefName,
+      head_sha: pr.headSha || extractHeadSha(pr, gitHistory),
       commits: (gitHistory?.prCommits || []).slice(0, 30).map((cm) => `${cm.sha} ${cm.message}`),
       files: pr.files.map((f) => `${f.path} +${f.additions} -${f.deletions}`).slice(0, 200),
     },
     change_facts: (({ files, lines, dirs, hotspots, testFiles }) => ({ files, lines, areas: dirs, sensitive_areas: hotspots, test_files: testFiles }))(blastRadius(pr.files)),
+    ...(incrementalCtx?.summaryText ? { incremental_review_delta: incrementalCtx.summaryText } : {}),
     ...(linkedIssues?.length
       ? {
           linked_issues: linkedIssues.map((iss) => ({
@@ -821,8 +847,8 @@ function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = []
     diff: diff.slice(0, c.contextChars || 80000),
   };
 }
-async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = [], learnings = []) {
-  const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues, learnings);
+async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = [], learnings = [], incrementalCtx = null) {
+  const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues, learnings, incrementalCtx);
   const questions = {};
   for (const [k, levels] of Object.entries(S1_SCORES)) questions[`score_${k}`] = { type: "score", instructions: `Rate the pull request's ${k.replace("_", " ")}.`, criteria: levels };
   for (const g of S1_GATES) if ((!g.needsGuide || guide) && (!g.needsIssues || linkedIssues?.length)) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
@@ -859,10 +885,15 @@ function splitHunks(diff, maxHunks = 40, maxChars = 2000) {
   push();
   return out.filter((h) => !/\.(lock|min\.js|map|snap)$/.test(h.file)).sort((a, b) => b.diff.length - a.diff.length).slice(0, maxHunks);
 }
-async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress = null, linkedIssues = [], learnings = []) {
-  const hunks = splitHunks(diff);
+async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress = null, linkedIssues = [], learnings = [], incrementalCtx = null) {
+  const activeDiff = incrementalCtx?.deltaDiff || diff;
+  const hunks = splitHunks(activeDiff);
   const files = [...new Set(hunks.map((h) => h.file))];
-  const commitNote = gitHistory?.prCommits?.length ? ` Analyzed ${gitHistory.prCommits.length} commit(s) (${gitHistory.prCommits.slice(0, 3).map((x) => x.sha).join(", ")})` : "";
+  const commitNote = incrementalCtx?.newCommits?.length
+    ? ` Incremental delta ${incrementalCtx.prevSha.slice(0, 7)} -> ${incrementalCtx.headSha.slice(0, 7)} (${incrementalCtx.newCommits.length} new commit(s)).`
+    : gitHistory?.prCommits?.length
+      ? ` Analyzed ${gitHistory.prCommits.length} commit(s) (${gitHistory.prCommits.slice(0, 3).map((x) => x.sha).join(", ")})`
+      : "";
   const guideNote = guide?.file ? ` against ${guide.file} guidelines` : "";
   const issueNote = linkedIssues?.length ? ` Validated against linked issue(s) ${linkedIssues.map((i) => `#${i.number}`).join(", ")}.` : "";
   const learningNote = learnings?.length ? ` Enforced ${learnings.length} repository team learning(s).` : "";
@@ -920,7 +951,7 @@ async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress
   };
 }
 
-function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = [], learnings = []) {
+function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null) {
   const issueBlock = linkedIssues?.length
     ? `\nLinked GitHub Issues & Requirements (MANDATORY: explicitly verify whether the pull request diff fulfills all requirements and acceptance criteria described in these linked issues, and flag any unfulfilled or partially met requirement in findings):\n${linkedIssues
         .map((iss) => `Issue #${iss.number} (${iss.repo}, ${iss.state}): ${iss.title}${iss.labels?.length ? ` [${iss.labels.join(", ")}]` : ""}\n${(iss.body || "(no body provided)").slice(0, 1200)}`)
@@ -929,6 +960,7 @@ function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = tru
   const learningsBlock = learnings?.length
     ? `\nRepository Team Learnings (Never flag these dismissed patterns):\n${learnings.map((l) => `- ${l}`).join("\n")}\n`
     : "";
+  const incrementalBlock = incrementalCtx?.promptBlock ? `\n${incrementalCtx.promptBlock}\n` : "";
   return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the repository team learnings, the linked GitHub issues and acceptance criteria, the git commit history, and the code diff. Reply with ONLY a JSON object:
 {"summary":"3-5 sentence architectural walkthrough covering what changed, commit progression, fulfillment of linked issue requirements, and adherence to repository guidelines","verdict":"approve|comment|request_changes",
 ${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},\n` : ""} "findings":[{"file":"path","severity":"high|medium|low|nit","title":"short","detail":"why + concrete fix (cite AGENTS.md/CLAUDE.md rule, linked issue #number requirement, or commit if relevant)"}],
@@ -936,17 +968,17 @@ ${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very 
 Be concrete; cite exact files and rules. Respect all Repository Team Learnings and never flag dismissed patterns. Max ${r.maxFindings} findings, most severe first. Today is ${new Date().toISOString().slice(0, 10)}.
 
 PR #${pr.number}: ${pr.title}
-Author: ${pr.author.login}  Base: ${pr.baseRefName} <- Head: ${pr.headRefName}  Files: ${pr.changedFiles}  +${pr.additions} -${pr.deletions}
+Author: ${pr.author.login}  Base: ${pr.baseRefName} <- Head: ${pr.headRefName}${pr.headSha ? ` (${pr.headSha.slice(0, 7)})` : ""}  Files: ${pr.changedFiles}  +${pr.additions} -${pr.deletions}
 Description:
 ${(pr.body || "(none)").slice(0, c.contextChars ? Math.min(3000, Math.floor(c.contextChars / 10)) : 3000)}
-${issueBlock}${learningsBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
+${incrementalBlock}${issueBlock}${learningsBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
 Diff (may be truncated):
 ${diff.slice(0, Math.min(r.diffChars, c.contextChars || Infinity))}`;
 }
 
-async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = [], learnings = []) {
-  if (c.api === "codereviewer") return reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress, linkedIssues, learnings);
-  const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues, learnings), { ...c, temperature: r.temperature });
+async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = [], learnings = [], incrementalCtx = null) {
+  if (c.api === "codereviewer") return reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress, linkedIssues, learnings, incrementalCtx);
+  const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues, learnings, incrementalCtx), { ...c, temperature: r.temperature });
   let out;
   try {
     out = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
@@ -1009,7 +1041,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
     }
     return existing.state;
   }
-  const stored = await store.get(urlGuess);
+  const stored = (await store.get(urlGuess)) || (await store.reviews()).find((x) => x.pr?.url === urlGuess) || null;
   // Merge any in-flight state with stored state so partial re-runs never lose live scores or narrative
   const cached = existing?.state
     ? {
@@ -1030,7 +1062,8 @@ async function startOrPollReview(ref, force, repo, part = "") {
   // If not forced, return cached only if its scores are valid (auto-heal records whose scores were zeroed)
   if (!force && cached && hasValidScores(cached.review?.scores)) {
     const repoLearnings = await getRepoLearnings(repoOf(cached.pr));
-    return { ...cached, learnings: repoLearnings };
+    const headSha = extractHeadSha(cached.pr, cached.gitHistory) || cached.headSha;
+    return { ...cached, ...(headSha ? { headSha, pr: { ...cached.pr, headSha } } : {}), learnings: repoLearnings };
   }
   if (!force && cached && !hasValidScores(cached.review?.scores)) {
     part = cached.review?.summary ? "scores" : "";
@@ -1045,7 +1078,9 @@ async function startOrPollReview(ref, force, repo, part = "") {
   const runLlm = !part || part === "llm" || !cached || !cached.review?.summary;
 
   // Use cached PR metadata immediately on Re-review if available, or fetch non-blockingly via ghAsync
-  const pr = cached?.pr || JSON.parse(await ghAsync("pr", "view", ...spec, "--json", "number,title,body,author,url,baseRefName,headRefName,additions,deletions,changedFiles,files,commits,state"));
+  const pr = cached?.pr || JSON.parse(await ghAsync("pr", "view", ...spec, "--json", "number,title,body,author,url,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,files,commits,state"));
+  const initialHeadSha = extractHeadSha(pr, cached?.gitHistory) || cached?.headSha || "";
+  if (initialHeadSha) pr.headSha = initialHeadSha;
   const initialLearnings = await getRepoLearnings(repoOf(pr));
   const prevBlast = cached?.blast;
   const blast = !runScores && prevBlast ? { ...prevBlast } : blastRadius(pr.files);
@@ -1057,6 +1092,8 @@ async function startOrPollReview(ref, force, repo, part = "") {
     : { quality: 0, correctness_risk: 0, test_coverage: 0, readability: 0, pr_hygiene: 0 };
   const live = {
     pr,
+    ...(initialHeadSha ? { headSha: initialHeadSha } : {}),
+    ...(cached?.incremental ? { incremental: cached.incremental } : {}),
     blast: { ...blast },
     review: {
       summary: !runLlm ? (prevReview.summary || "") : "",
@@ -1088,7 +1125,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
     try {
       // Refresh PR metadata in background if we started from cached.pr
       const [freshPrJson, diff, guide, learnings] = await Promise.all([
-        cached?.pr ? ghAsync("pr", "view", ...spec, "--json", "number,title,body,author,url,baseRefName,headRefName,additions,deletions,changedFiles,files,commits,state").catch(() => null) : Promise.resolve(null),
+        cached?.pr ? ghAsync("pr", "view", ...spec, "--json", "number,title,body,author,url,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,files,commits,state").catch(() => null) : Promise.resolve(null),
         ghAsync("pr", "diff", ...spec),
         Promise.resolve().then(() => guideFor(repoOf(pr), pr.headRefName)),
         getRepoLearnings(repoOf(pr)),
@@ -1105,8 +1142,83 @@ async function startOrPollReview(ref, force, repo, part = "") {
         fetchGitHistory(repoOf(live.pr), live.pr),
         fetchLinkedIssues(repoOf(live.pr), live.pr),
       ]);
-      live.gitHistory = { prCommits: gitHistory.prCommits, baseCommits: gitHistory.baseCommits };
+      const currentHeadSha = extractHeadSha(live.pr, gitHistory) || initialHeadSha;
+      if (currentHeadSha) {
+        live.pr.headSha = currentHeadSha;
+        live.headSha = currentHeadSha;
+      }
+      live.gitHistory = {
+        prCommits: gitHistory.prCommits.map(({ sha, message, author }) => ({ sha, message, ...(author ? { author } : {}) })),
+        baseCommits: gitHistory.baseCommits,
+      };
       live.linkedIssues = linkedIssues;
+
+      // Incremental Commit-by-Commit Delta computation when a prior review exists
+      const prevSaved = stored;
+      const prevSha = String(
+        prevSaved?.headSha ||
+        prevSaved?.pr?.headSha ||
+        prevSaved?.pr?.headRefOid ||
+        prevSaved?.gitHistory?.prCommits?.at(-1)?.sha ||
+        "",
+      ).trim();
+      const prevFindings = (prevSaved?.review?.findings || []).filter((f) => !f.dismissed);
+      let incrementalCtx = null;
+      if (prevSaved && (prevSha || prevFindings.length > 0)) {
+        const prCommits = gitHistory.prCommits || [];
+        const prevIdx = prevSha ? prCommits.findIndex((cm) => shaMatch(cm.sha, prevSha) || shaMatch(cm.fullSha, prevSha)) : -1;
+        const hasNewSha = prevSha && currentHeadSha && !shaMatch(prevSha, currentHeadSha);
+        const newCommits = hasNewSha
+          ? (prevIdx >= 0 ? prCommits.slice(prevIdx + 1) : prCommits)
+          : [];
+        let deltaDiff = "";
+        if (hasNewSha && newCommits.length > 0) {
+          try {
+            const cmpRaw = await ghAsync("api", `repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`).catch(() =>
+              gh(["api", `repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`]),
+            );
+            const cmp = JSON.parse(cmpRaw);
+            if (Array.isArray(cmp?.files)) {
+              deltaDiff = cmp.files
+                .filter((f) => f?.filename && f?.patch)
+                .map((f) => `diff --git a/${f.filename} b/${f.filename}\n--- a/${f.filename}\n+++ b/${f.filename}\n${f.patch}`)
+                .join("\n\n");
+            }
+          } catch {}
+        }
+        const shortPrev = (prevSha || currentHeadSha || "prev").slice(0, 7);
+        const shortHead = (currentHeadSha || prevSha || "head").slice(0, 7);
+        const promptParts = [
+          `Incremental Review Delta: Reviewing new commits since ${shortPrev} -> ${shortHead} (${newCommits.length} new commit(s)).`,
+          ...(newCommits.length
+            ? [`New commits since ${shortPrev}:\n${newCommits.map((cm) => `- ${cm.sha} ${cm.message}`).join("\n")}`]
+            : []),
+          ...(prevFindings.length
+            ? [
+                `Prior review findings at commit ${shortPrev} (MANDATORY: verify whether each prior finding was fixed in the latest code/delta; do NOT re-report findings that have been resolved):\n` +
+                  prevFindings.map((pf, idx) => `${idx + 1}. [${pf.severity}] ${pf.file}: ${pf.title}`).join("\n"),
+              ]
+            : []),
+          ...(deltaDiff
+            ? [`Incremental Commit Delta Diff (${shortPrev}...${shortHead}, focus on these changes first):\n${deltaDiff.slice(0, 24000)}`]
+            : []),
+        ];
+        incrementalCtx = {
+          prevSha: shortPrev,
+          headSha: shortHead,
+          newCommits: newCommits.map((cm) => ({ sha: cm.sha, message: cm.message, ...(cm.author ? { author: cm.author } : {}) })),
+          prevFindings,
+          deltaDiff,
+          summaryText: `Incremental Review Delta: ${shortPrev} -> ${shortHead} (${newCommits.length} new commits, ${prevFindings.length} prior findings checked)`,
+          promptBlock: promptParts.join("\n\n"),
+        };
+        live.incremental = {
+          prevSha: incrementalCtx.prevSha,
+          headSha: incrementalCtx.headSha,
+          newCommits: incrementalCtx.newCommits,
+          resolvedFindings: prevSaved?.incremental?.resolvedFindings || [],
+        };
+      }
 
       const s1Task = runScores && s1.enabled
         ? scoreWithSystemOne(live.pr, diff, s1, guide, ({ readyScores, gates, done }) => {
@@ -1121,7 +1233,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
               live.pending.scores = false;
               live.pending.gates = false;
             }
-          }, gitHistory, linkedIssues, learnings)
+          }, gitHistory, linkedIssues, learnings, incrementalCtx)
         : Promise.resolve(null);
 
       const needLlmForScores = runScores && !s1.enabled;
@@ -1130,7 +1242,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
             if (runLlm) {
               live.review = { ...live.review, ...partial, scores: live.review.scores };
             }
-          }, linkedIssues, learnings).then((nav) => {
+          }, linkedIssues, learnings, incrementalCtx).then((nav) => {
             const scores = (!runScores || s1.enabled)
               ? (hasValidScores(live.review.scores) ? live.review.scores : initialScores)
               : (hasValidScores(nav.scores) ? nav.scores : initialScores);
@@ -1162,28 +1274,50 @@ async function startOrPollReview(ref, force, repo, part = "") {
         review = { ...review, scores: initialScores };
       }
       const finalGates = typed?.gates || (live.gates?.length ? live.gates : cached?.gates) || [];
-      const result = { pr: live.pr, blast: live.blast, review, gates: finalGates, engines, model: modelLabel, guide: guide?.file || null, learnings, linkedIssues: live.linkedIssues || [], gitHistory: live.gitHistory, at: new Date().toISOString() };
+      let finalIncremental = cached?.incremental;
+      if (incrementalCtx) {
+        const newFindingsList = review?.findings || [];
+        const resolvedFindings = runLlm
+          ? incrementalCtx.prevFindings.filter((pf) => {
+              const pfFile = String(pf.file || "").toLowerCase();
+              const pfTitle = String(pf.title || "").toLowerCase().slice(0, 32);
+              const stillPresent = newFindingsList.some((nf) => {
+                const nfFile = String(nf.file || "").toLowerCase();
+                const nfTitle = String(nf.title || "").toLowerCase().slice(0, 32);
+                return nfFile === pfFile && (nfTitle === pfTitle || (pfTitle.length >= 10 && nfTitle.includes(pfTitle.slice(0, 16))) || (nfTitle.length >= 10 && pfTitle.includes(nfTitle.slice(0, 16))));
+              });
+              return !stillPresent;
+            })
+          : (prevSaved?.incremental?.resolvedFindings || []);
+        finalIncremental = {
+          prevSha: incrementalCtx.prevSha,
+          headSha: incrementalCtx.headSha,
+          newCommits: incrementalCtx.newCommits,
+          resolvedFindings,
+        };
+      }
+      const result = {
+        pr: live.pr,
+        ...(currentHeadSha ? { headSha: currentHeadSha } : {}),
+        ...(finalIncremental ? { incremental: finalIncremental } : {}),
+        blast: live.blast,
+        review,
+        gates: finalGates,
+        engines,
+        model: modelLabel,
+        guide: guide?.file || null,
+        learnings,
+        linkedIssues: live.linkedIssues || [],
+        gitHistory: live.gitHistory,
+        at: new Date().toISOString(),
+      };
       const repoCfg = ((await store.getSetting("guides")) || {})[repoOf(live.pr)] || {};
       const doPostScores = repoCfg.postScores ?? rc.postScores;
       const doPostReview = repoCfg.postReview ?? rc.postReview;
-      const posted = [];
-      if (runScores && doPostScores && (typed || review?.scores)) {
-        try {
-          await ghAsync("pr", "comment", live.pr.url, "--body", formatScoresComment(result));
-          posted.push("scores");
-        } catch (e) {
-          result.commentError = e.message;
-        }
-      }
-      if (runLlm && doPostReview && review?.summary) {
-        try {
-          await ghAsync("pr", "comment", live.pr.url, "--body", formatReviewComment(result));
-          posted.push("review");
-        } catch (e) {
-          result.commentError = [result.commentError, e.message].filter(Boolean).join("; ");
-        }
-      }
-      if (posted.length) result.commentsPosted = posted;
+      await syncPrComments(result, repoOf(live.pr), {
+        postScores: !!(runScores && doPostScores && (typed || review?.scores)),
+        postReview: !!(runLlm && doPostReview && review?.summary),
+      });
       await store.put(result);
       entry.state = result;
       setTimeout(() => { if (activeReviews.get(live.pr.url) === entry) activeReviews.delete(live.pr.url); }, 30000).unref?.();
@@ -1197,6 +1331,50 @@ async function startOrPollReview(ref, force, repo, part = "") {
   return live;
 }
 
+async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, postReview = false } = {}) {
+  if (!postScores && !postReview) return [];
+  let existingComments = [];
+  try {
+    const raw = await ghAsync(["api", `repos/${repo}/issues/${r.pr.number}/comments?per_page=100`]).catch(() =>
+      gh(["api", `repos/${repo}/issues/${r.pr.number}/comments`]),
+    );
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) existingComments = parsed;
+  } catch {}
+
+  const upsert = async (marker, body, label) => {
+    const existing = existingComments.find((c) => typeof c?.body === "string" && c.body.includes(marker));
+    if (existing?.id) {
+      await ghAsync(["api", "--method", "PATCH", `repos/${repo}/issues/comments/${existing.id}`, "-f", `body=${body}`]).catch(() =>
+        gh(["api", "--method", "PATCH", `repos/${repo}/issues/comments/${existing.id}`, "-f", `body=${body}`]),
+      );
+      return `${label} (updated)`;
+    }
+    await ghAsync("pr", "comment", r.pr.url, "--body", body).catch(() =>
+      gh(["pr", "comment", r.pr.url, "--body", body]),
+    );
+    return label;
+  };
+
+  const posted = [];
+  if (postScores) {
+    try {
+      posted.push(await upsert("<!-- codeotter:scores -->", formatScoresComment(r), "scores"));
+    } catch (e) {
+      r.commentError = e.message;
+    }
+  }
+  if (postReview) {
+    try {
+      posted.push(await upsert("<!-- codeotter:review -->", formatReviewComment(r), "review"));
+    } catch (e) {
+      r.commentError = [r.commentError, e.message].filter(Boolean).join("; ");
+    }
+  }
+  if (posted.length) r.commentsPosted = posted;
+  return posted;
+}
+
 async function score(ref, force, repo) {
   const initial = await startOrPollReview(ref, force, repo);
   if (!initial.pending) return initial;
@@ -1205,7 +1383,7 @@ async function score(ref, force, repo) {
 }
 
 function formatScoresComment(r) {
-  const { pr, blast, review: v, gates = [], linkedIssues = [] } = r;
+  const { pr, blast, review: v, gates = [], linkedIssues = [], headSha, incremental } = r;
   const appLink = `${APP_URL}/review?pr=${encodeURIComponent(pr.url)}`;
   const levelOf = (key, val) => S1_SCORES[key]?.[Math.min(4, Math.max(0, Math.round((Number(val) || 0) / 25)))] || "";
   const rows = [
@@ -1216,8 +1394,15 @@ function formatScoresComment(r) {
     ["Readability", v.scores.readability, levelOf("readability", v.scores.readability)],
     ["PR hygiene", v.scores.pr_hygiene, levelOf("pr_hygiene", v.scores.pr_hygiene)],
   ];
+  const shaNote = incremental
+    ? `⚡ **Incremental delta:** \`${incremental.prevSha.slice(0, 7)}\` → \`${incremental.headSha.slice(0, 7)}\` (${incremental.newCommits.length} new commit${incremental.newCommits.length === 1 ? "" : "s"})`
+    : headSha
+      ? `**Reviewed commit:** \`${headSha.slice(0, 7)}\``
+      : "";
   const lines = [
+    `<!-- codeotter:scores -->`,
     `### 🦦 CodeOtter — Review Scores`,
+    ...(shaNote ? ["", shaNote] : []),
     ...(linkedIssues.length
       ? ["", `**Linked issue(s):** ${linkedIssues.map((i) => `[#${i.number} ${i.title}](${i.url})`).join(" · ")}`]
       : []),
@@ -1362,15 +1547,23 @@ function buildBlastMermaid(r) {
 }
 
 function formatReviewComment(r) {
-  const { pr, blast, review: v, linkedIssues = [] } = r;
+  const { pr, blast, review: v, linkedIssues = [], headSha, incremental } = r;
   const appLink = `${APP_URL}/review?pr=${encodeURIComponent(pr.url)}`;
   const [vl] = VERDICT[v.verdict] || ["Commented"];
   const e = effort(blast);
   const actionable = (v.findings || []).filter((f) => !f.dismissed && f.severity !== "nit");
+  const resolved = incremental?.resolvedFindings || [];
   const lines = [
+    `<!-- codeotter:review -->`,
     `### 🦦 CodeOtter — PR Review Summary`,
     "",
-    `**Verdict:** ${vl} · **Review effort:** 🎯 ${e.n} (${e.label}, ~${e.mins} min) · **Actionable findings:** ${actionable.length}`,
+    `**Verdict:** ${vl} · **Review effort:** 🎯 ${e.n} (${e.label}, ~${e.mins} min) · **Actionable findings:** ${actionable.length}${headSha ? ` · **Commit:** \`${headSha.slice(0, 7)}\`` : ""}`,
+    ...(incremental
+      ? [
+          "",
+          `⚡ **Incremental delta:** \`${incremental.prevSha.slice(0, 7)}\` → \`${incremental.headSha.slice(0, 7)}\` (${incremental.newCommits.length} new commit${incremental.newCommits.length === 1 ? "" : "s"})${resolved.length ? ` · ✅ **${resolved.length} prior finding${resolved.length === 1 ? "" : "s"} resolved**` : ""}`,
+        ]
+      : []),
     ...(linkedIssues.length
       ? [
           "",
@@ -1384,6 +1577,13 @@ function formatReviewComment(r) {
     "",
     `#### Summary`,
     v.summary,
+    ...(resolved.length
+      ? [
+          "",
+          `#### ✅ Resolved since \`${incremental.prevSha.slice(0, 7)}\` (${resolved.length})`,
+          ...resolved.map((f) => `- ~~**[${f.severity.toUpperCase()}] \`${f.file}\`**: ${f.title}~~`),
+        ]
+      : []),
     "",
     `## [2.5/4] Architecture & Blast Radius Graph`,
     "```mermaid",

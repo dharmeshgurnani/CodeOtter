@@ -7,6 +7,7 @@ export type Pr = {
   author: { login: string };
   baseRefName: string;
   headRefName: string;
+  headSha?: string;
   additions: number;
   deletions: number;
   changedFiles: number;
@@ -16,6 +17,13 @@ export type OpenPr = Pick<Pr, "number" | "title" | "url" | "author" | "additions
 export type Finding = { file: string; severity: "high" | "medium" | "low" | "nit"; title: string; detail: string; dismissed?: boolean };
 export type Review = {
   pr: Pr;
+  headSha?: string;
+  incremental?: {
+    prevSha: string;
+    headSha: string;
+    newCommits: { sha: string; message: string; author?: string }[];
+    resolvedFindings?: Finding[];
+  };
   blast: { score: number; files: number; lines: number; dirs: number; hotspots: string[]; testFiles: number; source?: "s1" };
   review: {
     summary: string;

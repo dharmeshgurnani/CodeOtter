@@ -237,16 +237,27 @@ export function buildBlastMermaid(r: Review) {
 }
 
 function buildAiReviewMarkdown(r: Review) {
-  const { pr: p, review: v, guide, gitHistory, pending } = r;
+  const { pr: p, review: v, guide, gitHistory, pending, headSha, incremental } = r;
   const prCommits = gitHistory?.prCommits ?? [];
   const baseCommits = gitHistory?.baseCommits ?? [];
+  const currentSha = (headSha || p.headSha || prCommits.at(-1)?.sha || "").slice(0, 7);
   const lines: string[] = [];
 
   lines.push(`# CodeOtter Review Session — PR #${p.number}: ${p.title}`);
   lines.push("");
   lines.push(`## [1/4] Pull Request Context & Guidelines`);
-  lines.push(`- **Branch**: \`${p.headRefName}\` -> \`${p.baseRefName}\` by @${p.author.login}`);
+  lines.push(`- **Branch**: \`${p.headRefName}\` -> \`${p.baseRefName}\` by @${p.author.login}${currentSha ? ` (commit \`${currentSha}\`)` : ""}`);
   lines.push(`- **Scope**: ${p.changedFiles} changed file(s) (+${p.additions} / -${p.deletions})`);
+  if (incremental) {
+    lines.push(
+      `- **Incremental Delta**: \`${incremental.prevSha.slice(0, 7)}\` → \`${incremental.headSha.slice(0, 7)}\` (${incremental.newCommits.length} new commit${incremental.newCommits.length === 1 ? "" : "s"})${incremental.resolvedFindings?.length ? ` · ✅ ${incremental.resolvedFindings.length} prior finding(s) resolved` : ""}`,
+    );
+    if (incremental.newCommits.length > 0) {
+      lines.push(
+        `  - **New Commits**: ${incremental.newCommits.map((cm) => `\`${cm.sha.slice(0, 7)}\` ${cm.message}`).join(" · ")}`,
+      );
+    }
+  }
   lines.push(`- **Repository Guidelines**: ${guide ? `Loaded \`${guide}\` and enforced against diff hunks` : "Standard CodeOtter engineering rules"}`);
   if (r.learnings?.length) {
     lines.push(
@@ -311,6 +322,14 @@ function buildAiReviewMarkdown(r: Review) {
     lines.push(`Completed review across ${p.changedFiles} changed file(s).`);
   }
 
+  if (incremental?.resolvedFindings?.length) {
+    lines.push("");
+    lines.push(`## ✅ Resolved since \`${incremental.prevSha.slice(0, 7)}\` (${incremental.resolvedFindings.length})`);
+    for (const rf of incremental.resolvedFindings) {
+      lines.push(`- ~~**[${rf.severity.toUpperCase()}] \`${rf.file}\`**: ${rf.title}~~`);
+    }
+  }
+
   const activeFindings = (v.findings || []).filter((f) => !f.dismissed);
   const dismissedFindings = (v.findings || []).filter((f) => f.dismissed);
   const actionable = activeFindings.filter((f) => f.severity !== "nit");
@@ -358,7 +377,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
   const [err, setErr] = useState("");
   const [animateWrite, setAnimateWrite] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [rerunReq, setRerunReq] = useState<{ id: number; part: "scores" | "llm" } | null>(null);
+  const [rerunReq, setRerunReq] = useState<{ id: number; part: "scores" | "llm" | "all" } | null>(null);
   const [dismissingKey, setDismissingKey] = useState<string>("");
   const [learningNotice, setLearningNotice] = useState<string>("");
 
@@ -379,7 +398,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
     const poll = async (isFirst: boolean) => {
       try {
         const useForce = isFirst && (!!force || !!rerunReq);
-        const partParam = isFirst && rerunReq ? `&part=${rerunReq.part}` : "";
+        const partParam = isFirst && rerunReq && rerunReq.part !== "all" ? `&part=${rerunReq.part}` : "";
         const res = await fetch(`/api/score?pr=${encodeURIComponent(pr)}${repoHint ? `&repo=${encodeURIComponent(repoHint)}` : ""}${useForce ? "&force=1" : ""}${partParam}&async=1`);
         const d = await res.json().catch(() => ({ error: `${res.status}` }));
         if (!res.ok || d.error) throw new Error(d.error || `${res.status}`);
@@ -506,6 +525,8 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
     }
   };
 
+  const reviewedSha = (r.headSha || p.headSha || prCommits.at(-1)?.sha || "").slice(0, 7);
+
   return (
     <div className="space-y-5">
       <div>
@@ -520,6 +541,17 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
           <span>{repo} · {p.author.login} wants to merge <InlineCode>{p.headRefName}</InlineCode> into <InlineCode>{p.baseRefName}</InlineCode></span>
           <span>· {p.changedFiles} files changed <span className="text-green-700">+{p.additions}</span> <span className="text-red-700">-{p.deletions}</span></span>
+          {r.incremental ? (
+            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 text-xs font-medium text-emerald-900">
+              <span>
+                ⚡ Incremental delta: <code className="font-mono">{r.incremental.prevSha.slice(0, 7)}</code> → <code className="font-mono">{r.incremental.headSha.slice(0, 7)}</code> ({r.incremental.newCommits.length} new commit{r.incremental.newCommits.length === 1 ? "" : "s"}){r.incremental.resolvedFindings?.length ? ` · ✅ ${r.incremental.resolvedFindings.length} resolved` : ""}
+              </span>
+            </span>
+          ) : reviewedSha ? (
+            <span className="inline-flex items-center gap-1 rounded-md bg-neutral-100 border border-neutral-200/80 px-2 py-0.5 text-xs font-medium text-neutral-800">
+              <span>commit <code className="font-mono">{reviewedSha}</code></span>
+            </span>
+          ) : null}
           {r.guide && (
             <span className="inline-flex items-center gap-1 rounded-md bg-orange-50 border border-orange-200/70 px-2 py-0.5 text-xs font-medium text-orange-900">
               <BookOpen className="size-3" /> Guidelines: {r.guide}
@@ -551,6 +583,16 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
               <span className="max-w-[220px] truncate">{iss.title}</span>
             </a>
           ))}
+          <button
+            type="button"
+            disabled={!!(pending?.scores || pending?.narrative)}
+            onClick={() => setRerunReq({ id: Date.now(), part: "all" })}
+            title="Re-run incremental delta review against latest PR commits"
+            className="inline-flex items-center gap-1 rounded-md border border-amber-300/80 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-100/80 disabled:opacity-50"
+          >
+            <RotateCw className={`size-3 ${pending?.scores || pending?.narrative ? "animate-spin text-brand" : ""}`} />
+            <span>Re-run delta review</span>
+          </button>
         </div>
 
         {bodyText && (
