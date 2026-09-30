@@ -394,7 +394,7 @@ function buildAiReviewMarkdown(r: Review) {
   return lines.join("\n");
 }
 
-export function ReviewPage({ org = "", pr, repo: repoHint, force, onDone }: { org?: string; pr: string; repo: string; force: string; onDone: () => void }) {
+export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force, onDone }: { forgeUrls?: Record<string, string>; org?: string; pr: string; repo: string; force: string; onDone: () => void }) {
   const [r, setR] = useState<Review | null>(null);
   const [err, setErr] = useState("");
   const [animateWrite, setAnimateWrite] = useState(false);
@@ -472,7 +472,7 @@ export function ReviewPage({ org = "", pr, repo: repoHint, force, onDone }: { or
       return;
     }
     const { pr: p, blast: b, review: v } = r;
-    const repoName = repoLabel(repoFromUrl(p.url));
+    const repoName = repoLabel(repoFromUrl(p.url, forgeUrls));
     const [vl] = VERDICT[v.verdict] ?? VERDICT.comment;
     const cleanSum = sanitizeSummary(v.summary);
     updateSeo({
@@ -481,7 +481,7 @@ export function ReviewPage({ org = "", pr, repo: repoHint, force, onDone }: { or
       image: `${location.origin}/og.svg?pr=${encodeURIComponent(p.url)}`,
       type: "article",
     });
-  }, [r, pr]);
+  }, [r, pr, forgeUrls]);
 
   if (err) return <pre className="whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{err}</pre>;
   if (!r) return <ReviewSkeleton note="Loading pull request metadata…" />;
@@ -490,7 +490,7 @@ export function ReviewPage({ org = "", pr, repo: repoHint, force, onDone }: { or
   const v = { ...v0, findings: Array.isArray(v0.findings) ? v0.findings : [], walkthrough: Array.isArray(v0.walkthrough) ? v0.walkthrough.filter((w) => w && typeof w.file === "string") : [], scores: Object.assign({ quality: 0, correctness_risk: 0, test_coverage: 0, readability: 0, pr_hygiene: 0 }, v0.scores ?? {}) };
   const [vl, vt] = VERDICT[v.verdict] ?? VERDICT.comment;
   const e = effort(b.score, b.lines);
-  const repo = repoFromUrl(p.url);
+  const repo = repoFromUrl(p.url, forgeUrls);
   const walkthroughList = v.walkthrough.length
     ? v.walkthrough
     : pending?.narrative

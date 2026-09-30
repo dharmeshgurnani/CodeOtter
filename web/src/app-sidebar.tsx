@@ -27,12 +27,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/animate-ui/components/radix/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { type User, repoLabel } from "./types";
+import { type User, forgeId, forgeLabel, repoLabel } from "./types";
 
 type Page = { title: string; path: string };
 type Props = {
   repositoriesLoaded?: boolean;
-  forgejoUrl?: string;
+  forgeUrls?: Record<string, string>;
   repos: string[];
   route: string;
   openCounts: Record<string, number>;
@@ -95,7 +95,7 @@ function OrgSwitcher({ repos, orgs, active, setActive, canAddRepo, go }: { repos
             <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
               {active ? (
                 <Avatar className="size-8 rounded-lg">
-                  {!active.startsWith("forgejo~") && <AvatarImage src={`https://github.com/${active}.png?size=64`} alt={active} />}
+                  {!forgeId(active) && <AvatarImage src={`https://github.com/${active}.png?size=64`} alt={active} />}
                   <AvatarFallback className="rounded-lg bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground">{initials(active)}</AvatarFallback>
                 </Avatar>
               ) : (
@@ -113,7 +113,7 @@ function OrgSwitcher({ repos, orgs, active, setActive, canAddRepo, go }: { repos
             {orgs.map((o) => (
               <DropdownMenuItem key={o} onClick={() => { setActive(o); go("/"); }} className="gap-2 p-2">
                 <Avatar className="size-6 rounded-sm">
-                  {!o.startsWith("forgejo~") && <AvatarImage src={`https://github.com/${o}.png?size=48`} alt={o} />}
+                  {!forgeId(o) && <AvatarImage src={`https://github.com/${o}.png?size=48`} alt={o} />}
                   <AvatarFallback className="rounded-sm border text-[10px] font-semibold">{initials(o)}</AvatarFallback>
                 </Avatar>
                 {repoLabel(o)}
@@ -191,7 +191,7 @@ function NavUser({ user, signInAvailable, onLogin, onLogout }: { user: User | nu
   );
 }
 
-export function AppSidebar({ repositoriesLoaded = true, forgejoUrl = "", repos, route, openCounts, settingsPages, org, setOrg, user, signInAvailable, onLogin, onLogout, go: rawGo }: Props) {
+export function AppSidebar({ repositoriesLoaded = true, forgeUrls = {}, repos, route, openCounts, settingsPages, org, setOrg, user, signInAvailable, onLogin, onLogout, go: rawGo }: Props) {
   const { isMobile, setOpenMobile } = useSidebar();
   const go = (path: string) => {
     if (isMobile) setOpenMobile(false);
@@ -289,10 +289,10 @@ export function AppSidebar({ repositoriesLoaded = true, forgejoUrl = "", repos, 
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip={org.startsWith("forgejo~") ? "Forgejo" : "GitHub"}>
-              <a href={org.startsWith("forgejo~") ? `${forgejoUrl}/${org.slice(8)}` : org ? `https://github.com/${org}` : "https://github.com"} target="_blank" rel="noreferrer">
+            <SidebarMenuButton asChild tooltip={forgeLabel(org)}>
+              <a href={forgeId(org) ? `${forgeUrls[forgeId(org)]}/${org.split("~")[1]}` : org ? `https://github.com/${org}` : "https://github.com"} target="_blank" rel="noreferrer">
                 <ExternalLink />
-                <span>{org.startsWith("forgejo~") ? "Forgejo" : "GitHub"}</span>
+                <span>{forgeLabel(org)}</span>
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>

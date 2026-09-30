@@ -157,7 +157,7 @@ pnpm start    # Production: auto-builds frontend if needed and runs CodeOtter on
 ```
 
 Open **`http://localhost:5173`** (dev mode) or **`http://localhost:4747`** (production) in your browser:
-1. Paste a GitHub or configured Forgejo PR URL or select from your active repositories in the sidebar.
+1. Paste a GitHub or configured Forgejo/Gitea PR URL or select from your active repositories in the sidebar.
 2. Select your AI provider under **Settings → Model provider** (or download a 100% offline local model under **Admin → Local models**).
 3. Get a calibrated review report in seconds—or query `/api/score?pr=<url|number>` for JSON.
 
@@ -167,7 +167,7 @@ Open **`http://localhost:5173`** (dev mode) or **`http://localhost:4747`** (prod
 
 GitHub and one Forgejo server can coexist in the same installation. Sign-in and repository credentials are independent: GitHub-only teams, Forgejo-only teams, and teams signing in with GitHub while reviewing Forgejo repositories are supported.
 
-1. Open **Admin → Forgejo**. Save the server origin (for example `https://forgejo.example.com`) and an access token; select **Test connection**. Use a repository-scoped token with `read:repository` and `read:issue` to review, or `read:user`, `write:repository` and `write:issue` to also publish review comments/suggestions. The token account must have access to the repositories. Environment defaults are `FORGEJO_URL` and `FORGEJO_TOKEN`.
+1. Open **Admin → OAuth → Forgejo connection**. Save the server origin (for example `https://forgejo.example.com`) and an access token; select **Test connection**. Use a repository-scoped token with `read:repository` and `read:issue` to review, or `read:user`, `write:repository` and `write:issue` to also publish review comments/suggestions. The token account must have access to the repositories. Environment defaults are `FORGEJO_URL` and `FORGEJO_TOKEN`.
 2. For Forgejo sign-in, create an OAuth2 application in your Forgejo **Settings → Applications**. Register the callback displayed in **CodeOtter Admin → OAuth**, typically `https://codeotter.example.com/auth/callback`. Save its client ID and secret in the **Forgejo** section and enable it. Set `APP_URL` to CodeOtter's public address. GitHub OAuth can remain enabled or be disabled independently. PocketBase is required for sign-in.
 3. Add the full Forgejo repository URL in **Settings → Repositories**. Within a Forgejo organization, plain `owner/name` also selects Forgejo. Discovery uses the saved access token; OAuth login by itself does not grant the shared review service repository access. GitHub repository credentials still come from `gh`/`GH_TOKEN`.
 4. Select the organization marked **Forgejo**, open a PR, and review it with the same models and controls used for GitHub. Score/review comment posting and inline suggestions use the configured Forgejo token account.
@@ -176,18 +176,30 @@ Existing GitHub repository IDs and review data are unchanged. Forgejo repository
 
 OAuth uses PKCE and single-use, expiring server-side state. Accounts without a provider-verified email are identified by their OAuth provider and subject. Password sign-in and public password-based account creation are disabled. Blank secrets preserve saved values; disabling an OAuth provider removes its credentials without changing the other provider. Changing the Forgejo origin is blocked while repository/review or OAuth configuration is linked.
 
-This first integration targets Forgejo 15. Server origins with subpaths are not supported. Forgejo reviews use the full PR diff plus commit history for re-reviews; they do not claim an incremental patch when the API does not supply one. Outside-diff GitHub code search/local-checkout analysis is not run against Forgejo repositories. Gitea is a separate implementation after the Forgejo testing checkpoint.
+This first integration targets Forgejo 15. Server origins with subpaths are not supported. Forgejo reviews use the full PR diff plus commit history for re-reviews; they do not claim an incremental patch when the API does not supply one. Outside-diff GitHub code search/local-checkout analysis is not run against Forgejo repositories. Gitea uses the same review adapter with separate credentials and identities; see below.
+
+### Gitea repositories and sign-in
+
+GitHub, Forgejo and Gitea can all coexist. Each self-hosted provider supports one server origin; Forgejo and Gitea must have distinct origins, access tokens and OAuth applications. Existing Forgejo IDs and OAuth identities remain unchanged.
+
+1. In **Admin / OAuth / Gitea connection**, save the server origin and repository access token, then select **Test connection**. Environment defaults are `GITEA_URL` and `GITEA_TOKEN`. Use `read:repository` and `read:issue` for reviews; add `read:user`, `write:repository` and `write:issue` for posting comments and suggestions.
+2. Create a Gitea OAuth2 application under **Settings / Applications**, using the callback shown in **CodeOtter Admin / OAuth**. Save its client ID and secret in the **Gitea** section and enable it. PocketBase's dedicated Gitea provider uses PKCE and requests `read:user` and `user:email`; only verified primary email is used for account linking.
+3. Add the full Gitea repository URL under **Settings / Repositories**. Select the organization marked **Gitea**. Internal IDs use `gitea~owner/name`; sign-in provider and repository access remain independent.
+
+Validated against Gitea 1.24.6. The same full-diff re-review and outside-diff analysis limits described for Forgejo apply. Server URLs with subpaths are unsupported. Changing a server origin is blocked while repositories, reviews, OAuth configuration or saved OAuth identities depend on it.
+
 
 ### Integration tests
 
 ```bash
 pnpm -C web build
 pnpm test:forgejo
+pnpm test:gitea
 # Keep a disposable installation running for browser QA:
-node scripts/test-forgejo.mjs --serve
+node scripts/test-forges.mjs --gitea --serve
 ```
 
-The suite requires Docker and `.pb/pocketbase` (`.pb/pocketbase.exe` on Windows), or `TEST_PB_BIN`. It starts Forgejo 15 and PocketBase with disposable data, uses a deterministic local model, and never writes to the running CodeOtter installation. GitHub CLI responses are fixtures; real GitHub OAuth credentials are not used.
+The suite requires Docker and `.pb/pocketbase` (`.pb/pocketbase.exe` on Windows), or `TEST_PB_BIN`. The suites start Forgejo 15, Gitea 1.24.6 and PocketBase with disposable data, use a deterministic local model, and never write to the running CodeOtter installation. They cover each provider separately and all three together, including real self-hosted OAuth, token isolation, identical repository names, fork PRs, comment upserts and both storage modes. GitHub CLI and OAuth responses are fixtures; real GitHub OAuth credentials are not used.
 
 ---
 

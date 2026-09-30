@@ -15,7 +15,7 @@ const redirectMessage = (): Msg | null => {
   return c ? { ok: true, text: `GitHub app created and connected. Sign-in is enabled.${c.startsWith("http") ? ` App page: ${c}` : ""}` } : e ? { ok: false, text: e } : null;
 };
 
-export function SettingsPage({ forgejoUrl, page, org, setOrg, user, onLogin, onSaved }: { forgejoUrl: string; page: string; org: string; setOrg: (o: string) => void; user: User | null; onLogin: () => void; onSaved: () => void }) {
+export function SettingsPage({ forgeUrls, page, org, setOrg, user, onLogin, onSaved }: { forgeUrls: Record<string, string>; page: string; org: string; setOrg: (o: string) => void; user: User | null; onLogin: () => void; onSaved: () => void }) {
   const [sections, setSections] = useState<Section[] | null>(null);
   const [saved, setSaved] = useState<Values>({});
   const [values, setValues] = useState<Values>({});
@@ -62,11 +62,13 @@ export function SettingsPage({ forgejoUrl, page, org, setOrg, user, onLogin, onS
         onSaved();
         setMsg({ ok: true, text: "Saved." });
         // Onboarding a repository from another organization switches to it, so the page you land on is not empty.
-        const owner = forgejoUrl && added.startsWith(`${forgejoUrl}/`) ? `forgejo~${added.slice(forgejoUrl.length + 1).split("/")[0]}` : `${org.startsWith("forgejo~") && !rawAdded.startsWith("https://github.com/") && !added.startsWith("forgejo~") ? "forgejo~" : ""}${added.split("/")[0]}`;
+        const source = Object.keys(forgeUrls).find((id) => forgeUrls[id] && rawAdded.startsWith(`${forgeUrls[id]}/`));
+        const prefix = /^(forgejo|gitea)~/.exec(org)?.[0] || "";
+        const owner = source ? `${source}~${rawAdded.slice(forgeUrls[source].length + 1).split("/")[0]}` : `${prefix && !rawAdded.startsWith("https://github.com/") && !/^(forgejo|gitea)~/.test(added) ? prefix : ""}${added.split("/")[0]}`;
         if (page === "repos" && owner && added.includes("/") && owner !== org) setOrg(owner);
       } else if (actionId === "test") {
         const d = await call(url("/test"), { method: "POST" });
-        setMsg({ ok: d.ok, text: d.ok ? `Connected, model answered in ${(d.ms / 1000).toFixed(1)}s.` : `Model answered but not with OK: "${d.reply}"` });
+        setMsg({ ok: d.ok, text: d.ok ? (typeof d.ms === "number" ? `Connected, model answered in ${(d.ms / 1000).toFixed(1)}s.` : d.reply || "Connected.") : `Model answered but not with OK: "${d.reply}"` });
       } else {
         // Generic page action. A `submit` reply means "post this form to an external site" (GitHub app manifest flow).
         const d = await call(url(`/${actionId}`), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ item: itemId ?? null }) });

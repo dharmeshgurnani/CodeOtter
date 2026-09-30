@@ -1,6 +1,6 @@
 {
   "name": "codeotter",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "license": "ELv2",
@@ -10,6 +10,7 @@
     "dev": "node scripts/dev.mjs",
     "start": "node server.mjs",
     "test:forgejo": "node scripts/test-forgejo.mjs",
+    "test:gitea": "node scripts/test-forges.mjs --gitea",
     "build": "pnpm -C web install && pnpm -C web build"
   }
 }

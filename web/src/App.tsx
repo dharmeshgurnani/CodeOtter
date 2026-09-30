@@ -107,6 +107,9 @@ export default function App() {
   const scopedBoard = boardOrg === org ? board : null;
 
   const reviewUrl = (url: string) => `/review?pr=${encodeURIComponent(url)}`;
+  useEffect(() => {
+    if (["/settings/forgejo", "/settings/gitea"].includes(path)) go("/settings/oauth", true);
+  }, [path]);
   const settingsPage = path.startsWith("/settings/") ? path.slice("/settings/".length) : "";
   // /repo/owner/name -> reviews for that repo, /repo/owner/name/open -> its open pull requests
   const repoParts = path.startsWith("/repo/") ? path.slice("/repo/".length).split("/") : [];
@@ -118,9 +121,9 @@ export default function App() {
   const prRepo = query.get("repo") ?? "";
   useEffect(() => {
     if (path !== "/review") return;
-    const owner = (prRepo || repoFromUrl(prRef)).split("/")[0];
+    const owner = (prRepo || repoFromUrl(prRef, board?.forgeUrls)).split("/")[0];
     if (owner && owner !== org) setOrg(owner);
-  }, [path, prRef, prRepo]);
+  }, [path, prRef, prRepo, board?.forgeUrls]);
   const title = settingsPage
     ? `${board?.settingsPages.find((p) => p.id === settingsPage)?.group === "admin" ? "Admin" : "Settings"} / ${board?.settingsPages.find((p) => p.id === settingsPage)?.title ?? settingsPage}`
     : path === "/review"
@@ -165,7 +168,7 @@ export default function App() {
   if (path === "/login") return <LoginPage error={loginError} onLogin={login} go={go} />;
   return (
     <SidebarProvider defaultOpen={sidebarDefaultOpen()}>
-      <AppSidebar repositoriesLoaded={!!board} forgejoUrl={board?.forgejoUrl ?? ""} repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(scopedBoard)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
+      <AppSidebar repositoriesLoaded={!!board} forgeUrls={board?.forgeUrls ?? {}} repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(scopedBoard)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
       <SidebarInset className="min-w-0">
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3 text-base sm:px-6">
           <span className="flex min-w-0 items-center gap-2.5">
@@ -182,9 +185,9 @@ export default function App() {
         <div className="w-full px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-7">
           {error && <p className="text-red-700">{error}</p>}
           {path === "/review" ? (
-            <ReviewPage org={org} pr={prRef} repo={prRepo} force={query.get("force") ?? ""} onDone={load} />
+            <ReviewPage forgeUrls={board?.forgeUrls} org={org} pr={prRef} repo={prRepo} force={query.get("force") ?? ""} onDone={load} />
           ) : settingsPage ? (
-            <SettingsPage forgejoUrl={board?.forgejoUrl ?? ""} page={settingsPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onSaved={load} />
+            <SettingsPage forgeUrls={board?.forgeUrls ?? {}} page={settingsPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onSaved={load} />
           ) : (
             <>
               {!repoPage ? (
@@ -209,12 +212,12 @@ const openCounts = (board: Board | null) => {
   const out: Record<string, number> = {};
   if (!board) return out;
   const done = new Set(board.reviewed.map((r) => r.pr.url));
-  for (const p of board.open) if (!done.has(p.url)) out[repoOf(p.url)] = (out[repoOf(p.url)] ?? 0) + 1;
+  for (const p of board.open) if (!done.has(p.url)) out[repoOf(p.url, board?.forgeUrls)] = (out[repoOf(p.url, board?.forgeUrls)] ?? 0) + 1;
   return out;
 };
 
 function ReviewedList({ board, go, reviewUrl, repo }: ListProps) {
-  const rows = (board?.reviewed ?? []).filter((r) => !repo || repoOf(r.pr.url) === repo);
+  const rows = (board?.reviewed ?? []).filter((r) => !repo || repoOf(r.pr.url, board?.forgeUrls) === repo);
   if (!board) return <TableSkeleton rows={4} widths={["w-3/4", "w-24", "w-8", "w-8", "w-40"]} />;
   return (
     <Table head={["Pull request", "Review effort", "Quality", "Blast radius", ""]}>
@@ -222,7 +225,7 @@ function ReviewedList({ board, go, reviewUrl, repo }: ListProps) {
       {rows.map((r: Review) => {
         const [vl, vt] = VERDICT[r.review.verdict] ?? VERDICT.comment;
         const e = effort(r.blast.score, r.blast.lines);
-        const repo = repoFromUrl(r.pr.url);
+        const repo = repoFromUrl(r.pr.url, board?.forgeUrls);
         return (
           <tr key={r.pr.url}>
             <Td><Link className="text-brand" path={reviewUrl(r.pr.url)} go={go}>#{r.pr.number}</Link> {r.pr.title} <Pill>{repoLabel(repo)}</Pill></Td>
@@ -239,7 +242,7 @@ function ReviewedList({ board, go, reviewUrl, repo }: ListProps) {
 
 function OpenList({ board, go, reviewUrl, repo }: ListProps) {
   const done = new Set(board?.reviewed.map((r) => r.pr.url));
-  const rows = (board?.open ?? []).filter((p) => !done.has(p.url) && (!repo || repoOf(p.url) === repo));
+  const rows = (board?.open ?? []).filter((p) => !done.has(p.url) && (!repo || repoOf(p.url, board?.forgeUrls) === repo));
   if (!board) return <TableSkeleton rows={4} widths={["w-3/4", "w-20", "w-32", "w-16"]} />;
   return (
     <Table head={["Pull request", "Author", "Size", ""]}>

@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-09-30)
 
-- Forgejo repository reviews and OAuth sign-in alongside GitHub: separate organization/repository identities, REST discovery and diffs, root guidelines, linked issues, commit history, comment updates and inline suggestions. Adds isolated Forgejo/PocketBase integration tests and OAuth-only accounts that do not require a provider-verified email. Gitea remains a separate follow-up.
+- Consolidate provider connections and sign-in under Admin / OAuth, with one sidebar link and separate connection tests.
+
+- **Gitea repositories and OAuth**: GitHub, Forgejo and Gitea coexist with separate server credentials, namespaced repositories and OAuth identities. Reuses the shared review adapter, adds Gitea PKCE sign-in, and tests real Gitea/Forgejo servers together with isolated PocketBase and JSON storage.
+
+- Forgejo repository reviews and OAuth sign-in alongside GitHub: separate organization/repository identities, REST discovery and diffs, root guidelines, linked issues, commit history, comment updates and inline suggestions. Adds isolated Forgejo/PocketBase integration tests and OAuth-only accounts that do not require a provider-verified email.
 
 ## 0.3.0 (2026-09-30)
 

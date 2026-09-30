@@ -69,15 +69,19 @@ export type Review = {
   at: string;
 };
 export type User = { id: string; name: string; email: string; role: string; avatar: string };
-export type Board = { repo: string; repos: string[]; forgejoUrl?: string; model: string; baseUrl: string; store: string; settingsPages: { id: string; title: string; group: "settings" | "admin" }[]; reviewed: Review[]; open: OpenPr[] };
+export type Board = { repo: string; repos: string[]; forgejoUrl?: string; forgeUrls?: Record<string, string>; model: string; baseUrl: string; store: string; settingsPages: { id: string; title: string; group: "settings" | "admin" }[]; reviewed: Review[]; open: OpenPr[] };
 
-export const repoFromUrl = (url: string) => {
+export const repoFromUrl = (url: string, origins: Record<string, string> = {}) => {
   try {
     const u = new URL(url);
-    return `${u.origin === "https://github.com" ? "" : "forgejo~"}${u.pathname.split("/").slice(1, 3).join("/")}`;
+    const source = Object.keys(origins).find((id) => origins[id] === u.origin);
+    if (u.origin !== "https://github.com" && !source) return "";
+    return `${source ? `${source}~` : ""}${u.pathname.split("/").slice(1, 3).join("/")}`;
   } catch { return ""; }
 };
-export const repoLabel = (id: string) => id.startsWith("forgejo~") ? `${id.slice(8)} · Forgejo` : id;
+export const forgeId = (id: string) => /^(forgejo|gitea)~/.exec(id)?.[1] || "";
+export const forgeLabel = (id: string) => forgeId(id) === "gitea" ? "Gitea" : forgeId(id) === "forgejo" ? "Forgejo" : "GitHub";
+export const repoLabel = (id: string) => forgeId(id) ? `${id.split("~")[1]} · ${forgeLabel(id)}` : id;
 
 export const VERDICT = { approve: ["Approved", "ok"], comment: ["Commented", "warn"], request_changes: ["Changes requested", "bad"] } as const;
 export const tone = (v: number, invert = false) => {
