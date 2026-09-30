@@ -143,7 +143,7 @@ Works with **any local open-weight model or hosted API** — mix and match Syste
 
 ### Local Setup (Requires Node 20.11+ & pnpm)
 
-Ensure the **GitHub CLI (`gh`)** is authenticated (`gh auth status`):
+For GitHub repositories, authenticate the **GitHub CLI (`gh`)** (`gh auth status`). Forgejo uses its REST API and does not require `gh`:
 
 ```bash
 # 1. Clone the repository
@@ -157,11 +157,37 @@ pnpm start    # Production: auto-builds frontend if needed and runs CodeOtter on
 ```
 
 Open **`http://localhost:5173`** (dev mode) or **`http://localhost:4747`** (production) in your browser:
-1. Paste any GitHub PR URL or select from your active repositories in the sidebar.
+1. Paste a GitHub or configured Forgejo PR URL or select from your active repositories in the sidebar.
 2. Select your AI provider under **Settings → Model provider** (or download a 100% offline local model under **Admin → Local models**).
 3. Get a calibrated review report in seconds—or query `/api/score?pr=<url|number>` for JSON.
 
 > **Zero-Config Storage**: PocketBase is auto-detected and started locally for authentication and persistent storage. To customize superuser credentials or model keys, create a `.env` file (see `.env.example`).
+
+### Forgejo repositories and sign-in
+
+GitHub and one Forgejo server can coexist in the same installation. Sign-in and repository credentials are independent: GitHub-only teams, Forgejo-only teams, and teams signing in with GitHub while reviewing Forgejo repositories are supported.
+
+1. Open **Admin → Forgejo**. Save the server origin (for example `https://forgejo.example.com`) and an access token; select **Test connection**. Use a repository-scoped token with `read:repository` and `read:issue` to review, or `read:user`, `write:repository` and `write:issue` to also publish review comments/suggestions. The token account must have access to the repositories. Environment defaults are `FORGEJO_URL` and `FORGEJO_TOKEN`.
+2. For Forgejo sign-in, create an OAuth2 application in your Forgejo **Settings → Applications**. Register the callback displayed in **CodeOtter Admin → OAuth**, typically `https://codeotter.example.com/auth/callback`. Save its client ID and secret in the **Forgejo** section and enable it. Set `APP_URL` to CodeOtter's public address. GitHub OAuth can remain enabled or be disabled independently. PocketBase is required for sign-in.
+3. Add the full Forgejo repository URL in **Settings → Repositories**. Within a Forgejo organization, plain `owner/name` also selects Forgejo. Discovery uses the saved access token; OAuth login by itself does not grant the shared review service repository access. GitHub repository credentials still come from `gh`/`GH_TOKEN`.
+4. Select the organization marked **Forgejo**, open a PR, and review it with the same models and controls used for GitHub. Score/review comment posting and inline suggestions use the configured Forgejo token account.
+
+Existing GitHub repository IDs and review data are unchanged. Forgejo repository IDs use `forgejo~owner/name` internally, and API organization scopes use `?org=forgejo~owner`. PR URLs retain the real Forgejo host and `/pulls/123` path. Repository settings and learned rules remain separate even when both platforms have an `owner/name` with the same spelling.
+
+OAuth uses PKCE and single-use, expiring server-side state. Accounts without a provider-verified email are identified by their OAuth provider and subject. Password sign-in and public password-based account creation are disabled. Blank secrets preserve saved values; disabling an OAuth provider removes its credentials without changing the other provider. Changing the Forgejo origin is blocked while repository/review or OAuth configuration is linked.
+
+This first integration targets Forgejo 15. Server origins with subpaths are not supported. Forgejo reviews use the full PR diff plus commit history for re-reviews; they do not claim an incremental patch when the API does not supply one. Outside-diff GitHub code search/local-checkout analysis is not run against Forgejo repositories. Gitea is a separate implementation after the Forgejo testing checkpoint.
+
+### Integration tests
+
+```bash
+pnpm -C web build
+pnpm test:forgejo
+# Keep a disposable installation running for browser QA:
+node scripts/test-forgejo.mjs --serve
+```
+
+The suite requires Docker and `.pb/pocketbase` (`.pb/pocketbase.exe` on Windows), or `TEST_PB_BIN`. It starts Forgejo 15 and PocketBase with disposable data, uses a deterministic local model, and never writes to the running CodeOtter installation. GitHub CLI responses are fixtures; real GitHub OAuth credentials are not used.
 
 ---
 
@@ -230,7 +256,7 @@ With 1-click downloads directly from **Admin → Local models**, open-weight mod
   <img src="assets/banners/merge-gate-agents.jpg" alt="CodeOtter Spot-Checking AI Agents at the Merge Gate" width="100%" />
 </p>
 
-Every repository onboarded in CodeOtter is automatically inspected at its root via the GitHub API for `AGENTS.md` and/or `CLAUDE.md`.
+Every repository onboarded in CodeOtter is automatically inspected at its root via its forge API for `AGENTS.md` and/or `CLAUDE.md`.
 - **Zero Configuration**: When either (or both) files exist, team guidelines are automatically injected into the review context.
 - **Enforced at the Merge Gate**: Violations of architecture conventions, file structures, or coding guidelines trigger warnings in the `Repository guidelines` merge gate.
 - **Per-Repository Controls**: Toggle guideline enforcement per repository anytime with a single click.

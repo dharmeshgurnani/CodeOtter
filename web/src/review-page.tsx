@@ -15,7 +15,7 @@ import {
 import { MarkdownView } from "@/components/markdown";
 import { updateSeo } from "@/lib/seo";
 import { Pill } from "./App";
-import { type Finding, type Review, VERDICT, effort, tone } from "./types";
+import { type Finding, type Review, repoFromUrl, repoLabel, VERDICT, effort, tone } from "./types";
 import { ReviewSkeleton } from "@/components/skeletons";
 
 const InlineCode = ({ children }: { children: React.ReactNode }) => <code className="rounded-[5px] bg-neutral-100 px-1.5 py-px font-mono text-[12.5px]">{children}</code>;
@@ -291,7 +291,7 @@ function buildAiReviewMarkdown(r: Review) {
     }
   }
   if (r.commentsPosted?.length) {
-    lines.push(`- **GitHub Sync**: Posted comment(s) to PR (${r.commentsPosted.join(", ")})`);
+    lines.push(`- **PR Sync**: Posted comment(s) to PR (${r.commentsPosted.join(", ")})`);
   }
 
   lines.push("");
@@ -394,7 +394,7 @@ function buildAiReviewMarkdown(r: Review) {
   return lines.join("\n");
 }
 
-export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; repo: string; force: string; onDone: () => void }) {
+export function ReviewPage({ org = "", pr, repo: repoHint, force, onDone }: { org?: string; pr: string; repo: string; force: string; onDone: () => void }) {
   const [r, setR] = useState<Review | null>(null);
   const [err, setErr] = useState("");
   const [animateWrite, setAnimateWrite] = useState(false);
@@ -417,7 +417,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
     setCopiedFixKey("");
     setPostingSuggestionKey("");
     setPostedSuggestionKeys({});
-  }, [pr, repoHint]);
+  }, [pr, repoHint, org]);
 
   useEffect(() => {
     let alive = true;
@@ -427,7 +427,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
       try {
         const useForce = isFirst && (!!force || !!rerunReq);
         const partParam = isFirst && rerunReq && rerunReq.part !== "all" ? `&part=${rerunReq.part}` : "";
-        const res = await fetch(`/api/score?pr=${encodeURIComponent(pr)}${repoHint ? `&repo=${encodeURIComponent(repoHint)}` : ""}${useForce ? "&force=1" : ""}${partParam}&async=1`);
+        const res = await fetch(`/api/score?org=${encodeURIComponent(org)}&pr=${encodeURIComponent(pr)}${repoHint ? `&repo=${encodeURIComponent(repoHint)}` : ""}${useForce ? "&force=1" : ""}${partParam}&async=1`);
         const d = await res.json().catch(() => ({ error: `${res.status}` }));
         if (!res.ok || d.error) throw new Error(d.error || `${res.status}`);
         if (!alive) return;
@@ -460,7 +460,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
       alive = false;
       if (timer) clearTimeout(timer);
     };
-  }, [pr, repoHint, force, rerunReq]);
+  }, [pr, repoHint, force, rerunReq, org]);
 
   useEffect(() => {
     if (!r) {
@@ -472,7 +472,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
       return;
     }
     const { pr: p, blast: b, review: v } = r;
-    const repoName = p.url.split("/").slice(3, 5).join("/");
+    const repoName = repoLabel(repoFromUrl(p.url));
     const [vl] = VERDICT[v.verdict] ?? VERDICT.comment;
     const cleanSum = sanitizeSummary(v.summary);
     updateSeo({
@@ -490,7 +490,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
   const v = { ...v0, findings: Array.isArray(v0.findings) ? v0.findings : [], walkthrough: Array.isArray(v0.walkthrough) ? v0.walkthrough.filter((w) => w && typeof w.file === "string") : [], scores: Object.assign({ quality: 0, correctness_risk: 0, test_coverage: 0, readability: 0, pr_hygiene: 0 }, v0.scores ?? {}) };
   const [vl, vt] = VERDICT[v.verdict] ?? VERDICT.comment;
   const e = effort(b.score, b.lines);
-  const repo = p.url.split("/").slice(3, 5).join("/");
+  const repo = repoFromUrl(p.url);
   const walkthroughList = v.walkthrough.length
     ? v.walkthrough
     : pending?.narrative
@@ -515,7 +515,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
     setLearningNotice("");
     const rule = `[${f.file}] Ignore pattern: ${f.title || (f.detail || "").split("\n")[0].slice(0, 80)}`;
     try {
-      const res = await fetch("/api/learnings", {
+      const res = await fetch(`/api/learnings?org=${encodeURIComponent(org)}`,  {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -566,7 +566,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
     setPostingSuggestionKey(fKey);
     setLearningNotice("");
     try {
-      const res = await fetch("/api/review-suggestions", {
+      const res = await fetch(`/api/review-suggestions?org=${encodeURIComponent(org)}`,  {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -585,7 +585,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
       if (!res.ok || d.error) throw new Error(d.error || `${res.status}`);
       setPostedSuggestionKeys((prev) => ({ ...prev, [fKey]: true }));
       const lineTag = f.line ? `:L${f.line}` : "";
-      setLearningNotice(`Posted inline committable suggestion for ${f.file}${lineTag} to GitHub PR #${p.number}.`);
+      setLearningNotice(`Posted inline committable suggestion for ${f.file}${lineTag} to PR #${p.number}.`);
     } catch (e) {
       setLearningNotice(`Could not post inline suggestion: ${(e as Error).message}`);
     } finally {
@@ -607,7 +607,7 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
           )}
         </h3>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
-          <span>{repo} · {p.author.login} wants to merge <InlineCode>{p.headRefName}</InlineCode> into <InlineCode>{p.baseRefName}</InlineCode></span>
+          <span>{repoLabel(repo)} · {p.author.login} wants to merge <InlineCode>{p.headRefName}</InlineCode> into <InlineCode>{p.baseRefName}</InlineCode></span>
           <span>· {p.changedFiles} files changed <span className="text-green-700">+{p.additions}</span> <span className="text-red-700">-{p.deletions}</span></span>
           {r.incremental ? (
             <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 text-xs font-medium text-emerald-900">
@@ -808,12 +808,12 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
                           {postingSug ? (
                             <>
                               <Loader2 className="size-3 animate-spin text-sky-700" />
-                              <span>Posting to GitHub…</span>
+                              <span>Posting to PR…</span>
                             </>
                           ) : postedSug ? (
-                            <span>✓ Posted to GitHub</span>
+                            <span>✓ Posted to PR</span>
                           ) : (
-                            <span>Post inline suggestion to GitHub</span>
+                            <span>Post inline suggestion</span>
                           )}
                         </button>
                       )}

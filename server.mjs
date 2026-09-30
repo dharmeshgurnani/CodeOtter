@@ -1,7 +1,7 @@
 // pr-scorer: zero-dependency PR quality + blast-radius scorer. `node server.mjs` then open http://localhost:4747
 import http from "node:http";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, createWriteStream, statSync, renameSync, rmSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
@@ -17,7 +17,18 @@ const PORT = process.env.PORT || 4747;
 // Public address of this app, used for the OAuth callback. Set APP_URL when deployed behind a domain.
 const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
 // ponytail: default repo = the git repo you launch from; set REPO to point elsewhere
-const REPO = process.env.REPO || repoFromCwd();
+function forgejoOrigin(value) {
+  if (!value) return "";
+  const u = new URL(String(value).replace(/\/+$/, ""));
+  if (!["http:", "https:"].includes(u.protocol) || u.username || u.password || u.search || u.hash || u.pathname !== "/") {
+    throw new Error("FORGEJO_URL must be an HTTP(S) origin without credentials, a path, query or fragment");
+  }
+  if (u.hostname === "github.com") throw new Error("Forgejo must use a separate server from github.com");
+  return u.origin;
+}
+let FORGEJO_URL = forgejoOrigin(process.env.FORGEJO_URL || "");
+let forgejoToken = process.env.FORGEJO_TOKEN || "";
+const REPO = process.env.REPO || (FORGEJO_URL ? "" : repoFromCwd());
 function repoFromCwd() {
   try {
     return execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { encoding: "utf8" }).trim();
@@ -442,7 +453,9 @@ const PB_URL = process.env.PB_URL || (pbBinAvailable ? "http://127.0.0.1:8090" :
 const SCORES = join(import.meta.dirname, "scores");
 const CONFIG = join(import.meta.dirname, "config.json");
 const readConfig = () => (existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, "utf8")) : {});
-const keyOf = (url) => url.replace("https://github.com/", "").replace(/\//g, "-");
+const keyOf = (url) => /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/.test(url)
+  ? url.replace("https://github.com/", "").replace(/\//g, "-")
+  : createHash("sha256").update(url).digest("hex");
 const fileStore = {
   init: async () => mkdirSync(SCORES, { recursive: true }),
   get: async (url) => {
@@ -561,6 +574,7 @@ const pbStore = {
     return this.all();
   },
   getOAuth: async () => (await pb("collections/users")).oauth2,
+  hasForgejoIdentities: async () => (await pb(`collections/_externalAuths/records?perPage=1&filter=${encodeURIComponent('provider="oidc"')}`)).items.length > 0,
   // Sign-in: PocketBase's manual OAuth2 flow. No superuser token involved; these are public user endpoints.
   authMethods: async () => (await fetch(`${PB_URL}/api/collections/users/auth-methods`)).json(),
   async authWithOAuth2(body) {
@@ -608,9 +622,92 @@ const ghAsync = (...rawArgs) => {
     });
   });
 };
-const OWNER_RE = /^[\w.-]+$/;
-const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
-const PR_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
+const OWNER_RE = /^(?:forgejo~)?[\w][\w.-]*$/;
+const REPO_RE = /^(?:forgejo~)?[\w][\w.-]*\/[\w][\w.-]*$/;
+const isForgejoRepo = (repo) => String(repo).startsWith("forgejo~");
+const nativeRepo = (repo) => isForgejoRepo(repo) ? repo.slice(8) : repo;
+const repoLabel = (repo) => isForgejoRepo(repo) ? `${nativeRepo(repo)} · Forgejo` : repo;
+const forgeUrl = (repo) => isForgejoRepo(repo) ? FORGEJO_URL : "https://github.com";
+const prUrlFor = (repo, number) => `${forgeUrl(repo)}/${nativeRepo(repo)}/${isForgejoRepo(repo) ? "pulls" : "pull"}/${number}`;
+function parsePrUrl(value) {
+  try {
+    const u = new URL(value);
+    if (u.username || u.password || u.search || u.hash) return null;
+    const fj = !!FORGEJO_URL && u.origin === FORGEJO_URL;
+    if (!fj && u.origin !== "https://github.com") return null;
+    const m = u.pathname.match(fj ? /^\/([\w][\w.-]*\/[\w][\w.-]*)\/pulls\/([1-9]\d*)$/ : /^\/([\w][\w.-]*\/[\w][\w.-]*)\/pull\/([1-9]\d*)$/);
+    if (!m || value !== `${u.origin}${u.pathname}`) return null;
+    return { repo: `${fj ? "forgejo~" : ""}${m[1]}`, number: Number(m[2]), forgejo: fj };
+  } catch { return null; }
+}
+const validPrUrl = (value) => !!parsePrUrl(value);
+function cleanRepo(value, org = "") {
+  const s = String(value).trim().replace(/\/+$/, "");
+  if (FORGEJO_URL && s.startsWith(`${FORGEJO_URL}/`)) return `forgejo~${s.slice(FORGEJO_URL.length + 1)}`;
+  if (isForgejoRepo(org) && !isForgejoRepo(s) && REPO_RE.test(s)) return `forgejo~${s}`;
+  return s.replace(/^https:\/\/github\.com\//, "");
+}
+
+// Only operator-configured origins receive the token. Never follow upstream redirects.
+async function forgejoApi(path, { method = "GET", body, raw = false } = {}) {
+  path = path.replace(/^repos\/forgejo~/, "repos/");
+  if (!FORGEJO_URL || !/^(?:user$|(?:repos|user|users|orgs)\/)/.test(path) || path.split(/[/?]/).some((p) => p === "." || p === "..")) throw new Error("Invalid Forgejo API path");
+  if (!forgejoToken) throw new Error("Configure a Forgejo access token in Admin / Forgejo");
+  const res = await fetch(`${FORGEJO_URL}/api/v1/${path}`, {
+    method, redirect: "error", signal: AbortSignal.timeout(30000),
+    headers: { authorization: `token ${forgejoToken}`, accept: raw ? "text/plain" : "application/json", ...(body ? { "content-type": "application/json" } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (!res.ok) throw Object.assign(new Error(`Forgejo ${method} ${path.split("?")[0]} failed (${res.status})`), { status: res.status });
+  if (res.status === 204) return null;
+  return raw ? res.text() : res.json();
+}
+
+async function forgejoList(path) {
+  const rows = [];
+  // Request one extra page even when the server caps limit below 50.
+  for (let page = 1; page <= 1000; page++) {
+    const batch = await forgejoApi(`${path}${path.includes("?") ? "&" : "?"}limit=50&page=${page}`);
+    if (!Array.isArray(batch)) throw new Error("Invalid Forgejo list response");
+    if (!batch.length) return rows;
+    rows.push(...batch);
+  }
+  throw new Error("Forgejo pagination limit exceeded");
+}
+
+function normalizeForgejoPr(p, repo, files = [], commits = []) {
+  return {
+    number: p.number, title: p.title, body: p.body || "", url: prUrlFor(repo, p.number),
+    author: { login: p.user?.login || "unknown" }, updatedAt: p.updated_at,
+    baseRefName: p.base?.ref || "", headRefName: p.head?.ref || "", headRefOid: p.head?.sha || "",
+    // Fork head content lives in the fork, not in the base repository's branch namespace.
+    headRepo: p.head?.repo?.full_name ? `forgejo~${p.head.repo.full_name}` : repo,
+    additions: p.additions ?? files.reduce((n, f) => n + f.additions, 0),
+    deletions: p.deletions ?? files.reduce((n, f) => n + f.deletions, 0), changedFiles: p.changed_files ?? files.length,
+    state: p.merged ? "MERGED" : String(p.state || "open").toUpperCase(), files, commits,
+  };
+}
+
+async function readPr(url, spec, diff = false) {
+  const parsed = parsePrUrl(url);
+  if (!parsed) throw new Error("Invalid pull request URL");
+  if (!parsed.forgejo) return ghAsync("pr", diff ? "diff" : "view", ...spec, ...(diff ? [] : ["--json", "number,title,body,author,url,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,files,commits,state"]));
+  const { repo, number } = parsed;
+  const path = `repos/${repo}/pulls/${number}`;
+  if (diff) return forgejoApi(`${path}.diff`, { raw: true });
+  const [p, files, commits] = await Promise.all([forgejoApi(path), forgejoList(`${path}/files`), forgejoList(`${path}/commits`)]);
+  if (commits.length && !commits.some((c) => c.sha === p.head?.sha)) {
+    throw new Error("Forgejo is updating this pull request after a push. Retry the review shortly.");
+  }
+  return JSON.stringify(normalizeForgejoPr(p, repo,
+    files.map((f) => ({ path: f.filename, additions: Number(f.additions) || 0, deletions: Number(f.deletions) || 0 })),
+    // Forgejo returns newest first; the shared incremental engine expects oldest first.
+    commits.reverse().map((c) => ({ oid: c.sha, messageHeadline: (c.commit?.message || "").split("\n")[0], messageBody: (c.commit?.message || "").split("\n").slice(1).join("\n"), authors: [{ login: c.author?.login || c.commit?.author?.name || "" }], committedDate: c.commit?.author?.date }))));
+}
+
+const createPrComment = (url, repo, number, body) => isForgejoRepo(repo)
+  ? forgejoApi(`repos/${repo}/issues/${number}/comments`, { method: "POST", body: { body } })
+  : ghAsync("pr", "comment", url, "--body", body);
 
 const HOTSPOTS = [
   ["migrations", /(^|\/)migrations\//i],
@@ -658,6 +755,8 @@ function extractChangedSymbols(diff) {
 
 async function sliceOutsideDiffImpact(repo, diff, changedFiles = []) {
   const symbols = extractChangedSymbols(diff);
+  // The working directory is CodeOtter, not a checkout of a remote Forgejo PR.
+  if (isForgejoRepo(repo)) return { symbols, callers: [], outsideCallers: 0, uniqueFiles: 0, formatted: "" };
   if (!symbols.length) return { symbols: [], callers: [], outsideCallers: 0, uniqueFiles: 0, formatted: "" };
 
   const changedSet = new Set(changedFiles.map((f) => f.replace(/\\/g, "/")));
@@ -774,10 +873,21 @@ const reviewConfig = async () => ({ ...REVIEW_DEFAULTS, ...((await store.getSett
 const GUIDE_FILES = ["AGENTS.md", "CLAUDE.md"];
 const GUIDE_CHARS = 20000;
 const guideCache = new Map();
-function guideFiles(repo, ref = "") {
+async function guideFiles(repo, ref = "") {
   const cacheKey = `${repo}@${ref}`;
   const hit = guideCache.get(cacheKey);
   if (hit && Date.now() - hit.at < 600e3) return hit.files;
+  if (isForgejoRepo(repo)) {
+    const files = [];
+    for (const file of GUIDE_FILES) {
+      try {
+        await forgejoApi(`repos/${repo}/contents/${file}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`);
+        files.push(file);
+      } catch (e) { if (e.status !== 404) throw e; }
+    }
+    guideCache.set(cacheKey, { files, at: Date.now() });
+    return files;
+  }
   const files = GUIDE_FILES.filter((f) => {
     try {
       if (ref) {
@@ -795,7 +905,12 @@ function guideFiles(repo, ref = "") {
   guideCache.set(cacheKey, { files, at: Date.now() });
   return files;
 }
-const guideText = (repo, file, ref = "") => {
+const guideText = async (repo, file, ref = "") => {
+  if (isForgejoRepo(repo)) {
+    const data = await forgejoApi(`repos/${repo}/contents/${file}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`);
+    if (data.encoding !== "base64" || typeof data.content !== "string") throw new Error("Invalid Forgejo guide content");
+    return Buffer.from(data.content, "base64").toString("utf8");
+  }
   if (ref) {
     try {
       return gh("api", `repos/${repo}/contents/${file}?ref=${encodeURIComponent(ref)}`, "-H", "Accept: application/vnd.github.raw");
@@ -807,13 +922,14 @@ const guideText = (repo, file, ref = "") => {
     return repo === REPO && existsSync(join(import.meta.dirname, file)) ? readFileSync(join(import.meta.dirname, file), "utf8") : "";
   }
 };
-async function guideFor(repo, ref = "") {
-  const files = guideFiles(repo, ref);
+async function guideFor(repo, ref = "", contentRepo = repo) {
+  if (!REPO_RE.test(contentRepo)) throw new Error("Invalid guide repository");
+  const files = await guideFiles(contentRepo, ref);
   if (!files.length) return null;
   const use = (await store.getSetting("guides"))?.[repo]?.use ?? true;
   if (!use) return null;
   const per = Math.floor(GUIDE_CHARS / files.length);
-  return { file: files.join(" + "), text: files.map((f) => `--- ${f} ---\n${guideText(repo, f, ref).slice(0, per)}`).join("\n\n") };
+  return { file: files.join(" + "), text: (await Promise.all(files.map(async (f) => `--- ${f} ---\n${(await guideText(contentRepo, f, ref)).slice(0, per)}`))).join("\n\n") };
 }
 
 function normalizeLearningList(list) {
@@ -873,8 +989,9 @@ async function fetchGitHistory(repo, pr) {
     : [];
   let baseCommits = [];
   try {
-    const raw = await ghAsync("api", `repos/${repo}/commits?sha=${encodeURIComponent(pr.baseRefName)}&per_page=8`);
-    const list = JSON.parse(raw);
+    const list = isForgejoRepo(repo)
+      ? await forgejoApi(`repos/${repo}/commits?sha=${encodeURIComponent(pr.baseRefName)}&limit=8`)
+      : JSON.parse(await ghAsync("api", `repos/${repo}/commits?sha=${encodeURIComponent(pr.baseRefName)}&per_page=8`));
     if (Array.isArray(list)) {
       baseCommits = list.map((c) => ({
         sha: String(c.sha || "").slice(0, 7),
@@ -907,7 +1024,8 @@ function parseLinkedIssueRefs(baseRepo, pr) {
   const addRef = (repoCandidate, numStr) => {
     const num = Number(numStr);
     if (!Number.isInteger(num) || num <= 0) return;
-    const issueRepo = repoCandidate ? String(repoCandidate).trim() : baseRepo;
+    let issueRepo = repoCandidate ? String(repoCandidate).trim() : baseRepo;
+    if (isForgejoRepo(baseRepo) && !isForgejoRepo(issueRepo)) issueRepo = `forgejo~${issueRepo}`;
     const [ownerPart, namePart] = issueRepo.split("/");
     if (!REPO_RE.test(issueRepo) || !OWNER_RE.test(ownerPart || "") || !OWNER_RE.test(namePart || "")) return;
     if (issueRepo === baseRepo && num === Number(pr?.number)) return;
@@ -936,7 +1054,7 @@ async function fetchLinkedIssues(baseRepo, pr) {
     refs.slice(0, 3).map(async ({ repo: issueRepo, number: num }) => {
       if (!REPO_RE.test(issueRepo)) return null;
       try {
-        const raw = await ghAsync(["issue", "view", String(num), "-R", issueRepo, "--json", "number,title,body,state,url,labels"]).catch(() =>
+        const raw = isForgejoRepo(issueRepo) ? JSON.stringify(await forgejoApi(`repos/${issueRepo}/issues/${num}`)) : await ghAsync(["issue", "view", String(num), "-R", issueRepo, "--json", "number,title,body,state,url,labels"]).catch(() =>
           gh(["issue", "view", String(num), "-R", issueRepo, "--json", "number,title,body,state,url,labels"]),
         );
         const iss = JSON.parse(raw);
@@ -947,7 +1065,7 @@ async function fetchLinkedIssues(baseRepo, pr) {
           title: String(iss.title || "").trim().slice(0, 300),
           body: String(iss.body || "").trim().slice(0, 1200),
           state: String(iss.state || "OPEN").toUpperCase(),
-          url: String(iss.url || `https://github.com/${issueRepo}/issues/${num}`),
+          url: isForgejoRepo(issueRepo) ? `${FORGEJO_URL}/${nativeRepo(issueRepo)}/issues/${num}` : String(iss.url || `https://github.com/${issueRepo}/issues/${num}`),
           labels: Array.isArray(iss.labels)
             ? iss.labels.map((l) => (typeof l === "string" ? l : String(l?.name || ""))).filter(Boolean).slice(0, 12)
             : [],
@@ -1260,7 +1378,7 @@ function deriveSuggestionFromDetail(f, diff = "") {
 function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
   const outsideBlock = outsideImpact?.formatted ? `\n${outsideImpact.formatted}\n` : "";
   const issueBlock = linkedIssues?.length
-    ? `\nLinked GitHub Issues & Requirements (MANDATORY: explicitly verify whether the pull request diff fulfills all requirements and acceptance criteria described in these linked issues, and flag any unfulfilled or partially met requirement in findings):\n${linkedIssues
+    ? `\nLinked Issues & Requirements (MANDATORY: explicitly verify whether the pull request diff fulfills all requirements and acceptance criteria described in these linked issues, and flag any unfulfilled or partially met requirement in findings):\n${linkedIssues
         .map((iss) => `Issue #${iss.number} (${iss.repo}, ${iss.state}): ${iss.title}${iss.labels?.length ? ` [${iss.labels.join(", ")}]` : ""}\n${(iss.body || "(no body provided)").slice(0, 1200)}`)
         .join("\n\n")}\n`
     : "";
@@ -1268,7 +1386,7 @@ function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = tru
     ? `\nRepository Team Learnings (Never flag these dismissed patterns):\n${learnings.map((l) => `- ${l}`).join("\n")}\n`
     : "";
   const incrementalBlock = incrementalCtx?.promptBlock ? `\n${incrementalCtx.promptBlock}\n` : "";
-  return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the repository team learnings, the linked GitHub issues and acceptance criteria, the git commit history, the outside-diff call graph context, and the code diff. Reply with ONLY a JSON object:
+  return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the repository team learnings, the linked issues and acceptance criteria, the git commit history, the outside-diff call graph context, and the code diff. Reply with ONLY a JSON object:
 {"summary":"3-5 sentence architectural walkthrough covering what changed, commit progression, fulfillment of linked issue requirements, adherence to repository guidelines, and outside caller safety","verdict":"approve|comment|request_changes",
 ${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},\n` : ""} "findings":[{"severity":"blocker|major|minor|nit|high|medium|low","file":"path","line":42,"title":"short","detail":"specific line/behaviour and fix (cite AGENTS.md/CLAUDE.md rule, linked issue #number requirement, or commit if relevant)","suggestion":"optional exact replacement code"}],
  "walkthrough":[{"file":"path","change":"concise summary of change in this file"}]}
@@ -1307,11 +1425,12 @@ async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores 
 // Onboarded repositories. Saved from the Repositories settings page; falls back to REPO (env or the repo launched from).
 const repos = async () => {
   const saved = await store.getSetting("repos");
-  return saved?.length ? saved : REPO ? [REPO] : [];
+  return Array.isArray(saved) ? saved : REPO ? [REPO] : [];
 };
 let ghReposCache;
-function ghRepos(owner = "") {
+async function repositoryChoices(owner = "") {
   if (owner && !OWNER_RE.test(owner)) return [];
+  if (isForgejoRepo(owner)) return (await forgejoList("user/repos")).map((r) => `forgejo~${r.full_name}`).filter((r) => REPO_RE.test(r) && r.startsWith(`${owner}/`));
   ghReposCache ||= new Map();
   if (!ghReposCache.has(owner)) {
     try {
@@ -1320,17 +1439,23 @@ function ghRepos(owner = "") {
       ghReposCache.set(owner, []);
     }
   }
-  return ghReposCache.get(owner);
+  const github = ghReposCache.get(owner);
+  if (!owner && FORGEJO_URL && forgejoToken) {
+    const forgejo = await forgejoList("user/repos");
+    return [...github, ...forgejo.map((r) => `forgejo~${r.full_name}`).filter((r) => REPO_RE.test(r))];
+  }
+  return github;
 }
 
 const activeReviews = new Map();
 
 async function resolvePr(ref, repo) {
-  if (!/^\d+$/.test(ref) && !PR_URL_RE.test(ref)) throw new Error("Paste a github.com pull request URL, or a number with a repository selected");
+  if (!/^[1-9]\d*$/.test(ref) && !validPrUrl(ref)) throw new Error("Paste a GitHub or configured Forgejo pull request URL, or a number with a repository selected");
   if (repo && !REPO_RE.test(repo)) throw new Error(`Not an owner/name: ${repo}`);
   if (/^\d+$/.test(ref) && !repo) repo = (await repos())[0];
   if (/^\d+$/.test(ref) && !repo) throw new Error("Paste the full pull request URL, or add a repository first");
-  const urlGuess = /^\d+$/.test(ref) ? `https://github.com/${repo}/pull/${ref}` : ref;
+  const urlGuess = /^\d+$/.test(ref) ? prUrlFor(repo, ref) : ref;
+  if (!validPrUrl(urlGuess) || (repo && parsePrUrl(urlGuess).repo !== repo)) throw new Error("PR and repository mismatch");
   const spec = /^\d+$/.test(ref) ? ["-R", repo, ref] : [ref];
   return { urlGuess, spec };
 }
@@ -1392,7 +1517,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
   const runLlm = !part || part === "llm" || !cached || !cached.review?.summary;
 
   // Use cached PR metadata immediately on Re-review if available, or fetch non-blockingly via ghAsync
-  const pr = cached?.pr || JSON.parse(await ghAsync("pr", "view", ...spec, "--json", "number,title,body,author,url,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,files,commits,state"));
+  const pr = cached?.pr || JSON.parse(await readPr(urlGuess, spec));
   const initialHeadSha = extractHeadSha(pr, cached?.gitHistory) || cached?.headSha || "";
   if (initialHeadSha) pr.headSha = initialHeadSha;
   const initialLearnings = await getRepoLearnings(repoOf(pr));
@@ -1438,15 +1563,12 @@ async function startOrPollReview(ref, force, repo, part = "") {
   entry.promise = (async () => {
     try {
       // Refresh PR metadata in background if we started from cached.pr
-      const [freshPrJson, diff, guide, learnings] = await Promise.all([
-        cached?.pr ? ghAsync("pr", "view", ...spec, "--json", "number,title,body,author,url,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,files,commits,state").catch(() => null) : Promise.resolve(null),
-        ghAsync("pr", "diff", ...spec),
-        Promise.resolve().then(() => guideFor(repoOf(pr), pr.headRefName)),
+      if (cached?.pr) live.pr = JSON.parse(await readPr(urlGuess, spec));
+      const [diff, guide, learnings] = await Promise.all([
+        readPr(urlGuess, spec, true),
+        Promise.resolve().then(() => guideFor(repoOf(live.pr), isForgejoRepo(repoOf(live.pr)) ? live.pr.headRefOid : live.pr.headRefName, live.pr.headRepo || repoOf(live.pr))),
         getRepoLearnings(repoOf(pr)),
       ]);
-      if (freshPrJson) {
-        live.pr = JSON.parse(freshPrJson);
-      }
       live.guide = guide?.file || null;
       live.learnings = learnings;
 
@@ -1491,7 +1613,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
         let deltaDiff = "";
         if (hasNewSha && newCommits.length > 0) {
           try {
-            const cmpRaw = await ghAsync("api", `repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`).catch(() =>
+            const cmpRaw = isForgejoRepo(repoOf(live.pr)) ? JSON.stringify(await forgejoApi(`repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`)) : await ghAsync("api", `repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`).catch(() =>
               gh(["api", `repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`]),
             );
             const cmp = JSON.parse(cmpRaw);
@@ -1648,6 +1770,8 @@ async function startOrPollReview(ref, force, repo, part = "") {
       throw e;
     }
   })();
+  // Async polling reads entry.error on the next request; keep background failures handled.
+  entry.promise.catch(() => {});
 
   return live;
 }
@@ -1701,6 +1825,22 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
     .filter(Boolean);
 
   if (!comments.length) return { posted: 0, mode: "none", comments: [] };
+
+  if (isForgejoRepo(repo)) {
+    if (!validPrUrl(r.pr.url) || repoOf(r.pr) !== repo || Number(r.pr.url.split("/").at(-1)) !== Number(r.pr.number)) throw new Error("PR and repository mismatch");
+    try {
+      await forgejoApi(`repos/${repo}/pulls/${r.pr.number}/reviews`, { method: "POST", body: {
+        event: "COMMENT", body: "CodeOtter inline suggestions", ...(rawHeadSha ? { commit_id: rawHeadSha } : {}),
+        comments: comments.map((c) => ({ path: c.path, new_position: c.line, old_position: 0, body: c.body })),
+      } });
+      return { posted: comments.length, mode: "inline_review", comments: comments.map((c) => ({ path: c.path, line: c.line })) };
+    } catch (e) {
+      // A line outside the diff may be rejected; auth/network failures must not trigger another write.
+      if (![400, 422].includes(e.status)) throw e;
+      await createPrComment(r.pr.url, repo, r.pr.number, comments.map((c) => c.body).join("\n\n"));
+      return { posted: comments.length, mode: "pr_comment_fallback", comments: comments.map((c) => ({ path: c.path, line: c.line })) };
+    }
+  }
 
   const buildReviewArgs = (includeCommitId) => {
     const args = [
@@ -1781,26 +1921,30 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
 
 async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, postReview = false, postInlineSuggestions = false } = {}) {
   if (!postScores && !postReview && !postInlineSuggestions) return [];
+  const commentAuthor = isForgejoRepo(repo) ? await forgejoApi("user") : null;
   let existingComments = [];
   try {
-    const raw = await ghAsync(["api", `repos/${repo}/issues/${r.pr.number}/comments?per_page=100`]).catch(() =>
+    // Forgejo's issue-comment endpoint returns all comments and ignores page/limit.
+    const raw = isForgejoRepo(repo) ? JSON.stringify(await forgejoApi(`repos/${repo}/issues/${r.pr.number}/comments`)) : await ghAsync(["api", `repos/${repo}/issues/${r.pr.number}/comments?per_page=100`]).catch(() =>
       gh(["api", `repos/${repo}/issues/${r.pr.number}/comments`]),
     );
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) existingComments = parsed;
-  } catch {}
+  } catch (e) { if (isForgejoRepo(repo)) throw e; }
 
   const upsert = async (marker, body, label) => {
-    const existing = existingComments.find((c) => typeof c?.body === "string" && c.body.includes(marker));
+    const existing = existingComments.find((c) => typeof c?.body === "string" && c.body.includes(marker) && (!commentAuthor || c.user?.id === commentAuthor.id));
     if (existing?.id) {
+      if (isForgejoRepo(repo)) {
+        await forgejoApi(`repos/${repo}/issues/comments/${existing.id}`, { method: "PATCH", body: { body } });
+        return `${label} (updated)`;
+      }
       await ghAsync(["api", "--method", "PATCH", `repos/${repo}/issues/comments/${existing.id}`, "-f", `body=${body}`]).catch(() =>
         gh(["api", "--method", "PATCH", `repos/${repo}/issues/comments/${existing.id}`, "-f", `body=${body}`]),
       );
       return `${label} (updated)`;
     }
-    await ghAsync("pr", "comment", r.pr.url, "--body", body).catch(() =>
-      gh(["pr", "comment", r.pr.url, "--body", body]),
-    );
+    await createPrComment(r.pr.url, repo, r.pr.number, body);
     return label;
   };
 
@@ -2094,7 +2238,7 @@ function formatReviewComment(r) {
 }
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const repoOf = (pr) => pr.url.split("/").slice(3, 5).join("/");
+const repoOf = (pr) => parsePrUrl(pr.url)?.repo || "";
 const effort = (b) => {
   const n = b.score >= 80 ? 5 : b.score >= 60 ? 4 : b.score >= 40 ? 3 : b.score >= 20 ? 2 : 1;
   return { n, label: ["Trivial", "Simple", "Moderate", "Complex", "Critical"][n - 1], mins: Math.max(5, Math.round(b.lines / 8 / 5) * 5) };
@@ -2160,7 +2304,8 @@ const page = (title, actions, body) =>
   `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width"><title>${esc(title)}</title><style>${CSS}</style></head><body>${sidebar()}
 <section><div class="top"><span>${esc(title)}</span><span style="display:flex;gap:10px">${actions}</span></div><div class="wrap">${body}</div></section></body></html>`;
 
-function openPrs(repo) {
+async function openPrs(repo) {
+  if (isForgejoRepo(repo)) return (await forgejoList(`repos/${repo}/pulls?state=open`)).map((p) => normalizeForgejoPr(p, repo));
   try {
     return JSON.parse(gh("pr", "list", "-R", repo, "--json", "number,title,author,url,updatedAt,additions,deletions,changedFiles", "--limit", "30"));
   } catch {
@@ -2180,7 +2325,7 @@ async function renderHome() {
       <td><span class="pill ${vt}">${vl}</span><a class="act" href="/score?pr=${encodeURIComponent(r.pr.url)}">Review details</a></td></tr>`;
     })
     .join("");
-  const open = (await repos()).flatMap(openPrs)
+  const open = (await Promise.all((await repos()).map(openPrs))).flat()
     .filter((p) => !done.has(p.url))
     .map((p) => `<tr><td><a href="${p.url}">#${p.number}</a> ${esc(p.title)}</td><td>${esc(p.author.login)}</td><td>${p.changedFiles} files <span style="color:var(--ok)">+${p.additions}</span> <span style="color:var(--bad)">-${p.deletions}</span></td>
       <td><a class="act" href="/score?pr=${encodeURIComponent(p.url)}">Review</a></td></tr>`)
@@ -2219,7 +2364,7 @@ function renderScore(r) {
   const when = new Date(r.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   return page(
     `Reviews / #${pr.number}`,
-    `<a class="btn" href="/score?pr=${encodeURIComponent(pr.url)}&force=1">Re-review</a><a class="btn pri" href="${pr.url}" style="text-decoration:none">Open in GitHub</a>`,
+    `<a class="btn" href="/score?pr=${encodeURIComponent(pr.url)}&force=1">Re-review</a><a class="btn pri" href="${pr.url}" style="text-decoration:none">Open pull request</a>`,
     `<h3>${esc(pr.title)} <span class="pill ${vt}">${vl}</span></h3>
     <p class="mut" style="margin:0 0 18px">${esc(repoOf(pr))} &middot; ${esc(pr.author.login)} wants to merge <code>${esc(pr.headRefName)}</code> into <code>${esc(pr.baseRefName)}</code> &middot; ${pr.changedFiles} files changed <span style="color:var(--ok)">+${pr.additions}</span> <span style="color:var(--bad)">-${pr.deletions}</span></p>
 
@@ -2269,7 +2414,39 @@ const DEFAULT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 
 // Field types: select, combo (select + free text), text, password, number, range, checkbox, readonly.
 const mask = (secret) => (secret ? `\u2022\u2022\u2022\u2022${secret.slice(-4)}` : "");
 const byProvider = (pick) => Object.fromEntries(Object.entries(PROVIDERS).map(([k, x]) => [k, pick(x)]));
+const LOGIN_PROVIDERS = { github: { label: "GitHub", pb: "github" }, forgejo: { label: "Forgejo", pb: "oidc" } };
+const oauthFlows = new Map();
 const SETTINGS_PAGES = {
+  forgejo: {
+    title: "Forgejo", group: "admin", access: "admin",
+    async load() {
+      return { sections: [{ id: "forgejo", title: "Forgejo", fields: [
+        { key: "url", label: "Server URL", type: "text", placeholder: "https://forgejo.example.com" },
+        { key: "token", label: "Access token", type: "password", placeholder: mask(forgejoToken), hint: "Leave blank to keep the stored token." },
+      ], actions: [{ id: "save", label: "Save" }, { id: "test", label: "Test connection", variant: "outline" }] }], values: { forgejo: { url: FORGEJO_URL, token: "" } } };
+    },
+    async save(body) {
+      const v = body.forgejo;
+      if (!v) return;
+      const nextUrl = forgejoOrigin(v.url);
+      if (nextUrl !== FORGEJO_URL) {
+        const linked = (await repos()).some(isForgejoRepo) || (await store.all()).some((r) => isForgejoRepo(repoOf(r.pr)));
+        const oauth = PB_URL && ((await store.getOAuth()).providers.some((p) => p.name === "oidc") || await store.hasForgejoIdentities());
+        if (linked || oauth) throw new Error("Cannot change the Forgejo server while repositories, reviews, or Forgejo OAuth are configured");
+      }
+      const token = nextUrl ? String(v.token || (nextUrl === FORGEJO_URL ? forgejoToken : "")) : "";
+      await store.setSetting("forgejo", { url: nextUrl, token });
+      await store.setSetting("forgejoOrigin", nextUrl);
+      FORGEJO_URL = nextUrl;
+      forgejoToken = token;
+      guideCache.clear();
+    },
+    async test() {
+      const rows = await forgejoApi("user/repos?limit=1");
+      if (!Array.isArray(rows)) throw new Error("Invalid Forgejo response");
+      return { ok: true, reply: "Connected to Forgejo" };
+    },
+  },
   repos: {
     title: "Repositories",
     group: "settings",
@@ -2282,8 +2459,8 @@ const SETTINGS_PAGES = {
         store.getSetting("repoSettings").then((x) => x || {}),
         reviewConfig(),
       ]);
-      const items = list.map((r) => {
-        const files = guideFiles(r); // real check at the repository root via the GitHub API
+      const items = await Promise.all(list.map(async (r) => {
+        const files = await guideFiles(r);
         const label = files.join(" + ");
         const g = guides[r] || {};
         const rs = repoSettings[r] || {};
@@ -2317,8 +2494,8 @@ const SETTINGS_PAGES = {
         ]
           .filter(Boolean)
           .join(" · ");
-        return { id: r, label: r, meta: meta || undefined, settings };
-      });
+        return { id: r, label: repoLabel(r), meta: meta || undefined, settings };
+      }));
       const sections = [
         {
           id: "repos",
@@ -2326,7 +2503,7 @@ const SETTINGS_PAGES = {
           description: "Pull requests from these repositories show up in Reviews and in the sidebar.",
           fields: [
             { key: "list", label: "Repositories", type: "list", hint: "The gear opens a repository's settings; the cross removes it (reviews already stored are kept)." },
-            { key: "add", label: "Add repository", type: "combo", placeholder: "owner/name", options: ghRepos(org).filter((r) => !list.includes(r)).map((value) => ({ value, label: value })), hint: org ? `Suggestions are ${org} repositories your GitHub login can see; any owner/name works and switches to that organization.` : "Repositories your GitHub login can see, or type any owner/name." },
+            { key: "add", label: "Add repository", type: "combo", placeholder: "owner/name or repository URL", options: (await repositoryChoices(org)).filter((r) => !list.includes(r)).map((value) => ({ value, label: repoLabel(value) })) },
           ],
           actions: [{ id: "save", label: "Save" }],
         },
@@ -2336,20 +2513,21 @@ const SETTINGS_PAGES = {
     async save(body, { org } = {}) {
       const v = body.repos;
       if (!v) return;
-      const clean = (r) => String(r).trim().replace(/^https:\/\/github\.com\//, "").replace(/\/+$/, "");
+      const clean = (r) => cleanRepo(r, org);
       const add = clean(v.add || "");
       const listed = (v.list || []).map((it) => (typeof it === "string" ? { id: it } : it));
       const mine = [...new Set([...listed.map((it) => clean(it.id)), add].filter(Boolean))];
-      for (const r of mine) if (!/^[\w.-]+\/[\w.-]+$/.test(r)) throw new Error(`Not an owner/name: ${r}`);
+      for (const r of mine) if (!REPO_RE.test(r)) throw new Error(`Not an owner/name: ${r}`);
       if (org) for (const r of listed.map((it) => clean(it.id))) if (!r.startsWith(`${org}/`)) throw new Error(`${r} is not under ${org}`);
       // other organizations' repositories are untouched by a scoped save
       const others = org ? (await repos()).filter((r) => !r.startsWith(`${org}/`)) : [];
       const next = [...others, ...mine];
       if (add && !(v.list || []).map(clean).includes(add)) {
         try {
-          gh("repo", "view", add, "--json", "nameWithOwner");
+          if (isForgejoRepo(add)) await forgejoApi(`repos/${add}`);
+          else gh("repo", "view", add, "--json", "nameWithOwner");
         } catch {
-          throw new Error(`Cannot access ${add}: check the name and that gh is logged in`);
+          throw new Error(`Cannot access ${nativeRepo(add)}: check the name and ${isForgejoRepo(add) ? "Forgejo" : "GitHub"} credentials`);
         }
       }
       await store.setSetting("repos", next);
@@ -2431,8 +2609,8 @@ const SETTINGS_PAGES = {
             { key: "maxFindings", label: "Max findings", type: "range", min: 3, max: 12, step: 1 },
             { key: "diffChars", label: "Diff sent to the model", type: "select", options: [30000, 60000, 90000, 150000, 300000].map((v) => ({ value: v, label: `${v / 1000}k characters` })), hint: "Larger diffs cost more and may exceed the model's context." },
             { key: "temperature", label: "Temperature", type: "range", min: 0, max: 1, step: 0.1, hint: "Ignored by Anthropic models, which do not take sampling parameters." },
-            { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a GitHub PR comment with all System One scores after review" },
-            { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add a GitHub PR comment with the review summary and link to the full report" },
+            { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a PR comment with all System One scores after review" },
+            { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add a PR comment with the review summary and link to the full report" },
             { key: "postInlineSuggestions", label: "Post inline suggestions", type: "checkbox", text: "Post inline committable suggestion comments on PR diff lines" },
           ],
           actions: [{ id: "save", label: "Save" }],
@@ -2497,28 +2675,25 @@ const SETTINGS_PAGES = {
     group: "admin",
     access: "admin",
     async load() {
-      if (!PB_URL) return { sections: [{ id: "oauth", title: "GitHub", description: "Sign-in is not available in file-storage mode. Start with PB_URL set (the Docker image does).", fields: [] }], values: {} };
+      if (!PB_URL) return { sections: [{ id: "oauth", title: "OAuth", description: "Sign-in requires PocketBase (PB_URL).", fields: [] }], values: {} };
       const o = await store.getOAuth();
-      const gh = o.providers.find((x) => x.name === "github") || {};
-      const redirect = `${APP_URL}/auth/callback`;
-      const sections = [
-        {
-          id: "oauth",
-          title: "GitHub",
+      const values = {};
+      const sections = Object.entries(LOGIN_PROVIDERS).map(([id, spec]) => {
+        const current = o.providers.find((p) => p.name === spec.pb) || {};
+        const section = id === "github" ? "oauth" : "forgejooauth";
+        values[section] = { enabled: !!o.enabled && !!current.clientId, clientId: current.clientId || "", clientSecret: "", redirectUrl: `${APP_URL}/auth/callback` };
+        return {
+          id: section, title: spec.label,
           fields: [
-            { key: "status", label: "Status", type: "readonly" },
-            { key: "provider", label: "Provider", type: "select", options: [{ value: "github", label: "GitHub" }] },
-            { key: "enabled", label: "Enabled", type: "checkbox", hint: "Turn on once the client id and secret are saved." },
-            { key: "clientId", label: "Client ID", type: "text", link: { label: "Create a GitHub OAuth app", url: "https://github.com/settings/developers" } },
-            { key: "clientSecret", label: "Client secret", type: "password", hint: gh.clientId ? "A secret is stored with the client id above. Leave blank to keep it." : "No secret saved yet.", placeholder: gh.clientId ? "••••••••" : "paste secret" },
-            { key: "redirectUrl", label: "Callback URL", type: "readonly", hint: "Paste this as the Authorization callback URL in the GitHub OAuth app. Set APP_URL when the app runs behind a domain." },
+            { key: "enabled", label: "Enabled", type: "checkbox", hint: "Disabling removes this provider's saved credentials." },
+            { key: "clientId", label: "Client ID", type: "text", ...(id === "github" || FORGEJO_URL ? { link: { label: "Create OAuth app", url: id === "github" ? "https://github.com/settings/developers" : `${FORGEJO_URL}/user/settings/applications` } } : {}) },
+            { key: "clientSecret", label: "Client secret", type: "password", placeholder: current.clientId ? "Saved" : "", hint: "Leave blank to keep the stored secret." },
+            { key: "redirectUrl", label: "Callback URL", type: "readonly" },
           ],
-          // The one-click creator only shows while nothing is connected yet.
-          actions: [{ id: "save", label: "Save" }, ...(gh.clientId ? [] : [{ id: "connect", label: "Create GitHub app for me", variant: "outline", always: true }])],
-        },
-      ];
-      const status = !gh.clientId ? "Not connected" : o.enabled ? `Connected · client id ${gh.clientId}` : `Configured but disabled · client id ${gh.clientId}`;
-      return { sections, values: { oauth: { status, provider: "github", enabled: !!o.enabled, clientId: gh.clientId || "", clientSecret: "", redirectUrl: redirect } } };
+          actions: [{ id: "save", label: "Save" }, ...(id === "github" && !current.clientId ? [{ id: "connect", label: "Create GitHub app for me", variant: "outline", always: true }] : [])],
+        };
+      });
+      return { sections, values };
     },
     // GitHub App manifest flow: the browser posts a manifest to GitHub, the user clicks Create once, GitHub returns a
     // code to /github/manifest/callback, and the conversion gives us the client id + secret to store in PocketBase.
@@ -2541,14 +2716,27 @@ const SETTINGS_PAGES = {
       },
     },
     async save(body) {
-      if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
-      const v = body.oauth;
-      if (!v) return;
-      // PocketBase never returns the secret and keeps the stored one when the PATCH omits it, so only send what was typed.
+      if (!PB_URL) throw new Error("Sign-in requires PocketBase (PB_URL)");
       const o = await store.getOAuth();
-      const clientId = v.clientId || "";
-      const provider = { name: "github", clientId, ...(v.clientSecret ? { clientSecret: v.clientSecret } : {}) };
-      await store.setOAuth({ ...o, enabled: !!v.enabled && !!clientId, providers: clientId ? [provider] : [] });
+      let providers = [...o.providers];
+      for (const [id, spec] of Object.entries(LOGIN_PROVIDERS)) {
+        const v = body[id === "github" ? "oauth" : "forgejooauth"];
+        if (!v) continue;
+        const current = providers.find((p) => p.name === spec.pb);
+        providers = providers.filter((p) => p.name !== spec.pb);
+        if (!v.enabled) continue;
+        const clientId = String(v.clientId || "").trim();
+        if (!clientId) throw new Error(`${spec.label} client ID is required`);
+        if (!current && !v.clientSecret) throw new Error(`${spec.label} client secret is required`);
+        if (id === "forgejo" && !FORGEJO_URL) throw new Error("Configure the server in Admin / Forgejo first");
+        providers.push({ ...current, name: spec.pb, clientId,
+          ...(v.clientSecret ? { clientSecret: String(v.clientSecret) } : {}),
+          ...(id === "forgejo" ? { displayName: "Forgejo", pkce: true,
+            authURL: `${FORGEJO_URL}/login/oauth/authorize`, tokenURL: `${FORGEJO_URL}/login/oauth/access_token`, userInfoURL: `${FORGEJO_URL}/login/oauth/userinfo`,
+          } : {}),
+        });
+      }
+      await store.setOAuth({ ...o, enabled: providers.length > 0, providers });
     },
   },
 };
@@ -2564,7 +2752,7 @@ SETTINGS_PAGES.accounts = {
       meta: `${u.role || "no role"} · ${u.email || ""}`,
       settings: { title: u.name || u.email || u.id, fields: [{ key: "role", label: "Role", type: "select", options: ROLES.map((value) => ({ value, label: value })) }], values: { role: u.role || "admin" } },
     }));
-    return { sections: [{ id: "accounts", title: "Accounts", fields: [{ key: "list", label: "Accounts", type: "list", removable: false, hint: "Gear sets the role. Sign-in with GitHub creates accounts; the first one is the owner." }], actions: [{ id: "save", label: "Save" }] }], values: { accounts: { list: items } } };
+    return { sections: [{ id: "accounts", title: "Accounts", fields: [{ key: "list", label: "Accounts", type: "list", removable: false, hint: "Gear sets the role. OAuth sign-in creates accounts; the first one is the owner." }], actions: [{ id: "save", label: "Save" }] }], values: { accounts: { list: items } } };
   },
   async save(body) {
     const v = body.accounts;
@@ -2683,7 +2871,7 @@ async function homeData(org = "") {
   const rs = (await repos()).filter((r) => !org || r.startsWith(`${org}/`));
   const all = (await store.all()).filter((r) => !org || rs.includes(repoOf(r.pr)));
   const done = new Set(all.map((r) => r.pr.url));
-  const open = rs.flatMap(openPrs);
+  const open = (await Promise.all(rs.map(openPrs))).flat();
   const waiting = open.filter((p) => !done.has(p.url));
   const c = await llmConfig();
   const week = all.filter((r) => Date.now() - Date.parse(r.at) < 7 * 864e5);
@@ -2692,7 +2880,7 @@ async function homeData(org = "") {
     const mine = all.filter((r) => repoOf(r.pr) === repo);
     const wait = waiting.filter((p) => repoOf(p) === repo).length;
     return [
-      { text: repo, path: `/repo/${repo}` },
+      { text: repoLabel(repo), path: `/repo/${repo}` },
       wait ? { text: `${wait} waiting`, tone: "warn" } : { text: "none waiting", tone: "muted" },
       mine.length,
       mine.length ? avg(mine.map((r) => r.review.scores.quality)) : "",
@@ -2710,7 +2898,7 @@ async function homeData(org = "") {
     { id: "recent", kind: "table", title: "Recent reviews", columns: ["Pull request", "Repository", "Verdict", "Quality", "Blast", "Reviewed"],
       rows: all.slice(0, 8).map((r) => [
         { text: `#${r.pr.number} ${r.pr.title}`, path: `/review?pr=${encodeURIComponent(r.pr.url)}` },
-        repoOf(r.pr),
+        repoLabel(repoOf(r.pr)),
         VERDICT_CELL[r.review.verdict] || VERDICT_CELL.comment,
         r.review.scores.quality,
         r.blast.score,
@@ -2718,15 +2906,23 @@ async function homeData(org = "") {
       ]) },
     { id: "links", kind: "links", title: "Quick links", items: [
       { label: "Repositories", hint: "Add or remove onboarded repositories", path: "/settings/repos" },
-      { label: "Sign-in (OAuth)", hint: "GitHub login", path: "/settings/oauth" },
+      { label: "Sign-in (OAuth)", hint: "GitHub and Forgejo login", path: "/settings/oauth" },
       { label: "Documentation", hint: "README on GitHub", href: "https://github.com/dharmeshgurnani/CodeOtter#readme" },
     ] },
   ];
   return { sections };
 }
-// Cookies: pr_oauth holds the in-flight state + PKCE verifier, pr_auth the PocketBase user token.
+function requestOrg(url) {
+  const org = url.searchParams.get("org") || "";
+  if (org && !OWNER_RE.test(org)) throw new Error("Bad organization");
+  return org;
+}
+function checkRepoScope(repo, org) {
+  if (!REPO_RE.test(repo) || (isForgejoRepo(repo) && !FORGEJO_URL)) throw new Error("Invalid repository");
+  if (org && !repo.startsWith(`${org}/`)) throw new Error("Repository is outside the active organization");
+}
+// Cookies: pr_oauth is an opaque key for server-held state/PKCE; pr_auth is the PocketBase user token.
 const cookies = (req) => Object.fromEntries((req.headers.cookie || "").split(";").map((c) => c.trim().split("=")).filter(([k]) => k).map(([k, ...v]) => { try { return [k, decodeURIComponent(v.join("="))]; } catch { return [k, ""]; } }));
-const safeJson = (text) => { try { return JSON.parse(text); } catch { return null; } };
 const setCookie = (res, name, value, maxAge) => {
   const prev = res.getHeader("set-cookie") || [];
   res.setHeader("set-cookie", [...(Array.isArray(prev) ? prev : [prev]), `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${APP_URL.startsWith("https") ? "; Secure" : ""}`]);
@@ -2735,7 +2931,7 @@ const setCookie = (res, name, value, maxAge) => {
 // The first account to sign in becomes owner; later ones admin. Until any account exists, an anonymous visitor
 // is treated as owner so the instance can be set up (bootstrap); once an owner exists, anonymous gets no settings.
 const ROLES = ["owner", "admin"];
-const userView = (rec) => ({ id: rec.id, name: rec.name || rec.username || rec.email?.split("@")[0] || "GitHub user", email: rec.email || "", role: rec.role || "", avatar: rec.avatar ? `/api/me/avatar?id=${rec.id}&f=${encodeURIComponent(rec.avatar)}` : "" });
+const userView = (rec) => ({ id: rec.id, name: rec.name || rec.username || rec.email?.split("@")[0] || "User", email: rec.email || "", role: rec.role || "", avatar: rec.avatar ? `/api/me/avatar?id=${rec.id}&f=${encodeURIComponent(rec.avatar)}` : "" });
 async function currentUser(req) {
   const token = cookies(req).pr_auth;
   if (!token || !PB_URL) return null;
@@ -2771,6 +2967,18 @@ const readJson = (req) =>
   });
 
 await store.init();
+const savedForgejo = await store.getSetting("forgejo");
+if (savedForgejo) {
+  FORGEJO_URL = forgejoOrigin(savedForgejo.url);
+  forgejoToken = savedForgejo.token || "";
+}
+// Environment-only connections must not silently reassign namespaced repositories on restart.
+const previousForgejoOrigin = await store.getSetting("forgejoOrigin");
+if (previousForgejoOrigin && previousForgejoOrigin !== FORGEJO_URL) {
+  const linked = (await repos()).some(isForgejoRepo) || (await store.all()).some((r) => r.pr?.url?.startsWith(`${previousForgejoOrigin}/`));
+  if (linked || (PB_URL && ((await store.getOAuth()).providers.some((p) => p.name === "oidc") || await store.hasForgejoIdentities()))) throw new Error("Forgejo origin changed while repositories or OAuth identities are linked");
+}
+if (FORGEJO_URL && previousForgejoOrigin !== FORGEJO_URL) await store.setSetting("forgejoOrigin", FORGEJO_URL);
 http
   .createServer(async (req, res) => {
     const url = new URL(req.url, "http://x");
@@ -2783,7 +2991,9 @@ http
         if (!g.ok) return;
         const c = await llmConfig();
         const rs = await repos();
-        return json({ repo: rs[0] || "", repos: rs, model: `${c.provider}/${c.model}`, baseUrl: c.baseUrl, store: PB_URL ? "pocketbase" : "files", settingsPages: await settingsPages(g.user), reviewed: await store.all(), open: rs.flatMap(openPrs) });
+        const org = requestOrg(url);
+        const scoped = rs.filter((r) => !org || r.startsWith(`${org}/`));
+        return json({ repo: scoped[0] || "", repos: rs, forgejoUrl: FORGEJO_URL, model: `${c.provider}/${c.model}`, baseUrl: c.baseUrl, store: PB_URL ? "pocketbase" : "files", settingsPages: await settingsPages(g.user), reviewed: (await store.all()).filter((r) => !org || repoOf(r.pr).startsWith(`${org}/`)), open: (await Promise.all(scoped.map(openPrs))).flat() });
       }
       if (url.pathname === "/api/home") {
         if (!(await gate(req, res)).ok) return;
@@ -2795,9 +3005,9 @@ http
         // Showcase content for the login page's right column: showcase.json next to the server, editable without code.
         const file = join(import.meta.dirname, "showcase.json");
         const showcase = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { headline: "PR Scorer", sub: "", groups: [] };
-        let configured = false;
-        if (PB_URL) { try { const m = await store.authMethods(); configured = !!m.oauth2?.enabled && m.oauth2.providers.some((x) => x.name === "github"); } catch {} }
-        return json({ showcase, signInAvailable: !!PB_URL, configured });
+        let providers = [];
+        if (PB_URL) { try { const m = await store.authMethods(); providers = Object.entries(LOGIN_PROVIDERS).filter(([, spec]) => m.oauth2?.enabled && m.oauth2.providers.some((p) => p.name === spec.pb)).map(([id, spec]) => ({ id, label: spec.label })); } catch {} }
+        return json({ showcase, signInAvailable: !!PB_URL, configured: providers.length > 0, providers });
       }
       if (url.pathname === "/api/me") {
         const u = await currentUser(req);
@@ -2817,20 +3027,30 @@ http
       if (url.pathname === "/api/auth/start") {
         if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
         const m = await store.authMethods();
-        const gh = m.oauth2?.enabled && m.oauth2.providers.find((p) => p.name === "github");
-        if (!gh) throw new Error("GitHub sign-in is not configured: open Settings / OAuth");
+        const id = url.searchParams.get("provider") || "github";
+        const spec = Object.hasOwn(LOGIN_PROVIDERS, id) && LOGIN_PROVIDERS[id];
+        if (!spec) throw new Error("Unsupported sign-in provider");
+        const gh = m.oauth2?.enabled && m.oauth2.providers.find((p) => p.name === spec.pb);
+        if (!gh) throw new Error(`${spec.label} sign-in is not configured: open Admin / OAuth`);
         const back = url.searchParams.get("back") || "/";
-        setCookie(res, "pr_oauth", JSON.stringify({ state: gh.state, codeVerifier: gh.codeVerifier, back: /^\/(?![\/\\])/.test(back) ? back : "/" }), 600);
+        for (const [key, flow] of oauthFlows) if (flow.expires < Date.now()) oauthFlows.delete(key);
+        if (oauthFlows.size >= 1000) throw new Error("Too many pending sign-ins; try again later");
+        const key = randomBytes(32).toString("hex");
+        oauthFlows.set(key, { provider: spec.pb, state: gh.state, codeVerifier: gh.codeVerifier, back: /^\/(?![\/\\])/.test(back) ? back : "/", expires: Date.now() + 600000 });
+        setCookie(res, "pr_oauth", key, 600);
         return json({ url: gh.authURL + encodeURIComponent(`${APP_URL}/auth/callback`) });
       }
       if (url.pathname === "/auth/callback") {
-        const flow = safeJson(cookies(req).pr_oauth || "null");
+        const key = cookies(req).pr_oauth;
+        const flow = oauthFlows.get(key);
+        oauthFlows.delete(key);
+        setCookie(res, "pr_oauth", "", 0);
         const fail = (msg) => { res.statusCode = 302; res.setHeader("location", `/login?login_error=${encodeURIComponent(msg)}`); return res.end(); };
-        if (!flow || flow.state !== url.searchParams.get("state")) return fail("Sign-in state mismatch, try again");
+        if (!flow || flow.expires < Date.now() || flow.state !== url.searchParams.get("state")) return fail("Sign-in state mismatch, try again");
         if (url.searchParams.get("error")) return fail(url.searchParams.get("error_description") || url.searchParams.get("error"));
         let auth;
         try {
-          auth = await store.authWithOAuth2({ provider: "github", code: url.searchParams.get("code"), codeVerifier: flow.codeVerifier, redirectURL: `${APP_URL}/auth/callback` });
+          auth = await store.authWithOAuth2({ provider: flow.provider, code: url.searchParams.get("code"), codeVerifier: flow.codeVerifier, redirectURL: `${APP_URL}/auth/callback` });
         } catch (e) {
           return fail(e.message);
         }
@@ -2851,7 +3071,7 @@ http
         if (!conv.ok) return fail(`GitHub rejected the app manifest (${conv.status})`);
         const app = await conv.json();
         const o = await store.getOAuth();
-        await store.setOAuth({ ...o, enabled: true, providers: [{ name: "github", clientId: app.client_id, clientSecret: app.client_secret }] });
+        await store.setOAuth({ ...o, enabled: true, providers: [...o.providers.filter((p) => p.name !== "github"), { name: "github", clientId: app.client_id, clientSecret: app.client_secret }] });
         setCookie(res, "pr_manifest", "", 0);
         res.statusCode = 302;
         res.setHeader("location", `/settings/oauth?connected=${encodeURIComponent(app.html_url || app.slug || "")}`);
@@ -2881,8 +3101,9 @@ http
         if (!g.ok) return;
         const body = await readJson(req);
         const prUrl = String(body.prUrl || "").trim();
-        const repo = String(body.repo || (prUrl ? prUrl.split("/").slice(3, 5).join("/") : "")).trim();
-        if (!repo || !REPO_RE.test(repo)) throw new Error("Invalid repository");
+        const repo = String(body.repo || (prUrl ? repoOf({ url: prUrl }) : "")).trim();
+        checkRepoScope(repo, requestOrg(url));
+        if (prUrl && repoOf({ url: prUrl }) !== repo) throw new Error("PR and repository mismatch");
         const fileBit = String(body.file || "").trim();
         const titleBit = String(body.title || "").trim();
         const detailBit = String(body.detail || "").trim().split("\n")[0].slice(0, 140);
@@ -2901,7 +3122,7 @@ http
         const prev = await getRepoLearnings(repo);
         const learnings = await setRepoLearnings(repo, [...prev, ruleText]);
         let updatedReview = null;
-        if (prUrl && PR_URL_RE.test(prUrl)) {
+        if (prUrl && validPrUrl(prUrl)) {
           const stored = await store.get(prUrl).catch(() => null);
           const active = activeReviews.get(prUrl)?.state || null;
           const target = stored || active;
@@ -2934,11 +3155,11 @@ http
         if (!g.ok) return;
         const body = await readJson(req);
         const prUrl = String(body.prUrl || "").trim();
-        if (!prUrl || !PR_URL_RE.test(prUrl)) throw new Error("Invalid pull request URL");
-        const repo = String(body.repo || prUrl.split("/").slice(3, 5).join("/")).trim();
-        if (!repo || !REPO_RE.test(repo)) throw new Error("Invalid repository");
-        const prNumMatch = prUrl.match(/\/pull\/(\d+)$/);
-        const prNum = prNumMatch ? Number(prNumMatch[1]) : 0;
+        if (!prUrl || !validPrUrl(prUrl)) throw new Error("Invalid pull request URL");
+        const repo = String(body.repo || repoOf({ url: prUrl })).trim();
+        checkRepoScope(repo, requestOrg(url));
+        if (repoOf({ url: prUrl }) !== repo) throw new Error("PR and repository mismatch");
+        const prNum = parsePrUrl(prUrl).number;
         const stored = await store.get(prUrl).catch(() => null);
         const active = activeReviews.get(prUrl)?.state || null;
         let target = stored || active;
@@ -2995,6 +3216,8 @@ http
         if (!ref) throw new Error("Missing pr");
         const force = url.searchParams.has("force");
         const repo = url.searchParams.get("repo") || "";
+        const resolved = await resolvePr(ref, repo);
+        checkRepoScope(parsePrUrl(resolved.urlGuess).repo, requestOrg(url));
         const part = url.searchParams.get("part") || "";
         if (url.pathname === "/api/score" && url.searchParams.has("async")) {
           return json(await startOrPollReview(ref, force, repo, part));
@@ -3090,7 +3313,7 @@ http
           }
         } else if (url.pathname === "/login") {
           pageTitle = "Sign in · CodeOtter";
-          pageDesc = "Sign in with GitHub to access CodeOtter AI pull request reviews, blast radius metrics, and merge gates.";
+          pageDesc = "Sign in to access CodeOtter AI pull request reviews, blast radius metrics, and merge gates.";
         }
         const canonical = `${APP_URL}${url.pathname}${url.search}`;
         html = html

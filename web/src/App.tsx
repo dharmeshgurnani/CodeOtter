@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/animate-ui/components/radix/sidebar";
 import { updateSeo } from "@/lib/seo";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { HomePage } from "./home-page";
 import { LoginPage } from "./login-page";
 import { TableSkeleton } from "@/components/skeletons";
 import { Link } from "@/components/link";
-import { type Board, type Review, type User, VERDICT, effort, tone } from "./types";
+import { type Board, type Review, type User, repoFromUrl, repoLabel, VERDICT, effort, tone } from "./types";
 
 const useRoute = () => {
   const [route, setRoute] = useState(location.pathname + location.search);
@@ -63,10 +63,13 @@ const api = async (path: string, init?: RequestInit) => {
 export default function App() {
   const { path, query, go } = useRoute();
   const [board, setBoard] = useState<Board | null>(null);
+  const [boardOrg, setBoardOrg] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [version, setVersion] = useState(0);
   // Active organization scopes the pages (home, sidebar). Remembered across refreshes.
   const [org, setOrgState] = useState(() => localStorage.getItem("pr-scorer.org") ?? "");
+  const orgRef = useRef(org);
+  orgRef.current = org;
   const setOrg = (o: string) => { setOrgState(o); localStorage.setItem("pr-scorer.org", o); };
   // Signed-in user (session cookie). Login goes through the server's OAuth start endpoint.
   const [me, setMe] = useState<{ user: User | null; signInAvailable: boolean }>({ user: null, signInAvailable: false });
@@ -79,19 +82,29 @@ export default function App() {
   }, []);
   // Signed in and on the login page: nothing to do there.
   useEffect(() => { if (path === "/login" && me.user) go("/", true); }, [path, me.user]);
-  const login = () => {
+  const login = (provider = "github") => {
     const back = sessionStorage.getItem("pr-scorer.back") || "/";
     sessionStorage.removeItem("pr-scorer.back");
-    return api(`/api/auth/start?back=${encodeURIComponent(back)}`)
+    return api(`/api/auth/start?provider=${encodeURIComponent(provider)}&back=${encodeURIComponent(back)}`)
       .then((d) => { location.href = d.url; })
       .catch((e) => setLoginError(e.message));
   };
   const logout = () => fetch("/api/auth/logout", { method: "POST" }).then(() => { loadMe(); load(); });
   const load = () =>
-    api("/api/reviews")
-      .then((b: Board) => { setBoard(b); setError(""); setVersion((v) => v + 1); })
+    api(`/api/reviews?org=${encodeURIComponent(org)}`)
+      .then((b: Board) => { if (orgRef.current === org) { setBoard(b); setBoardOrg(org); setError(""); setVersion((v) => v + 1); } })
       .catch((e) => { if (e.login && path !== "/login") go("/login", true); else setError(e.message); });
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let alive = true;
+    setBoardOrg(null);
+    api(`/api/reviews?org=${encodeURIComponent(org)}`).then((b: Board) => {
+      if (alive) { setBoard(b); setBoardOrg(org); setError(""); }
+    }).catch((e) => {
+      if (alive) { if (e.login && path !== "/login") go("/login", true); else setError(e.message); }
+    });
+    return () => { alive = false; };
+  }, [org]);
+  const scopedBoard = boardOrg === org ? board : null;
 
   const reviewUrl = (url: string) => `/review?pr=${encodeURIComponent(url)}`;
   const settingsPage = path.startsWith("/settings/") ? path.slice("/settings/".length) : "";
@@ -103,20 +116,25 @@ export default function App() {
   useEffect(() => { if (!known) go("/", true); }, [known]);
   const prRef = query.get("pr") ?? "";
   const prRepo = query.get("repo") ?? "";
+  useEffect(() => {
+    if (path !== "/review") return;
+    const owner = (prRepo || repoFromUrl(prRef)).split("/")[0];
+    if (owner && owner !== org) setOrg(owner);
+  }, [path, prRef, prRepo]);
   const title = settingsPage
     ? `${board?.settingsPages.find((p) => p.id === settingsPage)?.group === "admin" ? "Admin" : "Settings"} / ${board?.settingsPages.find((p) => p.id === settingsPage)?.title ?? settingsPage}`
     : path === "/review"
       ? `Reviews / #${query.get("pr")?.split("/").pop() ?? ""}`
       : repoPage
-        ? `${repoPage} / ${repoView === "open" ? "Open pull requests" : "Reviews"}`
-        : org ? `Home / ${org}` : "Home";
+        ? `${repoLabel(repoPage)} / ${repoView === "open" ? "Open pull requests" : "Reviews"}`
+        : org ? `Home / ${repoLabel(org)}` : "Home";
 
   useEffect(() => {
     if (path === "/review") return; // ReviewPage sets rich PR-specific SEO metadata
     if (path === "/login") {
       updateSeo({
         title: "Sign in · CodeOtter",
-        description: "Sign in with GitHub to access CodeOtter AI pull request reviews, blast radius metrics, and merge gates.",
+        description: "Sign in to access CodeOtter AI pull request reviews, blast radius metrics, and merge gates.",
       });
     } else if (settingsPage) {
       const pageMeta = board?.settingsPages.find((p) => p.id === settingsPage);
@@ -124,11 +142,11 @@ export default function App() {
       const pageTitle = pageMeta?.title ?? settingsPage;
       updateSeo({
         title: `${pageTitle} — ${section} · CodeOtter`,
-        description: `Manage ${pageTitle.toLowerCase()} configuration for ${org || "your organization"} on CodeOtter.`,
+        description: `Manage ${pageTitle.toLowerCase()} configuration for ${repoLabel(org) || "your organization"} on CodeOtter.`,
       });
     } else if (repoPage) {
       updateSeo({
-        title: `${repoPage} — ${repoView === "open" ? "Open Pull Requests" : "PR Reviews"} · CodeOtter`,
+        title: `${repoLabel(repoPage)} — ${repoView === "open" ? "Open Pull Requests" : "PR Reviews"} · CodeOtter`,
         description:
           repoView === "open"
             ? `Open pull requests waiting for AI code review in ${repoPage} on CodeOtter.`
@@ -136,7 +154,7 @@ export default function App() {
       });
     } else {
       updateSeo({
-        title: org ? `${org} Dashboard — CodeOtter` : "CodeOtter — AI Pull Request Review, Blast Radius & Merge Gates",
+        title: org ? `${repoLabel(org)} Dashboard — CodeOtter` : "CodeOtter — AI Pull Request Review, Blast Radius & Merge Gates",
         description: org
           ? `AI pull request review dashboard, quality scores, and pre-merge safety gates for ${org} repositories on CodeOtter.`
           : "Automated AI pull request reviews, calibrated quality & blast-radius scores, repository guideline enforcement (AGENTS.md / CLAUDE.md), and pre-merge safety gates.",
@@ -147,7 +165,7 @@ export default function App() {
   if (path === "/login") return <LoginPage error={loginError} onLogin={login} go={go} />;
   return (
     <SidebarProvider defaultOpen={sidebarDefaultOpen()}>
-      <AppSidebar repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(board)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
+      <AppSidebar repositoriesLoaded={!!board} forgejoUrl={board?.forgejoUrl ?? ""} repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(scopedBoard)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
       <SidebarInset className="min-w-0">
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3 text-base sm:px-6">
           <span className="flex min-w-0 items-center gap-2.5">
@@ -157,24 +175,24 @@ export default function App() {
           </span>
           <span className="flex shrink-0 gap-2">
             {path === "/review" && prRef && /^https?:/.test(prRef) && (
-              <Button asChild size="sm" className="sm:h-9 sm:px-4 sm:text-sm"><a href={prRef} target="_blank" rel="noreferrer">Open in GitHub</a></Button>
+              <Button asChild size="sm" className="sm:h-9 sm:px-4 sm:text-sm"><a href={prRef} target="_blank" rel="noreferrer">Open pull request</a></Button>
             )}
           </span>
         </div>
         <div className="w-full px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-7">
           {error && <p className="text-red-700">{error}</p>}
           {path === "/review" ? (
-            <ReviewPage pr={prRef} repo={prRepo} force={query.get("force") ?? ""} onDone={load} />
+            <ReviewPage org={org} pr={prRef} repo={prRepo} force={query.get("force") ?? ""} onDone={load} />
           ) : settingsPage ? (
-            <SettingsPage page={settingsPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onSaved={load} />
+            <SettingsPage forgejoUrl={board?.forgejoUrl ?? ""} page={settingsPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onSaved={load} />
           ) : (
             <>
               {!repoPage ? (
                 <HomePage go={go} version={version} org={org} />
               ) : repoView === "open" ? (
-                <OpenList board={board} go={go} reviewUrl={reviewUrl} repo={repoPage} />
+                <OpenList board={scopedBoard} go={go} reviewUrl={reviewUrl} repo={repoPage} />
               ) : (
-                <ReviewedList board={board} go={go} reviewUrl={reviewUrl} repo={repoPage} />
+                <ReviewedList board={scopedBoard} go={go} reviewUrl={reviewUrl} repo={repoPage} />
               )}
             </>
           )}
@@ -185,7 +203,7 @@ export default function App() {
 }
 
 type ListProps = { board: Board | null; go: (p: string) => void; reviewUrl: (u: string) => string; repo?: string };
-const repoOf = (url: string) => url.split("/").slice(3, 5).join("/");
+const repoOf = repoFromUrl;
 // open PRs not yet reviewed, per repository, for the sidebar badges
 const openCounts = (board: Board | null) => {
   const out: Record<string, number> = {};
@@ -204,10 +222,10 @@ function ReviewedList({ board, go, reviewUrl, repo }: ListProps) {
       {rows.map((r: Review) => {
         const [vl, vt] = VERDICT[r.review.verdict] ?? VERDICT.comment;
         const e = effort(r.blast.score, r.blast.lines);
-        const repo = r.pr.url.split("/").slice(3, 5).join("/");
+        const repo = repoFromUrl(r.pr.url);
         return (
           <tr key={r.pr.url}>
-            <Td><Link className="text-brand" path={reviewUrl(r.pr.url)} go={go}>#{r.pr.number}</Link> {r.pr.title} <Pill>{repo}</Pill></Td>
+            <Td><Link className="text-brand" path={reviewUrl(r.pr.url)} go={go}>#{r.pr.number}</Link> {r.pr.title} <Pill>{repoLabel(repo)}</Pill></Td>
             <Td label="Review effort">🎯 {e.n} ({e.label})</Td>
             <Td label="Quality"><Pill tone={tone(r.review.scores.quality)}>{r.review.scores.quality}</Pill></Td>
             <Td label="Blast radius"><Pill tone={tone(r.blast.score, true)}>{r.blast.score}</Pill></Td>

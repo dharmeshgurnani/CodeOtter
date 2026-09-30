@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Forgejo repository reviews and OAuth sign-in alongside GitHub: separate organization/repository identities, REST discovery and diffs, root guidelines, linked issues, commit history, comment updates and inline suggestions. Adds isolated Forgejo/PocketBase integration tests and OAuth-only accounts that do not require a provider-verified email. Gitea remains a separate follow-up.
+
 ## 0.3.0 (2026-09-30)
 
 - **"Smart Context" Outside-Diff Call Graph Impact Slicing & Blast Radius Fan-Out**: extracts modified function, method, and class symbols across diff hunks, scans repository files outside the diff for callers/importers using zero-dependency fast git/repo search, slices outside-diff call sites with exact file:line snippets into the review prompt (`Outside-Diff Call Graph Context`), instructs reviewers to verify cross-file contract compatibility and unhandled exception safety ("bugs live outside the diff"), upgrades `blastRadius()` to incorporate outside-caller fan-out into the score, and renders outside caller nodes directly in the review terminal Mermaid graph and GitHub PR comments.

@@ -2,6 +2,8 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [ ] | Forgejo repositories + OAuth alongside GitHub: implemented; isolated integration tests, production build and browser checks pass. Awaiting user acceptance before Gitea | 2026-09-30 |
+| [ ] | Gitea repositories + OAuth: start only after the Forgejo checkpoint | |
 | [x] | "Smart Context" Outside-Diff Call Graph Impact Slicing & Blast Radius Fan-Out (AST symbol extraction, zero-dependency git/repo caller trace, contract safety verification, outside callers in Blast Radius and Mermaid graph, and prompt caching optimization) | 2026-09-30 |
 | [x] | Inline Line-Level `suggestion` Fixes & One-Click Apply / GitHub Review Sync (`line` & `suggestion` finding schema, deterministic `deriveSuggestionFromDetail`, interactive `Suggested Fix` cards with 1-click Copy fix, `POST /api/review-suggestions` inline PR review thread sync, and per-repo `postInlineSuggestions` setting) | 2026-09-29 |
 | [x] | Incremental Commit-by-Commit Delta Reviews (`headSha` tracking, `prevSha → headSha` commit compare diff, resolved findings tracking, and in-place GitHub PR comment upsert via `<!-- codeotter:scores -->` / `<!-- codeotter:review -->`) | 2026-09-29 |

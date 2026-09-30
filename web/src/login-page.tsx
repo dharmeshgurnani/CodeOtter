@@ -8,7 +8,7 @@ type Showcase = {
   sub: string;
   groups: { title: string; items: { label: string; hint?: string; href?: string }[] }[];
 };
-type LoginData = { showcase: Showcase; signInAvailable: boolean; configured: boolean };
+type LoginData = { showcase: Showcase; signInAvailable: boolean; configured: boolean; providers: { id: string; label: string }[] };
 
 export const GitHubMark = () => (
   <svg viewBox="0 0 16 16" className="size-5" fill="currentColor" aria-hidden="true">
@@ -16,12 +16,12 @@ export const GitHubMark = () => (
   </svg>
 );
 
-export function LoginPage({ error, onLogin, go }: { error: string; onLogin: () => Promise<void> | void; go: (p: string) => void }) {
+export function LoginPage({ error, onLogin, go }: { error: string; onLogin: (provider: string) => Promise<void> | void; go: (p: string) => void }) {
   const [d, setD] = useState<LoginData | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => { fetch("/api/login").then((r) => r.json()).then(setD).catch(() => {}); }, []);
   const canLogin = !!d?.signInAvailable && !!d?.configured;
-  const reason = !d ? "" : !d.signInAvailable ? "Sign-in is not available on this instance." : !d.configured ? "GitHub sign-in is not configured yet." : "";
+  const reason = !d ? "" : !d.signInAvailable ? "Sign-in is not available on this instance." : !d.configured ? "Sign-in is not configured yet." : "";
 
   return (
     <div className="grid min-h-svh grid-cols-1 bg-white lg:grid-cols-[minmax(420px,5fr)_7fr]">
@@ -34,16 +34,18 @@ export function LoginPage({ error, onLogin, go }: { error: string; onLogin: () =
         <div className="flex flex-1 flex-col justify-center py-10 sm:py-16">
           <div className="w-full max-w-[380px]">
             <h1 className="text-[28px] font-semibold tracking-tight text-neutral-900">Sign in</h1>
-            <p className="mt-2 text-[15px] text-neutral-600">Review pull requests for quality, blast radius and actionable comments. One account, your GitHub.</p>
-            <button
+            <p className="mt-2 text-[15px] text-neutral-600">Review pull requests for quality, blast radius and actionable comments.</p>
+            {!d && <div className="mt-8 h-12 w-full animate-pulse rounded-lg bg-neutral-200" />}
+            {(d?.providers ?? []).map((provider) => <button
+              key={provider.id}
               type="button"
               disabled={!canLogin || busy}
-              onClick={() => { setBusy(true); Promise.resolve(onLogin()).finally(() => setBusy(false)); }}
+              onClick={() => { setBusy(true); Promise.resolve(onLogin(provider.id)).finally(() => setBusy(false)); }}
               className="mt-8 flex h-12 w-full items-center justify-center gap-3 rounded-lg bg-neutral-900 px-4 text-[15px] font-medium text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <GitHubMark />
-              {busy ? "Redirecting to GitHub…" : "Continue with GitHub"}
-            </button>
+              {provider.id === "github" && <GitHubMark />}
+              {`Continue with ${provider.label}`}
+            </button>)}
             {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
             {reason && !error && (
               <p className="mt-4 text-sm text-neutral-500">

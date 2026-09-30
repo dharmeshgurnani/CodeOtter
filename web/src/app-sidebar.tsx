@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, ChevronRight, ChevronsUpDown, ExternalLink, FolderGit2, House, LogIn, LogOut, Plus, Settings2, ShieldCheck, UserRound } from "lucide-react";
+import { BookOpen, ChevronRight, ChevronsUpDown, ExternalLink, FolderGit2, House, LogIn, LogOut, Plus, Settings2, ShieldCheck } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -27,10 +27,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/animate-ui/components/radix/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import type { User } from "./types";
+import { type User, repoLabel } from "./types";
 
 type Page = { title: string; path: string };
 type Props = {
+  repositoriesLoaded?: boolean;
+  forgejoUrl?: string;
   repos: string[];
   route: string;
   openCounts: Record<string, number>;
@@ -93,14 +95,14 @@ function OrgSwitcher({ repos, orgs, active, setActive, canAddRepo, go }: { repos
             <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
               {active ? (
                 <Avatar className="size-8 rounded-lg">
-                  <AvatarImage src={`https://github.com/${active}.png?size=64`} alt={active} />
+                  {!active.startsWith("forgejo~") && <AvatarImage src={`https://github.com/${active}.png?size=64`} alt={active} />}
                   <AvatarFallback className="rounded-lg bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground">{initials(active)}</AvatarFallback>
                 </Avatar>
               ) : (
                 <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-8 rounded-lg shadow-xs shrink-0" />
               )}
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">{active || "No organization"}</span>
+                <span className="truncate font-semibold">{repoLabel(active) || "No organization"}</span>
                 <span className="truncate text-xs">{active ? `Organization · ${count} ${count === 1 ? "repository" : "repositories"}` : "Add a repository to begin"}</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
@@ -111,10 +113,10 @@ function OrgSwitcher({ repos, orgs, active, setActive, canAddRepo, go }: { repos
             {orgs.map((o) => (
               <DropdownMenuItem key={o} onClick={() => { setActive(o); go("/"); }} className="gap-2 p-2">
                 <Avatar className="size-6 rounded-sm">
-                  <AvatarImage src={`https://github.com/${o}.png?size=48`} alt={o} />
+                  {!o.startsWith("forgejo~") && <AvatarImage src={`https://github.com/${o}.png?size=48`} alt={o} />}
                   <AvatarFallback className="rounded-sm border text-[10px] font-semibold">{initials(o)}</AvatarFallback>
                 </Avatar>
-                {o}
+                {repoLabel(o)}
               </DropdownMenuItem>
             ))}
             {canAddRepo && (
@@ -133,18 +135,18 @@ function OrgSwitcher({ repos, orgs, active, setActive, canAddRepo, go }: { repos
   );
 }
 
-// Footer: the account, as the demo's NavUser. Signed out it is a single "Log in with GitHub" button in the same slot.
+// Footer: the account, as the demo's NavUser. Signed out it is a single "Sign in" button in the same slot.
 function NavUser({ user, signInAvailable, onLogin, onLogout }: { user: User | null; signInAvailable: boolean; onLogin: () => void; onLogout: () => void }) {
   const { isMobile } = useSidebar();
   if (!user) {
     return (
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton size="lg" tooltip="Log in with GitHub" onClick={onLogin} disabled={!signInAvailable}>
+          <SidebarMenuButton size="lg" tooltip="Sign in" onClick={onLogin} disabled={!signInAvailable}>
             <Avatar className="h-8 w-8 rounded-lg"><AvatarFallback className="rounded-lg"><LogIn className="size-4" /></AvatarFallback></Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-semibold">Not signed in</span>
-              <span className="truncate text-xs">{signInAvailable ? "Log in with GitHub" : "Sign-in unavailable"}</span>
+              <span className="truncate text-xs">{signInAvailable ? "Sign in" : "Sign-in unavailable"}</span>
             </div>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -159,7 +161,7 @@ function NavUser({ user, signInAvailable, onLogin, onLogout }: { user: User | nu
       </Avatar>
       <div className="grid flex-1 text-left text-sm leading-tight">
         <span className="truncate font-semibold">{user.name}</span>
-        <span className="truncate text-xs">{user.role ? `${user.role} · ` : ""}{user.email}</span>
+        <span className="truncate text-xs">{[user.role, user.email].filter(Boolean).join(" \u00b7 ")}</span>
       </div>
     </>
   );
@@ -179,7 +181,6 @@ function NavUser({ user, signInAvailable, onLogin, onLogout }: { user: User | nu
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem onClick={() => window.open(`https://github.com/${user.name}`, "_blank", "noreferrer")}><UserRound />GitHub profile</DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onLogout}><LogOut />Log out</DropdownMenuItem>
@@ -190,7 +191,7 @@ function NavUser({ user, signInAvailable, onLogin, onLogout }: { user: User | nu
   );
 }
 
-export function AppSidebar({ repos, route, openCounts, settingsPages, org, setOrg, user, signInAvailable, onLogin, onLogout, go: rawGo }: Props) {
+export function AppSidebar({ repositoriesLoaded = true, forgejoUrl = "", repos, route, openCounts, settingsPages, org, setOrg, user, signInAvailable, onLogin, onLogout, go: rawGo }: Props) {
   const { isMobile, setOpenMobile } = useSidebar();
   const go = (path: string) => {
     if (isMobile) setOpenMobile(false);
@@ -205,10 +206,11 @@ export function AppSidebar({ repos, route, openCounts, settingsPages, org, setOr
   const orgs = [...new Set(repos.map((r) => r.split("/")[0]))];
   const routeOrg = route.startsWith("/repo/") ? route.slice("/repo/".length).split("/")[0] : "";
   useEffect(() => {
+    if (!repositoriesLoaded) return;
     if (routeOrg && orgs.includes(routeOrg) && routeOrg !== org) setOrg(routeOrg);
     else if (orgs.length && !orgs.includes(org)) setOrg(orgs[0]);
     else if (!orgs.length && org) setOrg("");
-  }, [routeOrg, repos.join(",")]);
+  }, [routeOrg, repos.join(","), repositoriesLoaded]);
   const visible = repos.filter((r) => r.startsWith(`${org}/`));
   const canAddRepo = settingsPages.some((p) => p.id === "repos");
   return (
@@ -244,7 +246,7 @@ export function AppSidebar({ repos, route, openCounts, settingsPages, org, setOr
             {visible.map((r) => (
               <NavGroup
                 key={r}
-                title={r}
+                title={repoLabel(r)}
                 icon={FolderGit2}
                 route={route}
                 go={go}
@@ -287,10 +289,10 @@ export function AppSidebar({ repos, route, openCounts, settingsPages, org, setOr
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip="GitHub">
-              <a href={org ? `https://github.com/${org}` : "https://github.com"} target="_blank" rel="noreferrer">
+            <SidebarMenuButton asChild tooltip={org.startsWith("forgejo~") ? "Forgejo" : "GitHub"}>
+              <a href={org.startsWith("forgejo~") ? `${forgejoUrl}/${org.slice(8)}` : org ? `https://github.com/${org}` : "https://github.com"} target="_blank" rel="noreferrer">
                 <ExternalLink />
-                <span>GitHub</span>
+                <span>{org.startsWith("forgejo~") ? "Forgejo" : "GitHub"}</span>
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>

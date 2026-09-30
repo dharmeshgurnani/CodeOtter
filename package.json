@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "start": "node server.mjs",
+    "test:forgejo": "node scripts/test-forgejo.mjs",
     "build": "pnpm -C web install && pnpm -C web build"
   }
 }

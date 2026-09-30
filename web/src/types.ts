@@ -69,7 +69,15 @@ export type Review = {
   at: string;
 };
 export type User = { id: string; name: string; email: string; role: string; avatar: string };
-export type Board = { repo: string; repos: string[]; model: string; baseUrl: string; store: string; settingsPages: { id: string; title: string; group: "settings" | "admin" }[]; reviewed: Review[]; open: OpenPr[] };
+export type Board = { repo: string; repos: string[]; forgejoUrl?: string; model: string; baseUrl: string; store: string; settingsPages: { id: string; title: string; group: "settings" | "admin" }[]; reviewed: Review[]; open: OpenPr[] };
+
+export const repoFromUrl = (url: string) => {
+  try {
+    const u = new URL(url);
+    return `${u.origin === "https://github.com" ? "" : "forgejo~"}${u.pathname.split("/").slice(1, 3).join("/")}`;
+  } catch { return ""; }
+};
+export const repoLabel = (id: string) => id.startsWith("forgejo~") ? `${id.slice(8)} · Forgejo` : id;
 
 export const VERDICT = { approve: ["Approved", "ok"], comment: ["Commented", "warn"], request_changes: ["Changes requested", "bad"] } as const;
 export const tone = (v: number, invert = false) => {

@@ -15,7 +15,7 @@ const redirectMessage = (): Msg | null => {
   return c ? { ok: true, text: `GitHub app created and connected. Sign-in is enabled.${c.startsWith("http") ? ` App page: ${c}` : ""}` } : e ? { ok: false, text: e } : null;
 };
 
-export function SettingsPage({ page, org, setOrg, user, onLogin, onSaved }: { page: string; org: string; setOrg: (o: string) => void; user: User | null; onLogin: () => void; onSaved: () => void }) {
+export function SettingsPage({ forgejoUrl, page, org, setOrg, user, onLogin, onSaved }: { forgejoUrl: string; page: string; org: string; setOrg: (o: string) => void; user: User | null; onLogin: () => void; onSaved: () => void }) {
   const [sections, setSections] = useState<Section[] | null>(null);
   const [saved, setSaved] = useState<Values>({});
   const [values, setValues] = useState<Values>({});
@@ -56,12 +56,13 @@ export function SettingsPage({ page, org, setOrg, user, onLogin, onSaved }: { pa
     try {
       if (actionId === "save") {
         const secVals = nextVals ?? values[sectionId];
-        const added = String((secVals as Record<string, unknown> | undefined)?.add ?? "").trim().replace(/^https:\/\/github\.com\//, "");
+        const rawAdded = String((secVals as Record<string, unknown> | undefined)?.add ?? "").trim();
+        const added = rawAdded.replace(/^https:\/\/github\.com\//, "");
         apply(await call(url(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ [sectionId]: secVals }) }));
         onSaved();
         setMsg({ ok: true, text: "Saved." });
         // Onboarding a repository from another organization switches to it, so the page you land on is not empty.
-        const owner = added.split("/")[0];
+        const owner = forgejoUrl && added.startsWith(`${forgejoUrl}/`) ? `forgejo~${added.slice(forgejoUrl.length + 1).split("/")[0]}` : `${org.startsWith("forgejo~") && !rawAdded.startsWith("https://github.com/") && !added.startsWith("forgejo~") ? "forgejo~" : ""}${added.split("/")[0]}`;
         if (page === "repos" && owner && added.includes("/") && owner !== org) setOrg(owner);
       } else if (actionId === "test") {
         const d = await call(url("/test"), { method: "POST" });
