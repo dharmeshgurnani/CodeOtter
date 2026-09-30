@@ -7,6 +7,7 @@
   "description": "CodeOtter — Dual-engine AI code review scores, blast radius analysis, and merge gates from any open model, self-hosted.",
   "engines": { "node": ">=20.11" },
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "start": "node server.mjs",
     "build": "pnpm -C web install && pnpm -C web build"
   }

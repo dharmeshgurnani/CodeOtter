@@ -13,3 +13,6 @@ pb.log
 
 # Marketing kit (videos, mock data, copy): local only, never committed
 marketing/
+marketing-team/data/
+codeotter-website/
+

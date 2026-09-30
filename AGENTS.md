@@ -10,6 +10,7 @@ Rules for anyone (human or agent) changing this codebase. Keep them; they encode
 - **Sign-in is GitHub only**, through PocketBase's OAuth2 on the `users` collection. No username/password. GitLab, Forgejo, Bitbucket may come later.
 - **Repository review guidelines are auto-detected**: `AGENTS.md` and/or `CLAUDE.md` at the repository root, checked through the GitHub API, never assumed. Both are used when both exist. Whether reviews follow them is a per-repository checkbox in Settings → Repositories (gear icon on the row).
 - **Talk to technical people.** No explanatory copy for things engineers already know. A label and a control.
+- **Official Mascot**: The mascot is ALWAYS the warm amber-brown CodeOtter wearing brass/leather aviator goggles on its forehead, cream chest/muzzle, round ears, smiling closed eyes, and whiskers (saved in `marketing-team/official-codeotter-mascot.png`). NEVER replace it with a generic cartoon animal or different creature. All peeking, avatar, hero, and brand representations must use or faithfully crop/render this exact character.
 
 ## UI rules
 
@@ -26,7 +27,7 @@ Rules for anyone (human or agent) changing this codebase. Keep them; they encode
 - **Dependency-free backend.** `server.mjs` is one Node file using only the standard library and `fetch`. Provider calls are raw HTTP, including Anthropic's Messages API.
 - **Storage** is PocketBase when `PB_URL` is set (Docker sets it), else JSON files. Schema lives in `pb_migrations/`.
 - **Never run write-then-clear tests against a live instance.** A save/clear test once wiped real GitHub OAuth credentials. Read-only checks only; for write paths use a throwaway PocketBase data dir.
-- **Build**: `cd web && pnpm build` (strict TypeScript; unused imports fail). **Run**: PocketBase on 8090 plus `PB_URL=... PB_ADMIN_EMAIL=... PB_ADMIN_PASSWORD=... node server.mjs` on 4747.
+- **Build**: `cd web && pnpm build` (strict TypeScript; unused imports fail). **Run**: `pnpm dev` for local dev (backend on 4747 + Vite on 5173 + auto-managed PocketBase on 8090) or `pnpm start` for production (`node server.mjs` on 4747). Docker sets `PB_URL` and runs PocketBase and server in one container.
 - **Docs travel with the change**: README for behaviour, ROADMAP for status, a CHANGELOG line per release.
 - **Model output is untrusted.** `judge()` normalises scores, verdict, findings and walkthrough before storage; never render raw model fields.
 - **Every data endpoint is gated** (`gate()` in `server.mjs`): admin or owner once an account exists, owner-level anonymous only during bootstrap or with `PR_SCORER_RECOVERY=1`. Cross-site requests to `/api/*` are refused. Validate anything that reaches `gh` argv (`OWNER_RE`, `REPO_RE`, `PR_URL_RE`).

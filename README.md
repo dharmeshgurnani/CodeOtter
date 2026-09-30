@@ -93,7 +93,7 @@ Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face insi
 
 ### `AGENTS.md` / `CLAUDE.md`, Repo Learnings, Inline `suggestion` Fixes, Incremental Delta Reviews &amp; GitHub PR Sync
 
-Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository to enforce team rules on every diff hunk. Findings include line-level `:L<line>` anchors and exact `suggestion` code replacements rendered as interactive **Suggested Fix** cards with 1-click **"Copy fix"** and **"Post inline suggestion to GitHub"** (`POST /api/review-suggestions`), posting committable ` ```suggestion ` blocks directly onto the pull request diff line so authors can click **"Commit suggestion"** on GitHub. Dismiss any review finding with **1-click ("Dismiss & remember rule")** to persist a repository team learning that is automatically injected into future LLM and System 1 review prompts (and managed under **Settings → Repositories → ⚙️**). Re-reviewing a pull request performs an **incremental commit-by-commit delta review** (`prevSha → headSha`), inspecting new commits and tracking resolved prior findings. Enable **Post scores on PR**, **Add PR review as a comment**, and **Post inline suggestions** to publish and **update in-place (upsert)** formatted scorecards, review summaries, and inline committable fixes on GitHub pull requests.
+Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository to enforce team rules on every diff hunk. Features **Smart Context Outside-Diff Call Graph Impact Slicing** (automatically extracts modified function, method, and class symbols across the diff and scans repository files outside the diff for callers/importers, ensuring changes never silently break un-modified call sites in production). Findings include line-level `:L<line>` anchors and exact `suggestion` code replacements rendered as interactive **Suggested Fix** cards with 1-click **"Copy fix"** and **"Post inline suggestion to GitHub"** (`POST /api/review-suggestions`), posting committable ` ```suggestion ` blocks directly onto the pull request diff line so authors can click **"Commit suggestion"** on GitHub. Dismiss any review finding with **1-click ("Dismiss & remember rule")** to persist a repository team learning that is automatically injected into future LLM and System 1 review prompts (and managed under **Settings → Repositories → ⚙️**). Re-reviewing a pull request performs an **incremental commit-by-commit delta review** (`prevSha → headSha`), inspecting new commits and tracking resolved prior findings. Enable **Post scores on PR**, **Add PR review as a comment**, and **Post inline suggestions** to publish and **update in-place (upsert)** formatted scorecards, review summaries, and inline committable fixes on GitHub pull requests.
 
 [Security &amp; Privacy →](#-security--privacy)
 
@@ -150,15 +150,18 @@ Ensure the **GitHub CLI (`gh`)** is authenticated (`gh auth status`):
 git clone https://github.com/dharmeshgurnani/CodeOtter.git
 cd CodeOtter
 
-# 2. Build and launch
-pnpm run build
-pnpm start
+# 2. Launch with a single command
+pnpm dev      # Development: starts Backend, PocketBase, and Vite dev server with HMR (:5173 -> :4747)
+# or
+pnpm start    # Production: auto-builds frontend if needed and runs CodeOtter on http://localhost:4747
 ```
 
-Open **`http://localhost:4747`** in your browser:
+Open **`http://localhost:5173`** (dev mode) or **`http://localhost:4747`** (production) in your browser:
 1. Paste any GitHub PR URL or select from your active repositories in the sidebar.
 2. Select your AI provider under **Settings → Model provider** (or download a 100% offline local model under **Admin → Local models**).
 3. Get a calibrated review report in seconds—or query `/api/score?pr=<url|number>` for JSON.
+
+> **Zero-Config Storage**: PocketBase is auto-detected and started locally for authentication and persistent storage. To customize superuser credentials or model keys, create a `.env` file (see `.env.example`).
 
 ---
 

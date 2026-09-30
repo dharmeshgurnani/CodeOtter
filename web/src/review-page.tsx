@@ -236,6 +236,18 @@ export function buildBlastMermaid(r: Review) {
     out.push(`  PR -.-> TNONE`);
   }
 
+  if (r.outsideDiffImpact?.callers?.length) {
+    out.push("  classDef outside fill:#261205,stroke:#ea580c,stroke-width:1.5px,color:#ffedd5");
+    const topCallers = r.outsideDiffImpact.callers.slice(0, 4);
+    topCallers.forEach((c, idx) => {
+      const ocid = `OC${idx}`;
+      const baseFile = c.file.split("/").pop() || c.file;
+      out.push(`  ${ocid}["🌐 Outside: ${cleanMermaidText(baseFile, 18)}:${c.line}<br/>calls ${cleanMermaidText(c.symbol, 16)}()"]:::outside`);
+      const firstCohort = cohortNodeIds.values().next().value || "PR";
+      out.push(`  ${firstCohort} -.->|calls ${cleanMermaidText(c.symbol, 14)}| ${ocid}`);
+    });
+  }
+
   return out.join("\n");
 }
 
@@ -302,6 +314,15 @@ function buildAiReviewMarkdown(r: Review) {
   lines.push("```mermaid");
   lines.push(buildBlastMermaid(r));
   lines.push("```");
+
+  if (r.outsideDiffImpact?.callers?.length) {
+    lines.push("");
+    lines.push(`### 🌐 Outside-Diff Call Graph Impact (${r.outsideDiffImpact.outsideCallers} caller(s) in ${r.outsideDiffImpact.uniqueFiles} un-modified file(s))`);
+    lines.push("The following un-modified files in the repository depend on symbols altered in this diff (verified for contract & exception safety):");
+    for (const c of r.outsideDiffImpact.callers.slice(0, 5)) {
+      lines.push(`- \`${c.file}:${c.line}\`: calls \`${c.symbol}()\` — \`${c.snippet.slice(0, 100)}\``);
+    }
+  }
 
   const walkthrough = v.walkthrough?.length
     ? v.walkthrough
@@ -877,7 +898,10 @@ export function ReviewPage({ pr, repo: repoHint, force, onDone }: { pr: string; 
               <Ring label="PR hygiene" value={v.scores.pr_hygiene} loading={isScoreLoading("pr_hygiene")} />
             </div>
             <details className="my-3"><summary className="cursor-pointer text-sm font-semibold">Blast radius details</summary>
-              <p className="my-2 text-sm">{b.files} files · {b.lines} lines · {b.dirs} areas · {b.testFiles} test files</p>
+              <p className="my-2 text-sm">
+                {b.files} files · {b.lines} lines · {b.dirs} areas · {b.testFiles} test files
+                {b.outsideCallers ? ` · 🌐 ${b.outsideCallers} outside caller(s) across ${b.outsideFiles || 1} un-modified file(s)` : ""}
+              </p>
               {b.hotspots.length ? b.hotspots.map((h) => <span key={h} className="mr-1.5 inline-block rounded-full bg-orange-100 px-2.5 py-0.5 text-xs text-orange-900">{h}</span>) : <span className="text-sm text-muted-foreground">No hotspots touched.</span>}
             </details>
             <details className="my-2.5"><summary className="cursor-pointer text-sm font-semibold">Pre-merge checks</summary>

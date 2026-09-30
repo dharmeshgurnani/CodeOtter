@@ -7,6 +7,12 @@ import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { join } from "node:path";
 
+// Auto-load .env if present
+const ENV_FILE = join(import.meta.dirname, ".env");
+if (existsSync(ENV_FILE) && typeof process.loadEnvFile === "function") {
+  try { process.loadEnvFile(ENV_FILE); } catch {}
+}
+
 const PORT = process.env.PORT || 4747;
 // Public address of this app, used for the OAuth callback. Set APP_URL when deployed behind a domain.
 const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
@@ -412,8 +418,27 @@ async function llmConfig() {
   };
 }
 
-// Store: PocketBase when PB_URL is set (the Docker image sets it), plain JSON files in scores/ otherwise.
-const PB_URL = process.env.PB_URL;
+// Store: PocketBase when PB_URL is set (the Docker image sets it, or auto-detected locally), plain JSON files in scores/ otherwise.
+function findPocketBase() {
+  const isWin = process.platform === "win32";
+  const binaryName = isWin ? "pocketbase.exe" : "pocketbase";
+  const candidates = [
+    join(import.meta.dirname, ".pb", binaryName),
+    join(import.meta.dirname, binaryName),
+  ];
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
+  try {
+    const cmd = isWin ? "where.exe" : "which";
+    const out = execFileSync(cmd, ["pocketbase"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim().split(/\r?\n/)[0];
+    if (out && existsSync(out)) return out;
+  } catch {}
+  return "";
+}
+
+const pbBinAvailable = findPocketBase();
+const PB_URL = process.env.PB_URL || (pbBinAvailable ? "http://127.0.0.1:8090" : "");
 const SCORES = join(import.meta.dirname, "scores");
 const CONFIG = join(import.meta.dirname, "config.json");
 const readConfig = () => (existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, "utf8")) : {});
@@ -437,12 +462,57 @@ const fileStore = {
   },
 };
 
+let pbProc = null;
+async function ensurePocketBase() {
+  if (!PB_URL) return;
+  const pbBin = findPocketBase();
+  // Check if PocketBase is already running
+  const reachable = await fetch(`${PB_URL}/api/health`, { signal: AbortSignal.timeout(1000) })
+    .then((r) => r.ok)
+    .catch(() => false);
+  if (reachable) return;
+  if (!pbBin) return;
+
+  const dir = join(import.meta.dirname, "pb_data");
+  const migrationsDir = join(import.meta.dirname, "pb_migrations");
+  mkdirSync(dir, { recursive: true });
+
+  const adminEmail = process.env.PB_ADMIN_EMAIL || "admin@example.com";
+  const adminPassword = process.env.PB_ADMIN_PASSWORD || "change-me-please";
+
+  try {
+    execFileSync(pbBin, ["superuser", "upsert", adminEmail, adminPassword, "--dir", dir, "--migrationsDir", migrationsDir], { stdio: "ignore" });
+  } catch {}
+
+  const url = new URL(PB_URL);
+  const hostPort = `${url.hostname}:${url.port || "8090"}`;
+  pbProc = spawn(pbBin, ["serve", `--http=${hostPort}`, "--dir", dir, "--migrationsDir", migrationsDir], { stdio: "ignore", detached: false });
+
+  const killPb = () => { if (pbProc) { try { pbProc.kill(); } catch {} pbProc = null; } };
+  process.on("exit", killPb);
+  process.on("SIGINT", () => { killPb(); process.exit(); });
+  process.on("SIGTERM", () => { killPb(); process.exit(); });
+
+  for (let i = 0; i < 20; i++) {
+    const ok = await fetch(`${PB_URL}/api/health`, { signal: AbortSignal.timeout(1000) })
+      .then((r) => r.ok)
+      .catch(() => false);
+    if (ok) {
+      console.log(`PocketBase auto-started at ${PB_URL}`);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
 let pbToken = "";
 async function pbAuth() {
+  const adminEmail = process.env.PB_ADMIN_EMAIL || "admin@example.com";
+  const adminPassword = process.env.PB_ADMIN_PASSWORD || "change-me-please";
   const res = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ identity: process.env.PB_ADMIN_EMAIL, password: process.env.PB_ADMIN_PASSWORD }),
+    body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
   });
   if (!res.ok) throw new Error(`PocketBase auth ${res.status}: ${(await res.text()).slice(0, 300)}`);
   pbToken = (await res.json()).token;
@@ -467,6 +537,7 @@ function pbError(text) {
 const pbFind = async (url) => (await pb(`collections/reviews/records?perPage=1&filter=${encodeURIComponent(`url="${url}"`)}`)).items[0];
 const pbStore = {
   async init() {
+    await ensurePocketBase();
     for (let i = 0; ; i++) {
       try {
         await pbAuth();
@@ -551,14 +622,112 @@ const HOTSPOTS = [
   ["CI / deploy", /\.github\/|railway\.json|Dockerfile|docker-compose|\.gitlab-ci/],
 ];
 
-function blastRadius(files) {
+function extractChangedSymbols(diff) {
+  const symbols = new Set();
+  const defRegexes = [
+    /(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z0-9_$]+)/g,
+    /(?:export\s+)?(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z0-9_$]+)\s*=>/g,
+    /(?:export\s+)?class\s+([a-zA-Z0-9_$]+)/g,
+    /(?:export\s+)?(?:type|interface)\s+([a-zA-Z0-9_$]+)/g,
+    /def\s+([a-zA-Z0-9_]+)\s*\(/g,
+    /func\s+(?:\([^)]+\)\s*)?([a-zA-Z0-9_]+)\s*\(/g,
+    /fn\s+([a-zA-Z0-9_]+)\s*\(/g,
+  ];
+  const ignore = new Set([
+    "string", "number", "boolean", "const", "let", "var", "export", "import",
+    "return", "true", "false", "null", "undefined", "async", "await", "default",
+    "class", "function", "if", "else", "for", "while", "switch", "case", "break",
+    "then", "catch", "finally", "try", "new", "this", "super", "typeof", "void"
+  ]);
+
+  for (const line of diff.split("\n")) {
+    if ((line.startsWith("+") || line.startsWith("-")) && !line.startsWith("+++") && !line.startsWith("---")) {
+      const code = line.slice(1);
+      for (const re of defRegexes) {
+        for (const match of code.matchAll(re)) {
+          const sym = match[1];
+          if (sym && sym.length >= 3 && !ignore.has(sym)) {
+            symbols.add(sym);
+          }
+        }
+      }
+    }
+  }
+  return [...symbols].slice(0, 15);
+}
+
+async function sliceOutsideDiffImpact(repo, diff, changedFiles = []) {
+  const symbols = extractChangedSymbols(diff);
+  if (!symbols.length) return { symbols: [], callers: [], outsideCallers: 0, uniqueFiles: 0, formatted: "" };
+
+  const changedSet = new Set(changedFiles.map((f) => f.replace(/\\/g, "/")));
+  const callers = [];
+  const excludeArgs = changedFiles.flatMap((f) => [":!" + f, ":!" + f.replace(/\\/g, "/")]);
+
+  // 1. Local git grep (instant, zero-network)
+  for (const sym of symbols) {
+    try {
+      const raw = execFileSync("git", ["grep", "-n", "-w", sym, "--", ".", ...excludeArgs], {
+        encoding: "utf8",
+        timeout: 4000,
+        maxBuffer: 4 << 20,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const lines = raw.split("\n").filter(Boolean);
+      for (const line of lines.slice(0, 5)) {
+        const parts = line.split(":");
+        if (parts.length >= 3) {
+          const file = parts[0].replace(/\\/g, "/");
+          const lineNum = parseInt(parts[1], 10);
+          const snippet = parts.slice(2).join(":").trim();
+          if (!changedSet.has(file) && !/\.(lock|map|min\.js|svg|png|json)$/i.test(file)) {
+            callers.push({ symbol: sym, file, line: lineNum, snippet: snippet.slice(0, 140) });
+          }
+        }
+      }
+    } catch {}
+    if (callers.length >= 12) break;
+  }
+
+  // 2. Remote GitHub code search fallback if no local git hits
+  if (callers.length === 0 && repo && REPO_RE.test(repo)) {
+    for (const sym of symbols.slice(0, 3)) {
+      try {
+        const raw = await ghAsync("api", `search/code?q=repo:${repo}+${encodeURIComponent(sym)}&per_page=5`).catch(() => "");
+        if (raw) {
+          const data = JSON.parse(raw);
+          for (const item of data.items || []) {
+            const f = item.path;
+            if (!changedSet.has(f) && !/\.(lock|map|min\.js|svg|png|json)$/i.test(f)) {
+              callers.push({ symbol: sym, file: f, line: 1, snippet: `reference to ${sym}` });
+            }
+          }
+        }
+      } catch {}
+      if (callers.length >= 10) break;
+    }
+  }
+
+  const uniqueFiles = new Set(callers.map((c) => c.file));
+  let formatted = "";
+  if (callers.length > 0) {
+    formatted = `Outside-Diff Call Graph Context (Smart Context - ${callers.length} outside call-site(s) across ${uniqueFiles.size} un-modified file(s)):\n` +
+      `The following files outside this pull request call or reference symbols modified in the diff. MANDATORY: Verify contract compatibility (parameter orders/types, return object structure, newly thrown/raised exceptions) to prevent silent production regressions:\n` +
+      callers.map((c) => `- [${c.file}:${c.line}] calls '${c.symbol}': \`${c.snippet}\``).join("\n");
+  }
+
+  return { symbols, callers, outsideCallers: callers.length, uniqueFiles: uniqueFiles.size, formatted };
+}
+
+function blastRadius(files, outsideCallers = 0, outsideFiles = 0) {
   const lines = files.reduce((n, f) => n + f.additions + f.deletions, 0);
   const dirs = new Set(files.map((f) => f.path.split("/").slice(0, 3).join("/")));
   const hot = HOTSPOTS.filter(([, re]) => files.some((f) => re.test(f.path))).map(([n]) => n);
   const tests = files.filter((f) => /test|spec|__tests__/.test(f.path)).length;
-  // ponytail: additive heuristic; swap in real import-graph fan-out if this ever misleads
-  const score = Math.min(100, Math.min(35, files.length * 3) + Math.min(30, lines / 25) + Math.min(35, hot.length * 12));
-  return { score: Math.round(score), files: files.length, lines, dirs: dirs.size, hotspots: hot, testFiles: tests };
+  // Upgraded with real outside-diff call-graph fan-out (Smart Context impact slicing)
+  const callerImpact = Math.min(25, outsideCallers * 4 + outsideFiles * 2);
+  const score = Math.min(100, Math.min(30, files.length * 2.5) + Math.min(25, lines / 30) + Math.min(25, hot.length * 10) + callerImpact);
+  return { score: Math.round(score), files: files.length, lines, dirs: dirs.size, hotspots: hot, testFiles: tests, outsideCallers, outsideFiles };
 }
 
 // One prompt in, text out. Anthropic uses the Messages API; everyone else is OpenAI chat/completions.
@@ -811,7 +980,7 @@ const S1_GATES = [
   { id: "guidelines", label: "Repository guidelines", q: "The change violates the repository's review guidelines.", risk: true, needsGuide: true },
   { id: "issue_requirements", label: "Issue requirements", q: "Does the pull request diff fulfill the requirements and acceptance criteria described in the linked issue(s)?", risk: false, needsIssues: true },
 ];
-function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null) {
+function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
   return {
     pull_request: {
       title: pr.title,
@@ -823,7 +992,16 @@ function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = []
       commits: (gitHistory?.prCommits || []).slice(0, 30).map((cm) => `${cm.sha} ${cm.message}`),
       files: pr.files.map((f) => `${f.path} +${f.additions} -${f.deletions}`).slice(0, 200),
     },
-    change_facts: (({ files, lines, dirs, hotspots, testFiles }) => ({ files, lines, areas: dirs, sensitive_areas: hotspots, test_files: testFiles }))(blastRadius(pr.files)),
+    change_facts: (({ files, lines, dirs, hotspots, testFiles, outsideCallers, outsideFiles }) => ({ files, lines, areas: dirs, sensitive_areas: hotspots, test_files: testFiles, outside_callers: outsideCallers || 0, outside_files: outsideFiles || 0 }))(blastRadius(pr.files, outsideImpact?.outsideCallers || 0, outsideImpact?.uniqueFiles || 0)),
+    ...(outsideImpact?.callers?.length
+      ? {
+          outside_diff_call_graph: {
+            affected_outside_callers: outsideImpact.outsideCallers,
+            unique_outside_files: outsideImpact.uniqueFiles,
+            sampled_call_sites: outsideImpact.callers.slice(0, 6).map((c) => `${c.file}:${c.line} (${c.symbol})`),
+          },
+        }
+      : {}),
     ...(incrementalCtx?.summaryText ? { incremental_review_delta: incrementalCtx.summaryText } : {}),
     ...(linkedIssues?.length
       ? {
@@ -847,8 +1025,8 @@ function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = []
     diff: diff.slice(0, c.contextChars || 80000),
   };
 }
-async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = [], learnings = [], incrementalCtx = null) {
-  const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues, learnings, incrementalCtx);
+async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
+  const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact);
   const questions = {};
   for (const [k, levels] of Object.entries(S1_SCORES)) questions[`score_${k}`] = { type: "score", instructions: `Rate the pull request's ${k.replace("_", " ")}.`, criteria: levels };
   for (const g of S1_GATES) if ((!g.needsGuide || guide) && (!g.needsIssues || linkedIssues?.length)) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
@@ -1079,7 +1257,8 @@ function deriveSuggestionFromDetail(f, diff = "") {
   };
 }
 
-function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null) {
+function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
+  const outsideBlock = outsideImpact?.formatted ? `\n${outsideImpact.formatted}\n` : "";
   const issueBlock = linkedIssues?.length
     ? `\nLinked GitHub Issues & Requirements (MANDATORY: explicitly verify whether the pull request diff fulfills all requirements and acceptance criteria described in these linked issues, and flag any unfulfilled or partially met requirement in findings):\n${linkedIssues
         .map((iss) => `Issue #${iss.number} (${iss.repo}, ${iss.state}): ${iss.title}${iss.labels?.length ? ` [${iss.labels.join(", ")}]` : ""}\n${(iss.body || "(no body provided)").slice(0, 1200)}`)
@@ -1089,8 +1268,8 @@ function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = tru
     ? `\nRepository Team Learnings (Never flag these dismissed patterns):\n${learnings.map((l) => `- ${l}`).join("\n")}\n`
     : "";
   const incrementalBlock = incrementalCtx?.promptBlock ? `\n${incrementalCtx.promptBlock}\n` : "";
-  return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the repository team learnings, the linked GitHub issues and acceptance criteria, the git commit history, and the code diff. Reply with ONLY a JSON object:
-{"summary":"3-5 sentence architectural walkthrough covering what changed, commit progression, fulfillment of linked issue requirements, and adherence to repository guidelines","verdict":"approve|comment|request_changes",
+  return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the repository team learnings, the linked GitHub issues and acceptance criteria, the git commit history, the outside-diff call graph context, and the code diff. Reply with ONLY a JSON object:
+{"summary":"3-5 sentence architectural walkthrough covering what changed, commit progression, fulfillment of linked issue requirements, adherence to repository guidelines, and outside caller safety","verdict":"approve|comment|request_changes",
 ${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},\n` : ""} "findings":[{"severity":"blocker|major|minor|nit|high|medium|low","file":"path","line":42,"title":"short","detail":"specific line/behaviour and fix (cite AGENTS.md/CLAUDE.md rule, linked issue #number requirement, or commit if relevant)","suggestion":"optional exact replacement code"}],
  "walkthrough":[{"file":"path","change":"concise summary of change in this file"}]}
 For each finding, include the integer target \`line\` number in the new file and an optional \`suggestion\` containing the exact replacement code snippet for the target line/block (without markdown backticks) so the fix can be applied in one click. Be concrete; cite exact files and rules. Respect all Repository Team Learnings and never flag dismissed patterns. Max ${r.maxFindings} findings, most severe first. Today is ${new Date().toISOString().slice(0, 10)}.
@@ -1099,14 +1278,14 @@ PR #${pr.number}: ${pr.title}
 Author: ${pr.author.login}  Base: ${pr.baseRefName} <- Head: ${pr.headRefName}${pr.headSha ? ` (${pr.headSha.slice(0, 7)})` : ""}  Files: ${pr.changedFiles}  +${pr.additions} -${pr.deletions}
 Description:
 ${(pr.body || "(none)").slice(0, c.contextChars ? Math.min(3000, Math.floor(c.contextChars / 10)) : 3000)}
-${incrementalBlock}${issueBlock}${learningsBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
+${outsideBlock}${incrementalBlock}${issueBlock}${learningsBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
 Diff (may be truncated):
 ${diff.slice(0, Math.min(r.diffChars, c.contextChars || Infinity))}`;
 }
 
-async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = [], learnings = [], incrementalCtx = null) {
+async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
   if (c.api === "codereviewer") return reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress, linkedIssues, learnings, incrementalCtx);
-  const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues, learnings, incrementalCtx), { ...c, temperature: r.temperature });
+  const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact), { ...c, temperature: r.temperature });
   let out;
   try {
     out = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
@@ -1267,12 +1446,15 @@ async function startOrPollReview(ref, force, repo, part = "") {
       ]);
       if (freshPrJson) {
         live.pr = JSON.parse(freshPrJson);
-        const fb = blastRadius(live.pr.files);
-        const keepScore = !runScores || live.blast.source === "s1";
-        live.blast = { ...fb, ...(keepScore ? { score: live.blast.score, source: live.blast.source || prevBlast?.source || "s1" } : {}) };
       }
       live.guide = guide?.file || null;
       live.learnings = learnings;
+
+      const outsideImpact = await sliceOutsideDiffImpact(repoOf(live.pr), diff, (live.pr.files || []).map((f) => f.path));
+      live.outsideDiffImpact = outsideImpact;
+      const fb = blastRadius(live.pr.files, outsideImpact.outsideCallers, outsideImpact.uniqueFiles);
+      const keepScore = !runScores || live.blast.source === "s1";
+      live.blast = { ...fb, ...(keepScore ? { score: live.blast.score, source: live.blast.source || prevBlast?.source || "s1" } : {}) };
       const [gitHistory, linkedIssues] = await Promise.all([
         fetchGitHistory(repoOf(live.pr), live.pr),
         fetchLinkedIssues(repoOf(live.pr), live.pr),
@@ -1368,7 +1550,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
               live.pending.scores = false;
               live.pending.gates = false;
             }
-          }, gitHistory, linkedIssues, learnings, incrementalCtx)
+          }, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact)
         : Promise.resolve(null);
 
       const needLlmForScores = runScores && !s1.enabled;
@@ -1377,7 +1559,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
             if (runLlm) {
               live.review = { ...live.review, ...partial, scores: live.review.scores };
             }
-          }, linkedIssues, learnings, incrementalCtx).then((nav) => {
+          }, linkedIssues, learnings, incrementalCtx, outsideImpact).then((nav) => {
             const scores = (!runScores || s1.enabled)
               ? (hasValidScores(live.review.scores) ? live.review.scores : initialScores)
               : (hasValidScores(nav.scores) ? nav.scores : initialScores);
@@ -1436,6 +1618,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
         ...(currentHeadSha ? { headSha: currentHeadSha } : {}),
         ...(finalIncremental ? { incremental: finalIncremental } : {}),
         blast: live.blast,
+        outsideDiffImpact: live.outsideDiffImpact,
         review,
         gates: finalGates,
         engines,
@@ -1816,6 +1999,18 @@ function buildBlastMermaid(r) {
     out.push(`  PR -.-> TNONE`);
   }
 
+  if (r.outsideDiffImpact?.callers?.length) {
+    out.push("  classDef outside fill:#261205,stroke:#ea580c,stroke-width:1.5px,color:#ffedd5");
+    const topCallers = r.outsideDiffImpact.callers.slice(0, 4);
+    topCallers.forEach((c, idx) => {
+      const ocid = `OC${idx}`;
+      const baseFile = c.file.split("/").pop() || c.file;
+      out.push(`  ${ocid}["🌐 Outside: ${cleanMermaidText(baseFile, 18)}:${c.line}<br/>calls ${cleanMermaidText(c.symbol, 16)}()"]:::outside`);
+      const firstCohort = cohortNodeIds.values().next().value || "PR";
+      out.push(`  ${firstCohort} -.->|calls ${cleanMermaidText(c.symbol, 14)}| ${ocid}`);
+    });
+  }
+
   return out.join("\n");
 }
 
@@ -1876,6 +2071,14 @@ function formatReviewComment(r) {
           "",
           `#### ✅ Resolved since \`${incremental.prevSha.slice(0, 7)}\` (${resolved.length})`,
           ...resolved.map((f) => `- ~~**[${f.severity.toUpperCase()}] \`${f.file}\`**: ${f.title}~~`),
+        ]
+      : []),
+    ...(r.outsideDiffImpact?.callers?.length
+      ? [
+          "",
+          `#### 🌐 Outside-Diff Call Graph Impact (${r.outsideDiffImpact.outsideCallers} caller(s) in ${r.outsideDiffImpact.uniqueFiles} un-modified file(s))`,
+          "The following un-modified files in the repository depend on symbols altered in this diff (verified for contract & exception safety):",
+          ...r.outsideDiffImpact.callers.slice(0, 5).map((c) => `- \`${c.file}:${c.line}\`: calls \`${c.symbol}()\` — \`${c.snippet.slice(0, 100)}\``),
         ]
       : []),
     "",
@@ -2047,6 +2250,16 @@ function renderScore(r) {
 }
 
 const DIST = join(import.meta.dirname, "web", "dist");
+if (!existsSync(DIST)) {
+  console.log("web/dist not found. Building web frontend...");
+  try {
+    const isWin = process.platform === "win32";
+    const pnpmCmd = isWin ? "pnpm.cmd" : "pnpm";
+    execFileSync(pnpmCmd, ["-C", join(import.meta.dirname, "web"), "build"], { stdio: "inherit" });
+  } catch (err) {
+    console.warn("Could not auto-build web frontend:", err.message);
+  }
+}
 const MIME = { html: "text/html", js: "text/javascript", css: "text/css", svg: "image/svg+xml", png: "image/png", woff2: "font/woff2" };
 // Settings are schema-driven: each page is { title, load() -> { sections, values }, save(body), test?() }.
 // The server describes sections and fields as JSON; the UI has one generic renderer and a sidebar link per page.

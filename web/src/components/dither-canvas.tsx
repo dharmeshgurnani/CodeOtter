@@ -4,7 +4,11 @@ import { useEffect, useRef } from "react";
 // (near-black, brand orange, amber) at a chunky pixel size. Static frame when the user prefers reduced motion.
 const VERT = `attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }`;
 const FRAG = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
 uniform vec2 u_res; uniform float u_time; uniform float u_px;
 vec3 hash3(vec2 p){ vec3 q = vec3(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)), dot(p, vec2(419.2, 371.9))); return fract(sin(q) * 43758.5453); }
 float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -42,13 +46,24 @@ void main(){
 export function DitherCanvas({ className = "", pixel = 3 }: { className?: string; pixel?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    const canvas = ref.current!;
+    const canvas = ref.current;
+    if (!canvas) return;
     const gl = canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "low-power" });
     if (!gl) return;
-    const sh = (type: number, src: string) => { const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); return s; };
-    const prog = gl.createProgram()!;
-    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VERT));
-    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FRAG));
+    const sh = (type: number, src: string) => {
+      const s = gl.createShader(type);
+      if (!s) return null;
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      return s;
+    };
+    const vs = sh(gl.VERTEX_SHADER, VERT);
+    const fs = sh(gl.FRAGMENT_SHADER, FRAG);
+    if (!vs || !fs) return;
+    const prog = gl.createProgram();
+    if (!prog) return;
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
     gl.linkProgram(prog);
     gl.useProgram(prog);
     const buf = gl.createBuffer();
@@ -64,20 +79,30 @@ export function DitherCanvas({ className = "", pixel = 3 }: { className?: string
     const resize = () => {
       const dpr = Math.min(devicePixelRatio || 1, 2);
       const w = Math.floor(canvas.clientWidth * dpr), h = Math.floor(canvas.clientHeight * dpr);
+      if (w <= 0 || h <= 0) return false;
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
       gl.uniform2f(uRes, w, h);
       gl.uniform1f(uPx, pixel * dpr);
+      return true;
     };
     const frame = () => {
-      resize();
-      gl.uniform1f(uTime, still ? 40 : (performance.now() - start) / 1000);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      if (resize()) {
+        gl.uniform1f(uTime, still ? 40 : (performance.now() - start) / 1000);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
       if (!still) raf = requestAnimationFrame(frame);
     };
     const ro = new ResizeObserver(() => { if (still) frame(); });
     ro.observe(canvas);
     frame();
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); gl.getExtension("WEBGL_lose_context")?.loseContext(); };
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      gl.deleteBuffer(buf);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      gl.deleteProgram(prog);
+    };
   }, [pixel]);
   return <canvas ref={ref} className={className} aria-hidden="true" />;
 }

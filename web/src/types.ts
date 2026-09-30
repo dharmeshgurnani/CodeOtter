@@ -32,7 +32,14 @@ export type Review = {
     newCommits: { sha: string; message: string; author?: string }[];
     resolvedFindings?: Finding[];
   };
-  blast: { score: number; files: number; lines: number; dirs: number; hotspots: string[]; testFiles: number; source?: "s1" };
+  blast: { score: number; files: number; lines: number; dirs: number; hotspots: string[]; testFiles: number; outsideCallers?: number; outsideFiles?: number; source?: "s1" };
+  outsideDiffImpact?: {
+    symbols: string[];
+    callers: { symbol: string; file: string; line: number; snippet: string }[];
+    outsideCallers: number;
+    uniqueFiles: number;
+    formatted: string;
+  };
   review: {
     summary: string;
     verdict: "approve" | "comment" | "request_changes";
