@@ -152,6 +152,7 @@ export default function App() {
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3 text-base sm:px-6">
           <span className="flex min-w-0 items-center gap-2.5">
             <SidebarTrigger className="shrink-0" />
+            <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-6 rounded-md shadow-xs shrink-0 cursor-pointer sm:hidden" onClick={() => go("/")} />
             <span className="truncate">{title}</span>
           </span>
           <span className="flex shrink-0 gap-2">

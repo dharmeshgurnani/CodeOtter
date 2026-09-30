@@ -50,9 +50,7 @@ function ClaudeThinkingBar({ guide, commitsCount }: { guide?: string | null; com
   return (
     <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-800 bg-[#161b22] px-4 py-2.5 text-xs text-neutral-300">
       <div className="flex items-center gap-2.5">
-        <span className="inline-block animate-pulse text-base leading-none select-none" aria-hidden="true">
-          🦦
-        </span>
+        <img src="/codeotter-icon.svg" alt="" className="size-5 rounded-sm inline-block animate-pulse select-none shrink-0" aria-hidden="true" />
         <span className="font-mono font-medium text-neutral-100">{THINKING_STEPS[step]}</span>
       </div>
       <div className="flex items-center gap-2 text-neutral-400">

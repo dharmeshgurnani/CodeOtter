@@ -27,8 +27,8 @@ export function LoginPage({ error, onLogin, go }: { error: string; onLogin: () =
     <div className="grid min-h-svh grid-cols-1 bg-white lg:grid-cols-[minmax(420px,5fr)_7fr]">
       {/* Left: the only way in */}
       <div className="flex flex-col px-5 py-6 sm:px-14 sm:py-8">
-        <a className="flex items-center gap-2.5 no-underline" onClick={() => go("/")}>
-          <span className="size-7 rounded-full bg-gradient-to-br from-amber-400 to-brand" />
+        <a className="flex items-center gap-2.5 no-underline cursor-pointer" onClick={() => go("/")}>
+          <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-7 rounded-lg shadow-xs" />
           <span className="text-[15px] font-semibold text-neutral-900">CodeOtter</span>
         </a>
         <div className="flex flex-1 flex-col justify-center py-10 sm:py-16">

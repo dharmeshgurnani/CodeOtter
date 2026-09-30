@@ -97,7 +97,7 @@ function OrgSwitcher({ repos, orgs, active, setActive, canAddRepo, go }: { repos
                   <AvatarFallback className="rounded-lg bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground">{initials(active)}</AvatarFallback>
                 </Avatar>
               ) : (
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground"><Plus className="size-4" /></div>
+                <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-8 rounded-lg shadow-xs shrink-0" />
               )}
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">{active || "No organization"}</span>
@@ -213,7 +213,18 @@ export function AppSidebar({ repos, route, openCounts, settingsPages, org, setOr
   const canAddRepo = settingsPages.some((p) => p.id === "repos");
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
+      <SidebarHeader className="gap-2">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="lg" tooltip="CodeOtter" onClick={() => go("/")} className="hover:bg-sidebar-accent cursor-pointer">
+              <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-8 rounded-lg shadow-xs shrink-0" />
+              <div className="grid flex-1 text-left text-sm leading-tight">
+                <span className="truncate font-semibold tracking-tight text-sidebar-foreground">CodeOtter</span>
+                <span className="truncate text-xs text-muted-foreground">AI PR Review &amp; Merge Gates</span>
+              </div>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
         <OrgSwitcher repos={repos} orgs={orgs} active={org} setActive={setOrg} canAddRepo={canAddRepo} go={go} />
       </SidebarHeader>
       <SidebarContent>
