@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DitherCanvas } from "@/components/dither-canvas";
-import { GitHubMark } from "./login-page";
+import { GitHubMark, ForgejoMark, GiteaMark } from "./login-page";
 
 type OnboardingStatus = {
   completed: boolean;
@@ -421,7 +421,7 @@ export function OnboardingPage({
                     badge: "Cloud / Enterprise",
                     hint: "Cloud or GitHub Enterprise with 1-click automated App creation",
                     icon: (
-                      <div className="flex size-7 items-center justify-center rounded-md bg-neutral-900 text-white">
+                      <div className="flex size-7 items-center justify-center rounded-md bg-neutral-900 text-white p-1">
                         <GitHubMark />
                       </div>
                     ),
@@ -432,8 +432,8 @@ export function OnboardingPage({
                     badge: "Self-Hosted",
                     hint: "Self-hosted community forge with REST API & OAuth integration",
                     icon: (
-                      <div className="flex size-7 items-center justify-center rounded-md bg-orange-600 text-white font-bold text-xs">
-                        F
+                      <div className="flex size-7 items-center justify-center rounded-md bg-[#FF5B00] text-white p-1">
+                        <ForgejoMark />
                       </div>
                     ),
                   },
@@ -443,8 +443,8 @@ export function OnboardingPage({
                     badge: "Self-Hosted",
                     hint: "Self-hosted lightweight Git server with PKCE OAuth sign-in",
                     icon: (
-                      <div className="flex size-7 items-center justify-center rounded-md bg-emerald-600 text-white font-bold text-xs">
-                        G
+                      <div className="flex size-7 items-center justify-center rounded-md bg-[#609926] text-white p-1">
+                        <GiteaMark />
                       </div>
                     ),
                   },
