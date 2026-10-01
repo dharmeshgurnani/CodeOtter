@@ -1530,7 +1530,12 @@ async function repositoryChoices(owner = "") {
   if (owner && !OWNER_RE.test(owner)) return [];
   if (isForgeRepo(owner)) return (await forgeList("user/repos", forgeId(owner))).map((r) => `${forgeId(owner)}~${r.full_name}`).filter((r) => REPO_RE.test(r) && r.startsWith(`${owner}/`));
 
-  const savedGhToken = (await store.getSetting("githubToken")) || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+  let savedGhToken = (await store.getSetting("githubToken")) || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+  if (!savedGhToken) {
+    try {
+      savedGhToken = execFileSync("gh", ["auth", "token"], { encoding: "utf8" }).trim();
+    } catch {}
+  }
   if (savedGhToken) {
     process.env.GITHUB_TOKEN = savedGhToken;
     process.env.GH_TOKEN = savedGhToken;
@@ -1553,24 +1558,69 @@ async function repositoryChoices(owner = "") {
       } catch {}
     }
 
-    // 2. Try User Personal Access Token / env token (public & private)
+    // 2. Try User Personal Access Token / env token (public & private across all user affiliations)
     if (savedGhToken) {
       try {
-        const ghUrl = owner ? `https://api.github.com/users/${owner}/repos?per_page=100&sort=updated` : `https://api.github.com/user/repos?per_page=100&sort=updated&type=all`;
-        const res = await fetch(ghUrl, {
+        let page = 1;
+        while (page <= 10) {
+          const ghUrl = `https://api.github.com/user/repos?per_page=100&page=${page}&visibility=all&affiliation=owner,collaborator,organization_member&sort=updated`;
+          const res = await fetch(ghUrl, {
+            headers: {
+              authorization: `Bearer ${savedGhToken}`,
+              accept: "application/vnd.github+json",
+              "user-agent": "CodeOtter",
+            },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!res.ok) break;
+          const items = await res.json();
+          if (!Array.isArray(items) || !items.length) break;
+          for (const r of items) {
+            if (r.full_name && (!owner || r.full_name.startsWith(`${owner}/`))) {
+              listSet.add(r.full_name);
+            }
+          }
+          if (items.length < 100) break;
+          page++;
+        }
+      } catch {}
+
+      // Query user's organizations
+      try {
+        const orgsRes = await fetch("https://api.github.com/user/orgs?per_page=100", {
           headers: {
-            authorization: `token ${savedGhToken}`,
+            authorization: `Bearer ${savedGhToken}`,
             accept: "application/vnd.github+json",
             "user-agent": "CodeOtter",
           },
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(8000),
         });
-        if (res.ok) {
-          const items = await res.json();
-          if (Array.isArray(items)) {
-            for (const r of items) {
-              if (r.full_name && (!owner || r.full_name.startsWith(`${owner}/`))) {
-                listSet.add(r.full_name);
+        if (orgsRes.ok) {
+          const orgs = await orgsRes.json();
+          if (Array.isArray(orgs)) {
+            for (const org of orgs) {
+              if (org.login) {
+                let page = 1;
+                while (page <= 5) {
+                  const res = await fetch(`https://api.github.com/orgs/${encodeURIComponent(org.login)}/repos?per_page=100&page=${page}&type=all&sort=updated`, {
+                    headers: {
+                      authorization: `Bearer ${savedGhToken}`,
+                      accept: "application/vnd.github+json",
+                      "user-agent": "CodeOtter",
+                    },
+                    signal: AbortSignal.timeout(8000),
+                  });
+                  if (!res.ok) break;
+                  const items = await res.json();
+                  if (!Array.isArray(items) || !items.length) break;
+                  for (const r of items) {
+                    if (r.full_name && (!owner || r.full_name.startsWith(`${owner}/`))) {
+                      listSet.add(r.full_name);
+                    }
+                  }
+                  if (items.length < 100) break;
+                  page++;
+                }
               }
             }
           }
@@ -1578,7 +1628,7 @@ async function repositoryChoices(owner = "") {
       } catch {}
     }
 
-    // 3. Try GitHub Owner public endpoints (users and orgs)
+    // 3. Try GitHub Owner public/org endpoints
     const ownersToTry = new Set([
       owner,
       githubOwner,
@@ -1602,7 +1652,7 @@ async function repositoryChoices(owner = "") {
         try {
           const res = await fetch(`https://api.github.com/${ep}/${o}/repos?per_page=100&sort=updated`, {
             headers: {
-              ...(savedGhToken ? { authorization: `token ${savedGhToken}` } : {}),
+              ...(savedGhToken ? { authorization: `Bearer ${savedGhToken}` } : {}),
               accept: "application/vnd.github+json",
               "user-agent": "CodeOtter",
             },
