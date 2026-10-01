@@ -2711,10 +2711,10 @@ const SETTINGS_PAGES = {
         if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
         const state = randomBytes(16).toString("hex");
         setCookie(res, "pr_manifest", state, 600);
-        if (body?.returnTo) setCookie(res, "pr_manifest_return", String(body.returnTo), 600);
-        const owner = ((await repos())[0] || "pr-scorer").split("/")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-");
+        const owner = ((await repos())[0] || "codeotter").split("/")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-");
+        const appPrefix = owner && owner !== "pr-scorer" && owner !== "codeotter" ? `codeotter-${owner}` : "codeotter";
         const manifest = {
-          name: `pr-scorer-${owner}`.slice(0, 29) + "-" + Math.random().toString(36).slice(2, 6),
+          name: `${appPrefix}`.slice(0, 28) + "-" + Math.random().toString(36).slice(2, 6),
           url: APP_URL,
           redirect_url: `${APP_URL}/github/manifest/callback`,
           callback_urls: [`${APP_URL}/auth/callback`],

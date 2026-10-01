@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DitherCanvas } from "@/components/dither-canvas";
+import { Toaster, toast } from "sonner";
 import { GitHubMark, ForgejoMark, GiteaMark } from "./login-page";
 
 type OnboardingStatus = {
@@ -48,9 +50,9 @@ export function OnboardingPage({
 
   // Step 2: Model State
   const [modelMode, setModelMode] = useState<"local" | "cloud">("local");
-  // Local choices
+  // Local choices (Laya for S1, Microsoft CodeReviewer as recommended default for LLM)
   const [localS1, setLocalS1] = useState("laya");
-  const [localLlm, setLocalLlm] = useState("qwen2.5-coder-1.5b");
+  const [localLlm, setLocalLlm] = useState("codereviewer");
   // Cloud choices
   const [cloudS1Provider, setCloudS1Provider] = useState("jev");
   const [cloudS1Key, setCloudS1Key] = useState("");
@@ -78,7 +80,7 @@ export function OnboardingPage({
       setError(errorParam);
     }
     if (connectedParam) {
-      setSuccessBanner("GitHub App successfully created and connected!");
+      setSuccessBanner("GitHub App successfully created and connected.");
       setStep(2);
     } else if (stepParam) {
       const s = parseInt(stepParam, 10);
@@ -152,7 +154,6 @@ export function OnboardingPage({
       if (data.error) {
         throw new Error(data.error);
       }
-      // If no manifest redirection needed, save and proceed
       await handleSaveStep1();
     } catch (err: any) {
       setError(err.message || "Failed to initiate GitHub App creation");
@@ -235,23 +236,19 @@ export function OnboardingPage({
       const payload: any = {};
       if (modelMode === "local") {
         payload.s1 = { provider: localS1 };
-        if (localLlm && localLlm !== "none") {
-          payload.llm = { provider: localLlm };
-        }
+        payload.llm = { provider: localLlm };
       } else {
         payload.s1 = {
           provider: cloudS1Provider,
           apiKey: cloudS1Key,
           baseUrl: cloudS1Url,
         };
-        if (cloudLlmProvider && cloudLlmProvider !== "none") {
-          payload.llm = {
-            provider: cloudLlmProvider,
-            model: cloudLlmModel,
-            apiKey: cloudLlmKey,
-            baseUrl: cloudLlmUrl,
-          };
-        }
+        payload.llm = {
+          provider: cloudLlmProvider,
+          model: cloudLlmModel,
+          apiKey: cloudLlmKey,
+          baseUrl: cloudLlmUrl,
+        };
       }
 
       const res = await fetch("/api/onboarding/save-models", {
@@ -263,6 +260,11 @@ export function OnboardingPage({
         const d = await res.json();
         throw new Error(d.error || "Failed to save model configuration");
       }
+
+      if (modelMode === "local") {
+        toast.info("Downloading local model checkpoints in background...");
+      }
+
       setStep(3);
     } catch (err: any) {
       setError(err.message);
@@ -348,6 +350,7 @@ export function OnboardingPage({
 
   return (
     <div className="grid min-h-svh grid-cols-1 bg-white lg:grid-cols-[minmax(560px,7fr)_5fr]">
+      <Toaster richColors position="top-right" />
       {/* Left: Interactive Wizard */}
       <div className="flex flex-col px-6 py-6 sm:px-14 sm:py-10">
         <div className="flex items-center justify-between gap-4">
@@ -379,7 +382,7 @@ export function OnboardingPage({
               <button
                 type="button"
                 onClick={() => setSuccessBanner("")}
-                className="text-emerald-700 hover:text-emerald-900 text-xs font-semibold"
+                className="text-emerald-700 hover:text-emerald-900 text-xs font-semibold cursor-pointer"
               >
                 Dismiss
               </button>
@@ -516,7 +519,7 @@ export function OnboardingPage({
                       <button
                         type="button"
                         onClick={() => setShowManualGh(!showManualGh)}
-                        className="text-xs font-medium text-neutral-600 hover:text-neutral-900 underline underline-offset-2"
+                        className="text-xs font-medium text-neutral-600 hover:text-neutral-900 underline underline-offset-2 cursor-pointer"
                       >
                         {showManualGh ? "Hide manual credentials" : "Or configure manually / Personal Access Token \u2193"}
                       </button>
@@ -577,10 +580,10 @@ export function OnboardingPage({
                             {testResult && (
                               <span
                                 className={`text-xs font-medium ${
-                                  testResult.ok ? "text-green-700" : "text-red-700"
+                                  testResult.ok ? "text-emerald-700" : "text-red-700"
                                 }`}
                               >
-                                {testResult.ok ? "✅" : "❌"} {testResult.message}
+                                {testResult.message}
                               </span>
                             )}
                           </div>
@@ -660,10 +663,10 @@ export function OnboardingPage({
                       {testResult && (
                         <span
                           className={`text-xs font-medium ${
-                            testResult.ok ? "text-green-700" : "text-red-700"
+                            testResult.ok ? "text-emerald-700" : "text-red-700"
                           }`}
                         >
-                          {testResult.ok ? "✅" : "❌"} {testResult.message}
+                          {testResult.message}
                         </span>
                       )}
                     </div>
@@ -688,78 +691,73 @@ export function OnboardingPage({
                 Configure Dual-Engine AI Models
               </h1>
               <p className="mt-2 text-[15px] text-neutral-600">
-                CodeOtter uses two concurrent engines: <strong>System 1</strong> for typed rubrics &amp; merge gates, and <strong>Language Model (LLM)</strong> for narrative walkthroughs &amp; suggestions.
+                CodeOtter operates two concurrent engines: <strong>System 1</strong> for typed rubrics &amp; merge gates, and <strong>Language Model (LLM)</strong> for narrative walkthroughs &amp; suggestions.
               </p>
 
               {/* Engine Architecture Callout */}
               <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-md bg-neutral-900 px-2 py-0.5 text-xs font-semibold text-white">Required</span>
-                    <h2 className="text-sm font-semibold text-neutral-900">System 1 Model</h2>
-                  </div>
+                  <h2 className="text-sm font-semibold text-neutral-900">System 1 Model</h2>
                   <p className="mt-1 text-xs text-neutral-600">
                     Evaluates calibrated 0–100 scores (Quality, Blast Radius, Risk, Tests) and deterministic pre-merge safety gates.
                   </p>
                 </div>
                 <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-md bg-neutral-200 px-2 py-0.5 text-xs font-semibold text-neutral-800">Optional</span>
-                    <h2 className="text-sm font-semibold text-neutral-900">Language Model (LLM)</h2>
-                  </div>
+                  <h2 className="text-sm font-semibold text-neutral-900">Language Model (LLM)</h2>
                   <p className="mt-1 text-xs text-neutral-600">
                     Writes executive summary, file cohort walkthroughs, and line-anchored actionable comments with committable fixes.
                   </p>
                 </div>
               </div>
 
-              {/* Mode Toggle */}
+              {/* Mode Toggle (No Emojis) */}
               <div className="mt-6 flex rounded-lg border border-neutral-200 bg-neutral-100 p-1">
                 <button
                   type="button"
                   onClick={() => setModelMode("local")}
-                  className={`flex-1 rounded-md py-2 text-center text-sm font-medium transition-all ${
+                  className={`flex-1 rounded-md py-2 text-center text-sm font-medium transition-all cursor-pointer ${
                     modelMode === "local" ? "bg-white text-neutral-900 shadow-xs" : "text-neutral-600 hover:text-neutral-900"
                   }`}
                 >
-                  💻 100% Offline / Local Hardware
+                  Local Models (100% Offline)
                 </button>
                 <button
                   type="button"
                   onClick={() => setModelMode("cloud")}
-                  className={`flex-1 rounded-md py-2 text-center text-sm font-medium transition-all ${
+                  className={`flex-1 rounded-md py-2 text-center text-sm font-medium transition-all cursor-pointer ${
                     modelMode === "cloud" ? "bg-white text-neutral-900 shadow-xs" : "text-neutral-600 hover:text-neutral-900"
                   }`}
                 >
-                  ☁️ Hosted Cloud APIs (BYOK)
+                  Cloud APIs (BYOK)
                 </button>
               </div>
 
               {modelMode === "local" ? (
-                <div className="mt-5 space-y-4">
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3.5 text-xs text-amber-900">
-                    ⚡ <strong>Non-blocking background download:</strong> If local checkpoints need downloading, the download will run smoothly in the background. You can proceed with onboarding right away without waiting!
-                  </div>
-
+                <div className="mt-5 space-y-6">
+                  {/* System 1 Model Selection (Laya Default) */}
                   <div>
                     <label className="block text-xs font-semibold text-neutral-900 mb-2">
-                      System 1 Model (Required)
+                      System 1 Model
                     </label>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {[
                         {
                           id: "laya",
-                          name: "Laya Typed-Decisions",
+                          name: "Laya typed-decisions",
+                          maker: "Convai Innovations",
+                          icon: "https://cdn-avatars.huggingface.co/v1/production/uploads/1596903074565-noauth.jpeg",
                           size: "455 MB",
                           speed: "Instant CPU / GPU",
-                          desc: "Deterministic rubric scoring, safety gates & blast radius evaluation.",
+                          desc: "421M encoder. Deterministic rubric scoring, safety gates & blast radius evaluation.",
                         },
                         {
                           id: "kev",
                           name: "Kev 0.8B (S1)",
+                          maker: "Jared Palmer",
+                          icon: "https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg",
                           size: "828 MB",
                           speed: "High Precision",
-                          desc: "Deeper nuance for complex PRs and strict organization standards.",
+                          desc: "Qwen3.5-0.8B decision model. Deeper nuance for complex pull requests.",
                         },
                       ].map((m) => {
                         const isSelected = localS1 === m.id;
@@ -774,7 +772,16 @@ export function OnboardingPage({
                             }`}
                           >
                             <div className="flex items-center justify-between px-4 pt-3 pb-2.5">
-                              <span className="text-sm font-semibold text-neutral-900">{m.name}</span>
+                              <div className="flex items-center gap-2.5">
+                                <Avatar className="size-6 shrink-0 rounded-md border border-neutral-200 bg-white">
+                                  <AvatarImage src={m.icon} alt={m.maker} className="object-contain p-0.5" />
+                                  <AvatarFallback className="rounded-md text-[10px] font-semibold">{m.name.slice(0, 2)}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <span className="text-sm font-semibold text-neutral-900">{m.name}</span>
+                                  <span className="block text-[11px] text-neutral-500">{m.maker}</span>
+                                </div>
+                              </div>
                               <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
                                 {m.size}
                               </span>
@@ -800,32 +807,40 @@ export function OnboardingPage({
                     </div>
                   </div>
 
-                  <div className="mt-6">
+                  {/* Language Model Selection (Microsoft CodeReviewer Recommended & Pre-selected) */}
+                  <div>
                     <label className="block text-xs font-semibold text-neutral-900 mb-2">
-                      Language Model (Optional)
+                      Language Model (LLM)
                     </label>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       {[
                         {
-                          id: "qwen2.5-coder-1.5b",
-                          name: "Qwen2.5-Coder 1.5B",
-                          size: "1.0 GB",
-                          role: "Fast laptop reviewer",
-                          desc: "Lightweight, fast summary and file walkthrough comments.",
-                        },
-                        {
-                          id: "qwen2.5-coder-7b",
-                          name: "Qwen2.5-Coder 7B",
-                          size: "4.7 GB",
-                          role: "Staff reviewer",
-                          desc: "Comprehensive code critique with committable inline suggestions.",
-                        },
-                        {
                           id: "codereviewer",
                           name: "CodeReviewer",
-                          size: "890 MB",
-                          role: "Diff comments only",
-                          desc: "Specialized model for inline hunk comments and fixes.",
+                          maker: "Microsoft Research",
+                          icon: "https://cdn-avatars.huggingface.co/v1/production/uploads/1583646260758-5e64858c87403103f9f1055d.png",
+                          badge: "Recommended",
+                          size: "895 MB",
+                          role: "Diff comments & fixes",
+                          desc: "Pre-trained code review model. Writes inline hunk comments and fixes.",
+                        },
+                        {
+                          id: "qwen-coder-1.5b",
+                          name: "Qwen2.5-Coder 1.5B",
+                          maker: "Alibaba Qwen",
+                          icon: "https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg",
+                          size: "1.1 GB",
+                          role: "Fast laptop model",
+                          desc: "Lightweight, fast PR summary and file walkthrough comments.",
+                        },
+                        {
+                          id: "qwen-coder-7b",
+                          name: "Qwen2.5-Coder 7B",
+                          maker: "Alibaba Qwen",
+                          icon: "https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg",
+                          size: "4.7 GB",
+                          role: "Full staff reviewer",
+                          desc: "Comprehensive code critique with committable inline suggestions.",
                         },
                       ].map((m) => {
                         const isSelected = localLlm === m.id;
@@ -840,10 +855,28 @@ export function OnboardingPage({
                             }`}
                           >
                             <div className="flex items-center justify-between px-4 pt-3 pb-2.5">
-                              <span className="text-sm font-semibold text-neutral-900">{m.name}</span>
-                              <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
-                                {m.size}
-                              </span>
+                              <div className="flex items-center gap-2.5">
+                                <Avatar className="size-6 shrink-0 rounded-md border border-neutral-200 bg-white">
+                                  <AvatarImage src={m.icon} alt={m.maker} className="object-contain p-0.5" />
+                                  <AvatarFallback className="rounded-md text-[10px] font-semibold">{m.name.slice(0, 2)}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-sm font-semibold text-neutral-900">{m.name}</span>
+                                  </div>
+                                  <span className="block text-[11px] text-neutral-500">{m.maker}</span>
+                                </div>
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                {m.badge && (
+                                  <span className="rounded-md bg-neutral-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                                    {m.badge}
+                                  </span>
+                                )}
+                                <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
+                                  {m.size}
+                                </span>
+                              </div>
                             </div>
                             <div className="mx-1.5 mb-1.5 flex flex-1 flex-col rounded-lg border border-neutral-200 bg-white p-3.5">
                               <div className="text-xs text-neutral-600 leading-relaxed min-h-[32px]">{m.desc}</div>
@@ -870,7 +903,7 @@ export function OnboardingPage({
                 <div className="mt-5 space-y-4">
                   {/* Cloud System 1 */}
                   <div className="rounded-xl border border-neutral-200 p-4">
-                    <h2 className="text-xs font-semibold text-neutral-900">System 1 Provider (Required)</h2>
+                    <h2 className="text-xs font-semibold text-neutral-900">System 1 Provider</h2>
                     <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div>
                         <label className="block text-xs font-medium text-neutral-700">Provider</label>
@@ -911,7 +944,7 @@ export function OnboardingPage({
 
                   {/* Cloud LLM */}
                   <div className="rounded-xl border border-neutral-200 p-4">
-                    <h2 className="text-xs font-semibold text-neutral-900">Language Model Provider (Optional)</h2>
+                    <h2 className="text-xs font-semibold text-neutral-900">Language Model Provider</h2>
                     <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div>
                         <label className="block text-xs font-medium text-neutral-700">Provider</label>
@@ -1021,7 +1054,7 @@ export function OnboardingPage({
                     <button
                       type="button"
                       onClick={() => setSelectedRepos(repoChoices.map((r) => r.id))}
-                      className="text-neutral-700 hover:underline"
+                      className="text-neutral-700 hover:underline cursor-pointer"
                     >
                       Select all
                     </button>
@@ -1029,7 +1062,7 @@ export function OnboardingPage({
                     <button
                       type="button"
                       onClick={() => setSelectedRepos([])}
-                      className="text-neutral-700 hover:underline"
+                      className="text-neutral-700 hover:underline cursor-pointer"
                     >
                       Deselect all
                     </button>
@@ -1151,8 +1184,6 @@ export function OnboardingPage({
             </div>
           )}
         </div>
-
-
       </div>
 
       {/* Right: Showcase & Visual Shader */}
