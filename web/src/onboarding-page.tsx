@@ -38,7 +38,7 @@ export function OnboardingPage({
   onComplete: (targetOrg: string) => void;
   go?: (path: string) => void;
 }) {
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
@@ -92,7 +92,7 @@ export function OnboardingPage({
       setStep(2);
     } else if (stepParam) {
       const s = parseInt(stepParam, 10);
-      if (s >= 1 && s <= 4) setStep(s as 1 | 2 | 3 | 4);
+      if (s >= 1 && s <= 3) setStep(s as 1 | 2 | 3);
     }
 
     fetch("/api/onboarding")
@@ -281,7 +281,7 @@ export function OnboardingPage({
     }
   };
 
-  // Step 3 -> Step 4
+  // Step 3 Finish -> Save Repos, Complete, and drop straight to Dashboard
   const handleSaveStep3 = async () => {
     setError("");
     if (selectedRepos.length === 0) {
@@ -299,26 +299,13 @@ export function OnboardingPage({
         const d = await res.json();
         throw new Error(d.error || "Failed to save repositories");
       }
-      setStep(4);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
 
-  // Step 4 Complete -> Dashboard
-  const handleComplete = async () => {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/onboarding/complete", { method: "POST" });
-      const data = await res.json();
+      const compRes = await fetch("/api/onboarding/complete", { method: "POST" });
+      const data = await compRes.json().catch(() => ({}));
       localStorage.setItem("pr-scorer.onboarding_done", "true");
       onComplete(data.org || selectedRepos[0]?.split("/")[0] || "");
-    } catch {
-      localStorage.setItem("pr-scorer.onboarding_done", "true");
-      onComplete(selectedRepos[0]?.split("/")[0] || "");
-    } finally {
+    } catch (err: any) {
+      setError(err.message || "Failed to complete setup");
       setBusy(false);
     }
   };
@@ -376,13 +363,13 @@ export function OnboardingPage({
             <span className="text-[17px] font-semibold tracking-tight text-neutral-900">CodeOtter Setup</span>
           </div>
           <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-600">
-            Step {step} of 4
+            Step {step} of 3
           </span>
         </div>
 
         {/* Stepper Progress Indicator */}
-        <div className="mt-6 grid grid-cols-4 gap-2">
-          {[1, 2, 3, 4].map((i) => (
+        <div className="mt-6 grid grid-cols-3 gap-2">
+          {[1, 2, 3].map((i) => (
             <div
               key={i}
               className={`h-1.5 rounded-full transition-colors ${
@@ -1282,62 +1269,6 @@ export function OnboardingPage({
                   disabled={busy || selectedRepos.length === 0}
                   onClick={handleSaveStep3}
                 >
-                  Next: Finish Setup &rarr;
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* STEP 4: All Set & Land on Dashboard                                       */}
-          {/* ========================================================================= */}
-          {step === 4 && (
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 sm:text-3xl">
-                We are all set.
-              </h1>
-              <p className="mt-2 text-[15px] text-neutral-600">
-                Your CodeOtter instance is configured and ready to autonomously score and review pull requests.
-              </p>
-
-              {/* Summary Card */}
-              <div className="mt-6 divide-y divide-neutral-100 rounded-xl border border-neutral-200 bg-neutral-50/50 p-5">
-                <div className="flex items-center justify-between py-2 text-sm">
-                  <span className="text-neutral-500">Primary Git Provider</span>
-                  <span className="font-semibold uppercase tracking-wider text-neutral-900">{provider}</span>
-                </div>
-                <div className="flex items-center justify-between py-2 text-sm">
-                  <span className="text-neutral-500">System 1 Scoring Engine</span>
-                  <span className="font-semibold text-neutral-900">
-                    {modelMode === "local" ? localS1 : cloudS1Provider} (Active)
-                  </span>
-                </div>
-                <div className="flex items-center justify-between py-2 text-sm">
-                  <span className="text-neutral-500">Language Model (LLM)</span>
-                  <span className="font-semibold text-neutral-900">
-                    {modelMode === "local" ? localLlm : cloudLlmProvider} (Active)
-                  </span>
-                </div>
-                <div className="flex items-center justify-between py-2 text-sm">
-                  <span className="text-neutral-500">Onboarded Repositories</span>
-                  <span className="font-semibold text-neutral-900">{selectedRepos.length} configured</span>
-                </div>
-              </div>
-
-              {/* Repos Preview Chips */}
-              <div className="mt-4 flex flex-wrap gap-1.5">
-                {selectedRepos.map((r) => (
-                  <span
-                    key={r}
-                    className="rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-xs font-medium text-neutral-800"
-                  >
-                    {r}
-                  </span>
-                ))}
-              </div>
-
-              <div className="mt-10 flex justify-end">
-                <Button size="lg" disabled={busy} onClick={handleComplete} className="px-8">
                   {busy ? "Finalizing..." : "Go to Dashboard \u2192"}
                 </Button>
               </div>
