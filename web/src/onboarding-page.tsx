@@ -498,7 +498,7 @@ export function OnboardingPage({
                     <div className="rounded-xl border border-neutral-300 bg-white p-4 shadow-xs">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                          <h2 className="text-sm font-semibold text-neutral-900">1-Click Automated Setup (Recommended)</h2>
+                          <h2 className="text-sm font-semibold text-neutral-900">1-Click Automated Setup</h2>
                           <p className="mt-0.5 text-xs text-neutral-600">
                             Creates a dedicated GitHub App with callback URLs and permissions preconfigured with zero copy-pasting.
                           </p>
@@ -695,22 +695,6 @@ export function OnboardingPage({
                 CodeOtter operates two concurrent engines: <strong>System 1</strong> for typed rubrics &amp; merge gates, and <strong>Language Model (LLM)</strong> for narrative walkthroughs &amp; suggestions.
               </p>
 
-              {/* Engine Architecture Callout */}
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
-                  <h2 className="text-sm font-semibold text-neutral-900">System 1 Model</h2>
-                  <p className="mt-1 text-xs text-neutral-600">
-                    Evaluates calibrated 0–100 scores (Quality, Blast Radius, Risk, Tests) and deterministic pre-merge safety gates.
-                  </p>
-                </div>
-                <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
-                  <h2 className="text-sm font-semibold text-neutral-900">Language Model (LLM)</h2>
-                  <p className="mt-1 text-xs text-neutral-600">
-                    Writes executive summary, file cohort walkthroughs, and line-anchored actionable comments with committable fixes.
-                  </p>
-                </div>
-              </div>
-
               {/* Mode Toggle (No Emojis) */}
               <div className="mt-6 flex rounded-lg border border-neutral-200 bg-neutral-100 p-1">
                 <button
@@ -737,9 +721,14 @@ export function OnboardingPage({
                 <div className="mt-5 space-y-6">
                   {/* System 1 Model Selection (Laya Default) */}
                   <div>
-                    <label className="block text-xs font-semibold text-neutral-900 mb-2">
-                      System 1 Model
-                    </label>
+                    <div className="mb-2">
+                      <label className="block text-xs font-semibold text-neutral-900">
+                        System 1 Model
+                      </label>
+                      <p className="mt-0.5 text-xs text-neutral-600">
+                        Evaluates calibrated 0–100 scores (Quality, Blast Radius, Risk, Tests) and deterministic pre-merge safety gates.
+                      </p>
+                    </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {[
                         {
@@ -747,7 +736,6 @@ export function OnboardingPage({
                           name: "Laya typed-decisions",
                           maker: "Convai Innovations",
                           icon: "https://cdn-avatars.huggingface.co/v1/production/uploads/1596903074565-noauth.jpeg",
-                          badge: "Recommended",
                           size: "455 MB",
                           speed: "Instant CPU / GPU",
                           desc: "421M encoder. Deterministic rubric scoring, safety gates & blast radius evaluation.",
@@ -784,12 +772,7 @@ export function OnboardingPage({
                                   <span className="block text-[11px] text-neutral-500">{m.maker}</span>
                                 </div>
                               </div>
-                              <div className="flex flex-col items-end gap-1">
-                                {m.badge && (
-                                  <span className="rounded-md bg-neutral-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                                    {m.badge}
-                                  </span>
-                                )}
+                              <div className="flex flex-col items-end">
                                 <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
                                   {m.size}
                                 </span>
@@ -816,11 +799,16 @@ export function OnboardingPage({
                     </div>
                   </div>
 
-                  {/* Language Model Selection (Microsoft CodeReviewer Recommended & Pre-selected, 2 cards per row) */}
+                  {/* Language Model Selection (Microsoft CodeReviewer Pre-selected, 2 cards per row) */}
                   <div>
-                    <label className="block text-xs font-semibold text-neutral-900 mb-2">
-                      Language Model (LLM)
-                    </label>
+                    <div className="mb-2">
+                      <label className="block text-xs font-semibold text-neutral-900">
+                        Language Model (LLM)
+                      </label>
+                      <p className="mt-0.5 text-xs text-neutral-600">
+                        Writes executive summary, file cohort walkthroughs, and line-anchored actionable comments with committable fixes.
+                      </p>
+                    </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {[
                         {
@@ -828,7 +816,6 @@ export function OnboardingPage({
                           name: "CodeReviewer",
                           maker: "Microsoft Research",
                           icon: "https://cdn-avatars.huggingface.co/v1/production/uploads/1583646260758-5e64858c87403103f9f1055d.png",
-                          badge: "Recommended",
                           size: "895 MB",
                           role: "Diff comments & fixes",
                           desc: "Pre-trained code review model. Writes inline hunk comments and fixes.",
@@ -876,12 +863,7 @@ export function OnboardingPage({
                                   <span className="block text-[11px] text-neutral-500">{m.maker}</span>
                                 </div>
                               </div>
-                              <div className="flex flex-col items-end gap-1">
-                                {m.badge && (
-                                  <span className="rounded-md bg-neutral-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                                    {m.badge}
-                                  </span>
-                                )}
+                              <div className="flex flex-col items-end">
                                 <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
                                   {m.size}
                                 </span>
@@ -913,7 +895,54 @@ export function OnboardingPage({
                   {/* Cloud System 1 */}
                   <div className="rounded-xl border border-neutral-200 p-4">
                     <h2 className="text-xs font-semibold text-neutral-900">System 1 Provider</h2>
-                    <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <p className="mt-0.5 text-xs text-neutral-600">
+                      Evaluates calibrated 0–100 scores (Quality, Blast Radius, Risk, Tests) and deterministic pre-merge safety gates.
+                    </p>
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">Provider</label>
+                        <select
+                          value={cloudS1Provider}
+                          onChange={(e) => setCloudS1Provider(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
+                        >
+                          <option value="jev">TypeSafe Jev (Cloud)</option>
+                          <option value="jev_openrouter">OpenRouter (TypeSafe Jev)</option>
+                          <option value="custom">Custom System 1 Endpoint</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">API Key</label>
+                        <input
+                          type="password"
+                          value={cloudS1Key}
+                          onChange={(e) => setCloudS1Key(e.target.value)}
+                          placeholder="Paste API key"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
+                        />
+                      </div>
+                    </div>
+                    {cloudS1Provider === "custom" && (
+                      <div className="mt-3">
+                        <label className="block text-xs font-medium text-neutral-700">Custom Base URL</label>
+                        <input
+                          type="text"
+                          value={cloudS1Url}
+                          onChange={(e) => setCloudS1Url(e.target.value)}
+                          placeholder="http://127.0.0.1:8080/v1"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Cloud LLM */}
+                  <div className="rounded-xl border border-neutral-200 p-4">
+                    <h2 className="text-xs font-semibold text-neutral-900">Language Model (LLM) Provider</h2>
+                    <p className="mt-0.5 text-xs text-neutral-600">
+                      Writes executive summary, file cohort walkthroughs, and line-anchored actionable comments with committable fixes.
+                    </p>
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div>
                         <label className="block text-xs font-medium text-neutral-700">Provider</label>
                         <select
