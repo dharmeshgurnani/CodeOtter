@@ -1705,6 +1705,7 @@ async function repositoryChoices(owner = "") {
 const activeReviews = new Map();
 
 async function resolvePr(ref, repo) {
+  ref = decodeURIComponent(String(ref || "")).trim();
   if (!/^[1-9]\d*$/.test(ref) && !validPrUrl(ref)) throw new Error("Paste a GitHub or configured Forgejo or Gitea pull request URL, or a number with a repository selected");
   if (repo && !REPO_RE.test(repo)) throw new Error(`Not an owner/name: ${repo}`);
   if (/^\d+$/.test(ref) && !repo) repo = (await repos())[0];
@@ -3773,7 +3774,10 @@ http
       res.end(await renderHome());
     } catch (e) {
       res.statusCode = 500;
-      json({ error: e.message });
+      const detail = e.cause ? ` (${e.cause.code || e.cause.message || e.cause})` : "";
+      const msg = e.message === "fetch failed" ? `Fetch failed: connection error or endpoint unreachable${detail}` : `${e.message}${detail}`;
+      console.error(`[API Error] ${req.method} ${url.pathname}:`, e.stack || e);
+      json({ error: msg });
     }
   })
   .setTimeout(0) // Node cuts requests at 300 s by default; a cold local sidecar plus a long review can take longer
