@@ -23,10 +23,9 @@ type RepoChoice = { id: string; label: string; org: string };
 
 export function OnboardingPage({
   onComplete,
-  go,
 }: {
   onComplete: (targetOrg: string) => void;
-  go: (path: string) => void;
+  go?: (path: string) => void;
 }) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [loading, setLoading] = useState(true);
@@ -1109,11 +1108,7 @@ export function OnboardingPage({
           )}
         </div>
 
-        <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-500">
-          <a className="no-underline hover:underline" href="https://github.com/dharmeshgurnani/CodeOtter#readme" target="_blank" rel="noreferrer">Documentation</a>
-          <a className="no-underline hover:underline" href="https://github.com/dharmeshgurnani/CodeOtter" target="_blank" rel="noreferrer">Source</a>
-          <a className="no-underline hover:underline cursor-pointer" onClick={() => go("/")}>Skip to dashboard</a>
-        </div>
+
       </div>
 
       {/* Right: Showcase & Visual Shader */}
