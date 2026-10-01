@@ -33,7 +33,9 @@ export function OnboardingPage({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   const [error, setError] = useState("");
+  const [successBanner, setSuccessBanner] = useState("");
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [showManualGh, setShowManualGh] = useState(false);
 
   // Step 1: Provider State
   const [provider, setProvider] = useState<"github" | "forgejo" | "gitea">("github");
@@ -66,8 +68,24 @@ export function OnboardingPage({
   const [customRepo, setCustomRepo] = useState("");
   const [reposLoading, setReposLoading] = useState(false);
 
-  // Initial Data Load
+  // Initial Data Load & Query Parameter Handling
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const connectedParam = urlParams.get("connected");
+    const errorParam = urlParams.get("error");
+    const stepParam = urlParams.get("step");
+
+    if (errorParam) {
+      setError(errorParam);
+    }
+    if (connectedParam) {
+      setSuccessBanner("GitHub App successfully created and connected!");
+      setStep(2);
+    } else if (stepParam) {
+      const s = parseInt(stepParam, 10);
+      if (s >= 1 && s <= 4) setStep(s as 1 | 2 | 3 | 4);
+    }
+
     fetch("/api/onboarding")
       .then((r) => r.json())
       .then((data: OnboardingStatus) => {
@@ -105,6 +123,43 @@ export function OnboardingPage({
       loadRepositories();
     }
   }, [step]);
+
+  // 1-Click Automated GitHub App Manifest Flow (just like Settings -> OAuth)
+  const handleCreateGitHubApp = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      const res = await fetch("/api/settings/oauth/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ returnTo: "/onboarding" }),
+      });
+      const data = await res.json();
+      if (data.submit) {
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = data.submit.url;
+        for (const [k, v] of Object.entries(data.submit.fields as Record<string, string>)) {
+          const inp = document.createElement("input");
+          inp.type = "hidden";
+          inp.name = k;
+          inp.value = v;
+          form.appendChild(inp);
+        }
+        document.body.appendChild(form);
+        form.submit();
+        return;
+      }
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      // If no manifest redirection needed, save and proceed
+      await handleSaveStep1();
+    } catch (err: any) {
+      setError(err.message || "Failed to initiate GitHub App creation");
+      setBusy(false);
+    }
+  };
 
   // Test Provider Connection
   const handleTestProvider = async () => {
@@ -293,7 +348,7 @@ export function OnboardingPage({
   }
 
   return (
-    <div className="grid min-h-svh grid-cols-1 bg-white lg:grid-cols-[minmax(540px,7fr)_5fr]">
+    <div className="grid min-h-svh grid-cols-1 bg-white lg:grid-cols-[minmax(560px,7fr)_5fr]">
       {/* Left: Interactive Wizard */}
       <div className="flex flex-col px-6 py-6 sm:px-14 sm:py-10">
         <div className="flex items-center justify-between gap-4">
@@ -319,6 +374,19 @@ export function OnboardingPage({
         </div>
 
         <div className="mt-8 flex-1">
+          {successBanner && (
+            <div className="mb-6 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 p-3.5 text-sm text-emerald-800">
+              <span>{successBanner}</span>
+              <button
+                type="button"
+                onClick={() => setSuccessBanner("")}
+                className="text-emerald-700 hover:text-emerald-900 text-xs font-semibold"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {error && (
             <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-3.5 text-sm text-red-800">
               {error}
@@ -400,50 +468,102 @@ export function OnboardingPage({
               <div className="mt-6 rounded-xl border border-neutral-200 bg-neutral-50/50 p-5">
                 {provider === "github" ? (
                   <div className="space-y-4">
-                    <h2 className="text-sm font-semibold text-neutral-900">GitHub Connection</h2>
-                    <p className="text-xs text-neutral-600">
-                      CodeOtter reads repositories via GitHub CLI (`gh`) or a Personal Access Token (`GH_TOKEN`). For OAuth developer sign-in, provide OAuth app credentials.
-                    </p>
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-700">OAuth Callback URL</label>
-                      <input
-                        type="text"
-                        readOnly
-                        value={callbackUrl}
-                        className="mt-1 w-full rounded-lg border border-neutral-200 bg-neutral-100 px-3 py-2 text-xs font-mono text-neutral-700 select-all"
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div>
-                        <label className="block text-xs font-medium text-neutral-700">Client ID (OAuth)</label>
-                        <input
-                          type="text"
-                          value={ghClientId}
-                          onChange={(e) => setGhClientId(e.target.value)}
-                          placeholder="Ov23..."
-                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-neutral-700">Client Secret (OAuth)</label>
-                        <input
-                          type="password"
-                          value={ghClientSecret}
-                          onChange={(e) => setGhClientSecret(e.target.value)}
-                          placeholder="secret..."
-                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
-                        />
+                    {/* 1-Click Manifest Action (Fastest & Simplest) */}
+                    <div className="rounded-xl border border-neutral-300 bg-white p-4 shadow-xs">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <h2 className="text-sm font-semibold text-neutral-900">1-Click Automated Setup (Recommended)</h2>
+                          <p className="mt-0.5 text-xs text-neutral-600">
+                            Creates a dedicated GitHub App with callback URLs and permissions preconfigured with zero copy-pasting.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="default"
+                          disabled={busy}
+                          onClick={handleCreateGitHubApp}
+                          className="shrink-0 font-medium"
+                        >
+                          {busy ? "Opening GitHub..." : "Create GitHub App for me \u2192"}
+                        </Button>
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-700">Personal Access Token (Optional for discovery)</label>
-                      <input
-                        type="password"
-                        value={ghToken}
-                        onChange={(e) => setGhToken(e.target.value)}
-                        placeholder="ghp_... or gho_..."
-                        className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
-                      />
+
+                    {/* Manual Fallback Option */}
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowManualGh(!showManualGh)}
+                        className="text-xs font-medium text-neutral-600 hover:text-neutral-900 underline underline-offset-2"
+                      >
+                        {showManualGh ? "Hide manual credentials" : "Or configure manually / Personal Access Token \u2193"}
+                      </button>
+
+                      {showManualGh && (
+                        <div className="mt-4 space-y-4 rounded-lg border border-neutral-200 bg-white p-4">
+                          <div>
+                            <label className="block text-xs font-medium text-neutral-700">OAuth Callback URL</label>
+                            <input
+                              type="text"
+                              readOnly
+                              value={callbackUrl}
+                              className="mt-1 w-full rounded-lg border border-neutral-200 bg-neutral-100 px-3 py-2 text-xs font-mono text-neutral-700 select-all"
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <label className="block text-xs font-medium text-neutral-700">Client ID (OAuth)</label>
+                              <input
+                                type="text"
+                                value={ghClientId}
+                                onChange={(e) => setGhClientId(e.target.value)}
+                                placeholder="Ov23..."
+                                className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-neutral-700">Client Secret (OAuth)</label>
+                              <input
+                                type="password"
+                                value={ghClientSecret}
+                                onChange={(e) => setGhClientSecret(e.target.value)}
+                                placeholder="secret..."
+                                className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-neutral-700">Personal Access Token (Optional for discovery)</label>
+                            <input
+                              type="password"
+                              value={ghToken}
+                              onChange={(e) => setGhToken(e.target.value)}
+                              placeholder="ghp_... or gho_..."
+                              className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between pt-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={busy}
+                              onClick={handleTestProvider}
+                            >
+                              {busy ? "Testing..." : "Test Connection"}
+                            </Button>
+                            {testResult && (
+                              <span
+                                className={`text-xs font-medium ${
+                                  testResult.ok ? "text-green-700" : "text-red-700"
+                                }`}
+                              >
+                                {testResult.ok ? "✅" : "❌"} {testResult.message}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -473,7 +593,19 @@ export function OnboardingPage({
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700">OAuth Client ID (Optional)</label>
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-medium text-neutral-700">OAuth Client ID (Optional)</label>
+                          {forgeUrl && (
+                            <a
+                              href={`${forgeUrl}/user/settings/applications`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[11px] text-blue-600 hover:underline"
+                            >
+                              Create OAuth App &rarr;
+                            </a>
+                          )}
+                        </div>
                         <input
                           type="text"
                           value={forgeClientId}
@@ -493,29 +625,28 @@ export function OnboardingPage({
                         />
                       </div>
                     </div>
+                    <div className="flex items-center justify-between pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={handleTestProvider}
+                      >
+                        {busy ? "Testing..." : "Test Connection"}
+                      </Button>
+                      {testResult && (
+                        <span
+                          className={`text-xs font-medium ${
+                            testResult.ok ? "text-green-700" : "text-red-700"
+                          }`}
+                        >
+                          {testResult.ok ? "✅" : "❌"} {testResult.message}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
-
-                <div className="mt-4 flex items-center justify-between pt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={handleTestProvider}
-                  >
-                    {busy ? "Testing..." : "Test Connection"}
-                  </Button>
-                  {testResult && (
-                    <span
-                      className={`text-xs font-medium ${
-                        testResult.ok ? "text-green-700" : "text-red-700"
-                      }`}
-                    >
-                      {testResult.ok ? "✅" : "❌"} {testResult.message}
-                    </span>
-                  )}
-                </div>
               </div>
 
               <div className="mt-8 flex justify-end">
@@ -543,7 +674,7 @@ export function OnboardingPage({
                 <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
                   <div className="flex items-center gap-2">
                     <span className="rounded-md bg-neutral-900 px-2 py-0.5 text-xs font-semibold text-white">Required</span>
-                    <h3 className="text-sm font-semibold text-neutral-900">System 1 Model</h3>
+                    <h2 className="text-sm font-semibold text-neutral-900">System 1 Model</h2>
                   </div>
                   <p className="mt-1 text-xs text-neutral-600">
                     Evaluates calibrated 0–100 scores (Quality, Blast Radius, Risk, Tests) and deterministic pre-merge safety gates.
@@ -552,7 +683,7 @@ export function OnboardingPage({
                 <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
                   <div className="flex items-center gap-2">
                     <span className="rounded-md bg-neutral-200 px-2 py-0.5 text-xs font-semibold text-neutral-800">Optional</span>
-                    <h3 className="text-sm font-semibold text-neutral-900">Language Model (LLM)</h3>
+                    <h2 className="text-sm font-semibold text-neutral-900">Language Model (LLM)</h2>
                   </div>
                   <p className="mt-1 text-xs text-neutral-600">
                     Writes executive summary, file cohort walkthroughs, and line-anchored actionable comments with committable fixes.
@@ -696,7 +827,7 @@ export function OnboardingPage({
                 <div className="mt-5 space-y-4">
                   {/* Cloud System 1 */}
                   <div className="rounded-xl border border-neutral-200 p-4">
-                    <h3 className="text-xs font-semibold text-neutral-900">System 1 Provider (Required)</h3>
+                    <h2 className="text-xs font-semibold text-neutral-900">System 1 Provider (Required)</h2>
                     <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div>
                         <label className="block text-xs font-medium text-neutral-700">Provider</label>
@@ -737,7 +868,7 @@ export function OnboardingPage({
 
                   {/* Cloud LLM */}
                   <div className="rounded-xl border border-neutral-200 p-4">
-                    <h3 className="text-xs font-semibold text-neutral-900">Language Model Provider (Optional)</h3>
+                    <h2 className="text-xs font-semibold text-neutral-900">Language Model Provider (Optional)</h2>
                     <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div>
                         <label className="block text-xs font-medium text-neutral-700">Provider</label>

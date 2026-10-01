@@ -2707,10 +2707,11 @@ const SETTINGS_PAGES = {
     // code to /github/manifest/callback, and the conversion gives us the client id + secret to store in PocketBase.
     actions: {
       ...Object.fromEntries(Object.entries(FORGE_CONNECTIONS).map(([id, connection]) => [`test${id}`, async () => ({ message: (await connection.test()).reply })])),
-      async connect(req, res) {
+      async connect(req, res, body) {
         if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
         const state = randomBytes(16).toString("hex");
         setCookie(res, "pr_manifest", state, 600);
+        if (body?.returnTo) setCookie(res, "pr_manifest_return", String(body.returnTo), 600);
         const owner = ((await repos())[0] || "pr-scorer").split("/")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-");
         const manifest = {
           name: `pr-scorer-${owner}`.slice(0, 29) + "-" + Math.random().toString(36).slice(2, 6),
@@ -3216,16 +3217,19 @@ http
         return json({ ok: true });
       }
       if (url.pathname === "/github/manifest/callback") {
-        const fail = (msg) => { res.statusCode = 302; res.setHeader("location", `/settings/oauth?error=${encodeURIComponent(msg)}`); return res.end(); };
+        const returnTo = cookies(req).pr_manifest_return || "/settings/oauth";
+        const fail = (msg) => { res.statusCode = 302; res.setHeader("location", `${returnTo}?error=${encodeURIComponent(msg)}`); return res.end(); };
         if (!cookies(req).pr_manifest || cookies(req).pr_manifest !== url.searchParams.get("state")) return fail("GitHub app creation state mismatch, try again");
         const conv = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(url.searchParams.get("code"))}/conversions`, { method: "POST", headers: { accept: "application/vnd.github+json", "user-agent": "pr-scorer" } });
         if (!conv.ok) return fail(`GitHub rejected the app manifest (${conv.status})`);
         const app = await conv.json();
         const o = await store.getOAuth();
         await store.setOAuth({ ...o, enabled: true, providers: [...o.providers.filter((p) => p.name !== "github"), { name: "github", clientId: app.client_id, clientSecret: app.client_secret }] });
+        await store.setSetting("primaryProvider", "github");
         setCookie(res, "pr_manifest", "", 0);
+        setCookie(res, "pr_manifest_return", "", 0);
         res.statusCode = 302;
-        res.setHeader("location", `/settings/oauth?connected=${encodeURIComponent(app.html_url || app.slug || "")}`);
+        res.setHeader("location", `${returnTo}?connected=${encodeURIComponent(app.html_url || app.slug || "github")}`);
         return res.end();
       }
       const m = url.pathname.match(/^\/api\/settings\/([a-z]+)(?:\/([a-z]+))?$/);
