@@ -401,16 +401,8 @@ export function OnboardingPage({
                 Choose your Primary Git &amp; OAuth Provider
               </h1>
               <p className="mt-2 text-[15px] text-neutral-600">
-                Select where your onboarded repositories and developer identities live.
+                Select where your onboarded repositories and developer identities live. If you use multiple forges, you can easily connect and configure the rest later in Admin &rarr; OAuth.
               </p>
-
-              {/* Informational Message */}
-              <div className="mt-4 flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50/70 p-3.5 text-sm text-blue-900">
-                <span className="text-base">ℹ️</span>
-                <span>
-                  Don&apos;t worry — if you use multiple forges, you can easily connect and configure the rest later in <strong>Admin &rarr; OAuth</strong>.
-                </span>
-              </div>
 
               {/* Provider Selection Cards (Using Dashboard Nested Card Geometry) */}
               <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
