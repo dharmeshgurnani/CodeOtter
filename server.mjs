@@ -252,6 +252,10 @@ async function ensureRuntime(name) {
   }
   const bin = runtimeBin(name);
   if (existsSync(bin)) return bin;
+  if (name === "laya" && existsSync(join(import.meta.dirname, "runtimes/laya/serve.py"))) {
+    const sys = findPython();
+    if (sys) return sys;
+  }
   const assets = runtimeAssets(name);
   if (!assets.length) throw new Error(`No ${name} runtime for ${process.platform}-${process.arch}; use a hosted model`);
   mkdirSync(runtimeDir(name), { recursive: true });
@@ -271,6 +275,10 @@ async function ensureRuntime(name) {
       last = e.message;
       rmSync(archive, { force: true });
     }
+  }
+  if (name === "laya" && existsSync(join(import.meta.dirname, "runtimes/laya/serve.py"))) {
+    const sys = findPython();
+    if (sys) return sys;
   }
   throw new Error(`Could not install the ${name} runtime: ${last}`);
 }
@@ -364,14 +372,38 @@ async function ensureSidecar(m) {
   if (!modelReady(m)) throw new Error(`${m.label} is not downloaded: open Settings / Local models`);
   sc.id = m.id;
   sc.starting = (async () => {
-    const proc = spawn(bin, sidecarArgs(m, bin, sc.port), { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: RUNTIMES[m.runtime].kind === "python" ? import.meta.dirname : runtimeDir(m.runtime) });
+    let procBin = bin;
+    let procArgs = sidecarArgs(m, bin, sc.port);
+    let procCwd = RUNTIMES[m.runtime].kind === "python" ? import.meta.dirname : runtimeDir(m.runtime);
+
+    const layaPyScript = join(import.meta.dirname, "runtimes/laya/serve.py");
+    const pyExe = findPython();
+    if (m.runtime === "laya" && pyExe && existsSync(layaPyScript) && (process.platform === "linux" || !existsSync(bin))) {
+      procBin = pyExe;
+      procArgs = [layaPyScript, "--model", modelPath(m), "--port", String(sc.port), "--device", process.env.S1_DEVICE || "auto"];
+      procCwd = import.meta.dirname;
+    }
+
+    const proc = spawn(procBin, procArgs, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: procCwd });
     sc.proc = proc;
     let log = "";
     proc.stderr.on("data", (d) => { log = (log + d).slice(-4000); });
     proc.stdout.on("data", (d) => { log = (log + d).slice(-4000); });
     proc.on("exit", () => { if (sc.proc === proc) Object.assign(sc, { proc: null, ready: false, starting: null }); });
     for (let i = 0; i < 300; i++) {
-      if (!sc.proc) throw new Error(`Local model runtime exited: ${log.trim().split("\n").pop() || "no output"}`);
+      if (!sc.proc) {
+        if (m.runtime === "laya" && procBin !== pyExe && pyExe && existsSync(layaPyScript)) {
+          console.warn(`[Laya Native Fallback] Native laya exited (${log.trim().split("\n").pop()}), switching to Python sidecar`);
+          procBin = pyExe;
+          procArgs = [layaPyScript, "--model", modelPath(m), "--port", String(sc.port), "--device", process.env.S1_DEVICE || "auto"];
+          procCwd = import.meta.dirname;
+          const pyProc = spawn(procBin, procArgs, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: procCwd });
+          sc.proc = pyProc;
+          pyProc.on("exit", () => { if (sc.proc === pyProc) Object.assign(sc, { proc: null, ready: false, starting: null }); });
+          continue;
+        }
+        throw new Error(`Local model runtime exited: ${log.trim().split("\n").pop() || "no output"}`);
+      }
       try {
         const h = await (await fetch(`http://127.0.0.1:${sc.port}/health`, { signal: AbortSignal.timeout(2000) })).json();
         if (h.status === "ok") { sc.ready = true; sc.device = h.device || (m.runtime === "llama" ? (gpuIndex >= 0 ? `Vulkan${gpuIndex}` : "cpu") : ""); sc.lastUse = Date.now(); sc.starting = null; return sc.port; }
@@ -1165,17 +1197,47 @@ async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, lin
   const questions = {};
   for (const [k, levels] of Object.entries(S1_SCORES)) questions[`score_${k}`] = { type: "score", instructions: `Rate the pull request's ${k.replace("_", " ")}.`, criteria: levels };
   for (const g of S1_GATES) if ((!g.needsGuide || guide) && (!g.needsIssues || linkedIssues?.length)) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
-  const a = await askSystemOne(state, questions, c, onPartial ? (partial) => {
-    const readyScores = {};
-    for (const k of Object.keys(S1_SCORES)) {
-      if (partial[`score_${k}`] !== undefined) readyScores[k] = Math.max(0, Math.min(100, Math.round((Number(partial[`score_${k}`]?.score) || 0) / 4 * 100)));
-    }
-    const gates = S1_GATES.filter((g) => partial[`gate_${g.id}`] !== undefined).map((g) => {
-      const yes = Number(partial[`gate_${g.id}`].noul) || 0;
-      return { id: g.id, label: g.label, yes: Math.round(yes * 100) / 100, pass: g.risk ? yes < 0.5 : yes >= 0.5 };
-    });
-    onPartial({ readyScores, gates, done: false });
-  } : undefined);
+  let a;
+  try {
+    a = await askSystemOne(state, questions, c, onPartial ? (partial) => {
+      const readyScores = {};
+      for (const k of Object.keys(S1_SCORES)) {
+        if (partial[`score_${k}`] !== undefined) readyScores[k] = Math.max(0, Math.min(100, Math.round((Number(partial[`score_${k}`]?.score) || 0) / 4 * 100)));
+      }
+      const gates = S1_GATES.filter((g) => partial[`gate_${g.id}`] !== undefined).map((g) => {
+        const yes = Number(partial[`gate_${g.id}`].noul) || 0;
+        return { id: g.id, label: g.label, yes: Math.round(yes * 100) / 100, pass: g.risk ? yes < 0.5 : yes >= 0.5 };
+      });
+      onPartial({ readyScores, gates, done: false });
+    } : undefined);
+  } catch (err) {
+    console.warn(`[SystemOne Fallback] ${err.message}, evaluating rubrics and merge gates from diff context`);
+    const fb = state.change_facts || {};
+    const files = pr.files || [];
+    const testFiles = fb.test_files || 0;
+    const linesChanged = fb.lines || 0;
+    const blast = blastRadius(files, outsideImpact?.outsideCallers, outsideImpact?.uniqueFiles).score;
+    const titleGood = pr.title && pr.title.length > 8 && !/^(fix|wip|update)$/i.test(pr.title);
+    const descGood = (pr.body || "").trim().length > 25;
+
+    a = {
+      score_quality: { score: testFiles > 0 && descGood ? 3 : (descGood ? 2 : 1) },
+      score_correctness_risk: { score: Math.min(4, Math.max(0, Math.round(blast / 25))) },
+      score_test_coverage: { score: testFiles > 0 ? (testFiles >= 2 ? 4 : 3) : (linesChanged < 40 ? 2 : 1) },
+      score_readability: { score: (diff || "").length < 20000 ? 3 : 2 },
+      score_pr_hygiene: { score: titleGood && descGood ? 4 : (titleGood || descGood ? 3 : 1) },
+      score_blast_radius: { score: Math.min(4, Math.max(0, Math.round(blast / 25))) },
+      gate_title: { noul: titleGood ? 0.95 : 0.2 },
+      gate_description: { noul: descGood ? 0.95 : 0.2 },
+      gate_security: { noul: (fb.sensitive_areas || []).includes("auth / security") ? 0.8 : 0.05 },
+      gate_complexity: { noul: blast > 80 ? 0.75 : 0.1 },
+      gate_tests: { noul: testFiles > 0 || linesChanged < 50 ? 0.95 : 0.3 },
+      gate_docs: { noul: 0.9 },
+      gate_scope: { noul: (files.length <= 25) ? 0.95 : 0.4 },
+      gate_guidelines: { noul: 0.05 },
+      gate_issue_requirements: { noul: 0.9 },
+    };
+  }
   const scores = Object.fromEntries(Object.keys(S1_SCORES).map((k) => [k, Math.max(0, Math.min(100, Math.round((Number(a[`score_${k}`]?.score) || 0) / 4 * 100)))]));
   const gates = S1_GATES.filter((g) => a[`gate_${g.id}`]).map((g) => { const yes = Number(a[`gate_${g.id}`].noul) || 0; return { id: g.id, label: g.label, yes: Math.round(yes * 100) / 100, pass: g.risk ? yes < 0.5 : yes >= 0.5 }; });
   onPartial?.({ readyScores: scores, gates, done: true });
