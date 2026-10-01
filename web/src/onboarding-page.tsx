@@ -1,9 +1,18 @@
 import { useEffect, useState } from "react";
+import { Check, Pin, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DitherCanvas } from "@/components/dither-canvas";
 import { Toaster, toast } from "sonner";
 import { GitHubMark, ForgejoMark, GiteaMark } from "./login-page";
+
+const initials = (s: string) =>
+  s
+    .split(/[\s/_-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("") || "?";
 
 type OnboardingStatus = {
   completed: boolean;
@@ -66,7 +75,6 @@ export function OnboardingPage({
   const [repoChoices, setRepoChoices] = useState<RepoChoice[]>([]);
   const [selectedRepos, setSelectedRepos] = useState<string[]>([]);
   const [repoSearch, setRepoSearch] = useState("");
-  const [customRepo, setCustomRepo] = useState("");
   const [reposLoading, setReposLoading] = useState(false);
 
   // Initial Data Load & Query Parameter Handling
@@ -317,16 +325,6 @@ export function OnboardingPage({
 
   const toggleRepo = (id: string) => {
     setSelectedRepos((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]));
-  };
-
-  const addCustomRepo = () => {
-    const r = customRepo.trim();
-    if (!r) return;
-    if (!selectedRepos.includes(r)) {
-      setSelectedRepos((prev) => [...prev, r]);
-      setRepoChoices((prev) => [{ id: r, label: r, org: r.split("/")[0] ?? "" }, ...prev]);
-    }
-    setCustomRepo("");
   };
 
   const filteredRepos = repoChoices.filter(
@@ -1055,61 +1053,103 @@ export function OnboardingPage({
                 Select Repositories to Onboard
               </h1>
               <p className="mt-2 text-[15px] text-neutral-600">
-                Select one or multiple repositories. Pull requests will be scored, reviewed, and tracked automatically.
+                Choose the repositories you want CodeOtter to monitor. Pull requests will be scored, reviewed, and tracked automatically.
               </p>
 
-              {/* Filter & Custom Add Bar */}
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <input
-                  type="text"
-                  placeholder="Filter repositories..."
-                  value={repoSearch}
-                  onChange={(e) => setRepoSearch(e.target.value)}
-                  className="w-full max-w-sm rounded-lg border border-neutral-300 bg-white px-3.5 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
-                />
+              {/* Pinned Repositories Section (Shows when at least 1 repo is selected) */}
+              {selectedRepos.length > 0 && (
+                <div className="mt-6 rounded-xl border border-neutral-200 bg-neutral-50/70 p-4">
+                  <div className="flex items-center justify-between pb-3">
+                    <div className="flex items-center gap-2">
+                      <Pin className="size-4 text-neutral-700" />
+                      <span className="text-xs font-semibold text-neutral-900">
+                        Pinned Repositories ({selectedRepos.length})
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-neutral-500">
+                      Ready for automated PR intelligence
+                    </span>
+                  </div>
 
-                <div className="flex items-center gap-2">
+                  <ul className="divide-y divide-neutral-200/80 rounded-lg border border-neutral-200 bg-white">
+                    {selectedRepos.map((repoId) => {
+                      const choice = repoChoices.find((c) => c.id === repoId);
+                      const label = choice?.label || repoId;
+                      const org = choice?.org || repoId.split("/")[0];
+                      return (
+                        <li
+                          key={repoId}
+                          className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm"
+                        >
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <Avatar className="size-7 shrink-0 rounded-md border border-neutral-200 bg-white">
+                              <AvatarFallback className="rounded-md text-[10px] font-semibold">
+                                {initials(label)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <span className="block truncate font-medium text-neutral-900">
+                                {label}
+                              </span>
+                              <span className="block text-[11px] text-neutral-500">
+                                {org}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200/60">
+                              Pinned
+                            </span>
+                            <button
+                              type="button"
+                              aria-label={`Unpin ${label}`}
+                              onClick={() => toggleRepo(repoId)}
+                              className="shrink-0 rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-red-700 cursor-pointer transition-colors"
+                            >
+                              <X className="size-4" />
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+
+              {/* Available Repositories Header & Search Bar */}
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-2.5">
+                  <label className="block text-xs font-semibold text-neutral-900">
+                    Available Repositories
+                  </label>
+                  <span className="text-[11px] text-neutral-500">
+                    {filteredRepos.length} repository{filteredRepos.length === 1 ? "" : "ies"} found
+                  </span>
+                </div>
+
+                <div className="relative flex items-center">
+                  <Search className="absolute left-3 size-4 text-neutral-400 pointer-events-none" />
                   <input
                     type="text"
-                    placeholder="Add owner/name manually"
-                    value={customRepo}
-                    onChange={(e) => setCustomRepo(e.target.value)}
-                    className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                    placeholder="Search available repositories..."
+                    value={repoSearch}
+                    onChange={(e) => setRepoSearch(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-3.5 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-hidden shadow-xs"
                   />
-                  <Button type="button" variant="outline" size="sm" onClick={addCustomRepo}>
-                    Add
-                  </Button>
+                  {repoSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setRepoSearch("")}
+                      className="absolute right-2.5 rounded-md p-1 text-neutral-400 hover:text-neutral-700 cursor-pointer"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Repo Selection Count */}
-              <div className="mt-4 flex items-center justify-between text-xs text-neutral-500">
-                <span>
-                  <strong>{selectedRepos.length}</strong> repository{selectedRepos.length === 1 ? "" : "ies"} selected (at least 1 required)
-                </span>
-                {repoChoices.length > 0 && (
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRepos(repoChoices.map((r) => r.id))}
-                      className="text-neutral-700 hover:underline cursor-pointer"
-                    >
-                      Select all
-                    </button>
-                    <span>·</span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRepos([])}
-                      className="text-neutral-700 hover:underline cursor-pointer"
-                    >
-                      Deselect all
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Repo Checkbox Table */}
-              <div className="mt-3 max-h-[340px] overflow-y-auto rounded-xl border border-neutral-200 bg-white">
+              {/* Repositories Discovery List */}
+              <div className="mt-3 max-h-[300px] overflow-y-auto rounded-xl border border-neutral-200 bg-white shadow-xs divide-y divide-neutral-100">
                 {reposLoading ? (
                   <div className="p-8 text-center text-sm text-neutral-500">
                     Discovering repositories from connected provider...
@@ -1117,37 +1157,63 @@ export function OnboardingPage({
                 ) : filteredRepos.length === 0 ? (
                   <div className="p-8 text-center text-sm text-neutral-500">
                     {repoChoices.length === 0
-                      ? "No repositories automatically discovered. Add your repository manually above."
-                      : "No repositories match your search filter."}
+                      ? "No repositories found on the connected account."
+                      : "No repositories match your search."}
                   </div>
                 ) : (
-                  <div className="divide-y divide-neutral-100">
-                    {filteredRepos.map((r) => {
-                      const isChecked = selectedRepos.includes(r.id);
-                      return (
-                        <div
-                          key={r.id}
-                          onClick={() => toggleRepo(r.id)}
-                          className={`flex cursor-pointer items-center justify-between px-4 py-3 text-sm transition-colors ${
-                            isChecked ? "bg-neutral-50 font-medium" : "hover:bg-neutral-50/50"
-                          }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => {}}
-                              className="size-4 rounded-md border-neutral-300 text-neutral-900 focus:ring-neutral-900"
-                            />
-                            <span className="text-neutral-900">{r.label}</span>
+                  filteredRepos.map((r) => {
+                    const isPinned = selectedRepos.includes(r.id);
+                    return (
+                      <div
+                        key={r.id}
+                        className={`flex items-center justify-between px-4 py-3 text-sm transition-colors ${
+                          isPinned ? "bg-neutral-50/60" : "hover:bg-neutral-50/40"
+                        }`}
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Avatar className="size-7 shrink-0 rounded-md border border-neutral-200 bg-white">
+                            <AvatarFallback className="rounded-md text-[10px] font-semibold">
+                              {initials(r.label)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <span className="block truncate font-medium text-neutral-900">
+                              {r.label}
+                            </span>
+                            <span className="block text-[11px] text-neutral-500">
+                              {r.org}
+                            </span>
                           </div>
-                          <span className="rounded-md bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">
-                            {r.org}
-                          </span>
                         </div>
-                      );
-                    })}
-                  </div>
+
+                        <div className="ml-3 shrink-0">
+                          {isPinned ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => toggleRepo(r.id)}
+                              className="h-8 gap-1.5 text-xs font-medium bg-neutral-100 text-neutral-700 hover:bg-red-50 hover:text-red-700 hover:border-red-200 border border-neutral-200 transition-colors"
+                            >
+                              <Check className="size-3.5 text-emerald-600" />
+                              Pinned
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => toggleRepo(r.id)}
+                              className="h-8 gap-1 text-xs font-medium hover:bg-neutral-900 hover:text-white transition-colors"
+                            >
+                              <Plus className="size-3.5" />
+                              Add
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
 
