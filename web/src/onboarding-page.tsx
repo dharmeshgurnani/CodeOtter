@@ -351,9 +351,9 @@ export function OnboardingPage({
   return (
     <>
       <Toaster richColors position="top-right" />
-      <div className="grid min-h-svh grid-cols-1 bg-white lg:grid-cols-[minmax(560px,7fr)_5fr]">
-        {/* Left: Interactive Wizard */}
-        <div className="flex flex-col px-6 py-6 sm:px-14 sm:py-10">
+      <div className="grid h-svh max-h-svh overflow-hidden grid-cols-1 bg-white lg:grid-cols-[minmax(560px,7fr)_5fr]">
+        {/* Left: Interactive Wizard (Scrollable) */}
+        <div className="flex h-full flex-col overflow-y-auto px-6 py-6 sm:px-14 sm:py-10">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
             <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-8 rounded-lg shadow-xs" />
@@ -1187,21 +1187,63 @@ export function OnboardingPage({
         </div>
       </div>
 
-      {/* Right: Showcase & Visual Shader */}
-      <div className="relative hidden overflow-hidden bg-[#0a0a0b] text-white lg:block">
-        <DitherCanvas className="absolute inset-0 h-full w-full" pixel={3} />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/70 to-transparent" />
-        <div className="relative flex h-full flex-col justify-end p-12 xl:p-16">
-          <div className="space-y-4">
-            <span className="inline-block rounded-md bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white">
-              Autonomous PR Intelligence
-            </span>
-            <h2 className="max-w-[20ch] text-[32px] font-semibold leading-[1.15] tracking-tight xl:text-[38px]">
-              Calibrated review scores, blast radius &amp; merge gates on your hardware.
-            </h2>
-            <p className="max-w-[44ch] text-[15px] leading-relaxed text-white/70">
-              Run 100% offline with zero external cloud dependencies or connect hosted models of your choice.
-            </p>
+      {/* Right: Fixed Non-Scrolling Showcase, Sponsors & News */}
+      <div className="relative hidden h-full overflow-hidden bg-[#0a0a0b] text-white lg:flex lg:flex-col justify-end p-12 xl:p-16">
+        <DitherCanvas className="absolute inset-0 h-full w-full pointer-events-none" pixel={3} />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/70 to-transparent pointer-events-none" />
+        <div className="relative z-10 space-y-6">
+          <span className="inline-block rounded-md bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white">
+            Autonomous PR Intelligence
+          </span>
+          <h2 className="max-w-[22ch] text-[32px] font-semibold leading-[1.15] tracking-tight xl:text-[38px]">
+            Calibrated review scores, blast radius &amp; merge gates on your hardware.
+          </h2>
+          <p className="max-w-[46ch] text-[15px] leading-relaxed text-white/70">
+            Run 100% offline with zero external cloud dependencies or connect hosted models of your choice.
+          </p>
+
+          {/* Sponsors & Community Section */}
+          <div className="pt-4 border-t border-white/10 grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50 mb-2.5">
+                Sponsors &amp; Support
+              </div>
+              <div className="space-y-2 text-xs">
+                <a
+                  href="https://github.com/sponsors/dharmeshgurnani"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block text-white/90 hover:text-white hover:underline font-medium"
+                >
+                  GitHub Sponsors &rarr;
+                  <span className="block text-white/50 text-[11px] font-normal">Back autonomous AI development</span>
+                </a>
+                <a
+                  href="https://github.com/dharmeshgurnani/CodeOtter"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block text-white/90 hover:text-white hover:underline font-medium"
+                >
+                  Star on GitHub &rarr;
+                  <span className="block text-white/50 text-[11px] font-normal">Support the open-source project</span>
+                </a>
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50 mb-2.5">
+                Latest Features
+              </div>
+              <div className="space-y-2 text-xs">
+                <span className="block text-white/90 font-medium">
+                  Outside-Diff Call Graph Fan-Out
+                  <span className="block text-white/50 text-[11px] font-normal">Cross-file blast radius slicing</span>
+                </span>
+                <span className="block text-white/90 font-medium">
+                  Native CLI &amp; MCP Server
+                  <span className="block text-white/50 text-[11px] font-normal">CI gating via codeotter command</span>
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
