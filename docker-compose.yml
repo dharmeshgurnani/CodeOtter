@@ -1,5 +1,6 @@
 services:
-  pr-scorer:
+  codeotter:
+    container_name: codeotter
     build: .
     ports:
       - "4747:4747"   # app
