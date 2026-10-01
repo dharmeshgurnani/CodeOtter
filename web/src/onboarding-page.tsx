@@ -349,10 +349,11 @@ export function OnboardingPage({
   }
 
   return (
-    <div className="grid min-h-svh grid-cols-1 bg-white lg:grid-cols-[minmax(560px,7fr)_5fr]">
+    <>
       <Toaster richColors position="top-right" />
-      {/* Left: Interactive Wizard */}
-      <div className="flex flex-col px-6 py-6 sm:px-14 sm:py-10">
+      <div className="grid min-h-svh grid-cols-1 bg-white lg:grid-cols-[minmax(560px,7fr)_5fr]">
+        {/* Left: Interactive Wizard */}
+        <div className="flex flex-col px-6 py-6 sm:px-14 sm:py-10">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
             <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-8 rounded-lg shadow-xs" />
@@ -1205,5 +1206,6 @@ export function OnboardingPage({
         </div>
       </div>
     </div>
-  );
+  </>
+);
 }
