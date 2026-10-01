@@ -2,6 +2,7 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | Native CodeOtter CLI & CI Review Engine (`bin/codeotter.mjs`, `codeotter review`, `codeotter pr`, `codeotter ci --fail-on-gate`, `codeotter mcp` stdio server, multi-agent critique pass, rich ANSI terminal scorecard) | 2026-10-01 |
 | [x] | Forgejo repositories + OAuth alongside GitHub: implemented; isolated integration tests, production build and browser checks pass. User authorized the Gitea follow-up | 2026-09-30 |
 | [x] | Gitea repositories + OAuth alongside GitHub and Forgejo: isolated integration tests, production build and browser checks pass | 2026-09-30 |
 | [x] | "Smart Context" Outside-Diff Call Graph Impact Slicing & Blast Radius Fan-Out (AST symbol extraction, zero-dependency git/repo caller trace, contract safety verification, outside callers in Blast Radius and Mermaid graph, and prompt caching optimization) | 2026-09-30 |

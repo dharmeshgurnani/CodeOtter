@@ -5,8 +5,11 @@
   "type": "module",
   "license": "ELv2",
   "description": "CodeOtter — Dual-engine AI code review scores, blast radius analysis, and merge gates from any open model, self-hosted.",
-  "engines": { "node": ">=20.11" },
+  "bin": {
+    "codeotter": "./bin/codeotter.mjs"
+  },
   "scripts": {
+    "cli": "node bin/codeotter.mjs",
     "dev": "node scripts/dev.mjs",
     "start": "node server.mjs",
     "test:forgejo": "node scripts/test-forgejo.mjs",

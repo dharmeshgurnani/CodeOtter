@@ -203,6 +203,35 @@ The suite requires Docker and `.pb/pocketbase` (`.pb/pocketbase.exe` on Windows)
 
 ---
 
+## 📟 Native `codeotter` CLI &amp; CI Runner
+
+CodeOtter includes a zero-dependency CLI tool (`bin/codeotter.mjs`) for reviewing local changes before commit, running CI gate checks in GitHub/Forgejo Actions, or integrating with IDEs via MCP (Model Context Protocol).
+
+```bash
+# Review current working tree diff in terminal with color gauges & walkthrough
+node bin/codeotter.mjs
+
+# Review staged changes before git commit
+node bin/codeotter.mjs --staged
+
+# Review PR and post scorecard comment
+node bin/codeotter.mjs pr 42 --post-comment
+
+# Run in CI as a merge blocker (exits with code 1 if gates fail or score < 60)
+node bin/codeotter.mjs ci --fail-on-gate --min-score 60
+
+# Run Model Context Protocol (MCP) server for Cursor / Claude Desktop / IDEs
+node bin/codeotter.mjs mcp
+```
+
+### Key CLI Features:
+- **Anti-Hallucination Critique Pass**: Automatically filters out false positives and ungrounded nitpicks by cross-verifying findings against the diff hunks.
+- **Smart Context**: Scans for outside callers and evaluates cross-file contract safety.
+- **Pre-Merge Gates**: Validates title, description, security, complexity, tests, documentation, and `AGENTS.md` / `CLAUDE.md` guidelines.
+- **Offline or BYOK**: Works with local `llama.cpp` / Ollama or hosted API keys (Anthropic, OpenAI, Gemini, MiniMax, Groq, OpenRouter).
+
+---
+
 ## 🧠 How It Works: The Dual Engine
 
 <p align="center">
