@@ -1,7 +1,7 @@
 // pr-scorer: zero-dependency PR quality + blast-radius scorer. `node server.mjs` then open http://localhost:4747
 import http from "node:http";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, createSign } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, createWriteStream, statSync, renameSync, rmSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
@@ -1428,6 +1428,82 @@ async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores 
   };
 }
 
+function base64url(input) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  return buf.toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function createGitHubAppJwt(appId, pem) {
+  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const now = Math.floor(Date.now() / 1000);
+  const payload = base64url(
+    JSON.stringify({
+      iat: now - 60,
+      exp: now + 600,
+      iss: String(appId),
+    }),
+  );
+  const sign = createSign("RSA-SHA256");
+  sign.update(`${header}.${payload}`);
+  sign.end();
+  const signature = base64url(sign.sign(pem));
+  return `${header}.${payload}.${signature}`;
+}
+
+async function getGitHubAppRepos(appConfig) {
+  if (!appConfig?.id || !appConfig?.pem) return [];
+  try {
+    const jwt = createGitHubAppJwt(appConfig.id, appConfig.pem);
+    const instRes = await fetch("https://api.github.com/app/installations?per_page=100", {
+      headers: {
+        authorization: `Bearer ${jwt}`,
+        accept: "application/vnd.github+json",
+        "user-agent": "CodeOtter",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!instRes.ok) return [];
+    const installations = await instRes.json();
+    if (!Array.isArray(installations)) return [];
+
+    const repoNames = [];
+    for (const inst of installations) {
+      const tokenRes = await fetch(`https://api.github.com/app/installations/${inst.id}/access_tokens`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${jwt}`,
+          accept: "application/vnd.github+json",
+          "user-agent": "CodeOtter",
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!tokenRes.ok) continue;
+      const tokenData = await tokenRes.json();
+      const instToken = tokenData.token;
+      if (!instToken) continue;
+
+      const reposRes = await fetch("https://api.github.com/installation/repositories?per_page=100", {
+        headers: {
+          authorization: `token ${instToken}`,
+          accept: "application/vnd.github+json",
+          "user-agent": "CodeOtter",
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!reposRes.ok) continue;
+      const reposData = await reposRes.json();
+      if (Array.isArray(reposData.repositories)) {
+        for (const r of reposData.repositories) {
+          if (r.full_name) repoNames.push(r.full_name);
+        }
+      }
+    }
+    return repoNames;
+  } catch {
+    return [];
+  }
+}
+
 // Onboarded repositories. Saved from the Repositories settings page; falls back to REPO (env or the repo launched from).
 const repos = async () => {
   const saved = await store.getSetting("repos");
@@ -1444,9 +1520,24 @@ async function repositoryChoices(owner = "") {
     process.env.GH_TOKEN = savedGhToken;
   }
 
+  const githubApp = await store.getSetting("githubApp");
+  const githubOwner = (await store.getSetting("githubOwner")) || "";
+
   ghReposCache ||= new Map();
   if (!ghReposCache.has(owner)) {
-    let list = [];
+    const listSet = new Set();
+
+    // 1. Try GitHub App installation repositories (public & private)
+    if (githubApp?.id && githubApp?.pem) {
+      try {
+        const appRepos = await getGitHubAppRepos(githubApp);
+        for (const r of appRepos) {
+          if (!owner || r.startsWith(`${owner}/`)) listSet.add(r);
+        }
+      } catch {}
+    }
+
+    // 2. Try User Personal Access Token / env token (public & private)
     if (savedGhToken) {
       try {
         const ghUrl = owner ? `https://api.github.com/users/${owner}/repos?per_page=100&sort=updated` : `https://api.github.com/user/repos?per_page=100&sort=updated&type=all`;
@@ -1461,17 +1552,56 @@ async function repositoryChoices(owner = "") {
         if (res.ok) {
           const items = await res.json();
           if (Array.isArray(items)) {
-            list = items.map((r) => r.full_name).filter(Boolean);
+            for (const r of items) {
+              if (r.full_name && (!owner || r.full_name.startsWith(`${owner}/`))) {
+                listSet.add(r.full_name);
+              }
+            }
           }
         }
       } catch {}
     }
-    if (!list.length) {
+
+    // 3. Try GitHub Owner public endpoints (users and orgs)
+    const ownersToTry = new Set([owner, githubOwner, githubApp?.owner].filter(Boolean));
+    for (const o of ownersToTry) {
+      for (const ep of ["users", "orgs"]) {
+        try {
+          const res = await fetch(`https://api.github.com/${ep}/${o}/repos?per_page=100&sort=updated`, {
+            headers: {
+              ...(savedGhToken ? { authorization: `token ${savedGhToken}` } : {}),
+              accept: "application/vnd.github+json",
+              "user-agent": "CodeOtter",
+            },
+            signal: AbortSignal.timeout(6000),
+          });
+          if (res.ok) {
+            const items = await res.json();
+            if (Array.isArray(items)) {
+              for (const r of items) {
+                if (r.full_name && (!owner || r.full_name.startsWith(`${owner}/`))) {
+                  listSet.add(r.full_name);
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // 4. Try gh CLI
+    if (!listSet.size) {
       try {
-        list = JSON.parse(gh("repo", "list", ...(owner ? [owner] : []), "--limit", "100", "--json", "nameWithOwner")).map((r) => r.nameWithOwner);
+        const ghItems = JSON.parse(gh("repo", "list", ...(owner ? [owner] : []), "--limit", "100", "--json", "nameWithOwner"));
+        if (Array.isArray(ghItems)) {
+          for (const r of ghItems) {
+            if (r.nameWithOwner) listSet.add(r.nameWithOwner);
+          }
+        }
       } catch {}
     }
-    ghReposCache.set(owner, list);
+
+    ghReposCache.set(owner, [...listSet]);
   }
   const github = ghReposCache.get(owner) || [];
   const allChoices = new Set(github);
@@ -2746,6 +2876,9 @@ const SETTINGS_PAGES = {
         if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
         const state = randomBytes(16).toString("hex");
         setCookie(res, "pr_manifest", state, 600);
+        if (body?.returnTo) {
+          setCookie(res, "pr_manifest_return", body.returnTo, 600);
+        }
         const owner = ((await repos())[0] || "codeotter").split("/")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-");
         const appPrefix = owner && owner !== "pr-scorer" && owner !== "codeotter" ? `codeotter-${owner}` : "codeotter";
         const manifest = {
@@ -2754,8 +2887,15 @@ const SETTINGS_PAGES = {
           redirect_url: `${APP_URL}/github/manifest/callback`,
           callback_urls: [`${APP_URL}/auth/callback`],
           public: false,
-          default_permissions: { emails: "read" },
-          request_oauth_on_install: false,
+          default_permissions: {
+            emails: "read",
+            contents: "read",
+            pull_requests: "write",
+            issues: "write",
+            metadata: "read",
+            administration: "read",
+          },
+          request_oauth_on_install: true,
         };
         return { submit: { url: `https://github.com/settings/apps/new?state=${state}`, fields: { manifest: JSON.stringify(manifest) } } };
       },
@@ -3262,14 +3402,26 @@ http
         const returnTo = cookies(req).pr_manifest_return || "/settings/oauth";
         const fail = (msg) => { res.statusCode = 302; res.setHeader("location", `${returnTo}?error=${encodeURIComponent(msg)}`); return res.end(); };
         if (!cookies(req).pr_manifest || cookies(req).pr_manifest !== url.searchParams.get("state")) return fail("GitHub app creation state mismatch, try again");
-        const conv = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(url.searchParams.get("code"))}/conversions`, { method: "POST", headers: { accept: "application/vnd.github+json", "user-agent": "pr-scorer" } });
+        const conv = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(url.searchParams.get("code"))}/conversions`, { method: "POST", headers: { accept: "application/vnd.github+json", "user-agent": "CodeOtter" } });
         if (!conv.ok) return fail(`GitHub rejected the app manifest (${conv.status})`);
         const app = await conv.json();
         const o = await store.getOAuth();
         await store.setOAuth({ ...o, enabled: true, providers: [...o.providers.filter((p) => p.name !== "github"), { name: "github", clientId: app.client_id, clientSecret: app.client_secret }] });
         await store.setSetting("primaryProvider", "github");
+        await store.setSetting("githubApp", {
+          id: app.id,
+          slug: app.slug,
+          owner: app.owner?.login || "",
+          pem: app.pem || "",
+          clientId: app.client_id,
+          clientSecret: app.client_secret,
+        });
+        if (app.owner?.login) {
+          await store.setSetting("githubOwner", app.owner.login);
+        }
         setCookie(res, "pr_manifest", "", 0);
         setCookie(res, "pr_manifest_return", "", 0);
+        ghReposCache = null;
         res.statusCode = 302;
         res.setHeader("location", `${returnTo}?connected=${encodeURIComponent(app.html_url || app.slug || "github")}`);
         return res.end();
