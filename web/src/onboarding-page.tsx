@@ -412,55 +412,86 @@ export function OnboardingPage({
                 </span>
               </div>
 
-              {/* Provider Selection Cards */}
+              {/* Provider Selection Cards (Using Dashboard Nested Card Geometry) */}
               <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <button
-                  type="button"
-                  onClick={() => { setProvider("github"); setTestResult(null); }}
-                  className={`flex flex-col items-start rounded-xl border p-4 text-left transition-all ${
-                    provider === "github"
-                      ? "border-neutral-900 bg-neutral-50 shadow-xs ring-1 ring-neutral-900"
-                      : "border-neutral-200 hover:border-neutral-300"
-                  }`}
-                >
-                  <div className="flex size-8 items-center justify-center rounded-lg bg-neutral-900 text-white">
-                    <GitHubMark />
-                  </div>
-                  <span className="mt-3 text-[15px] font-semibold text-neutral-900">GitHub</span>
-                  <span className="mt-0.5 text-xs text-neutral-500">Cloud or GitHub Enterprise</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => { setProvider("forgejo"); setTestResult(null); }}
-                  className={`flex flex-col items-start rounded-xl border p-4 text-left transition-all ${
-                    provider === "forgejo"
-                      ? "border-neutral-900 bg-neutral-50 shadow-xs ring-1 ring-neutral-900"
-                      : "border-neutral-200 hover:border-neutral-300"
-                  }`}
-                >
-                  <div className="flex size-8 items-center justify-center rounded-lg bg-orange-600 text-white font-bold text-sm">
-                    F
-                  </div>
-                  <span className="mt-3 text-[15px] font-semibold text-neutral-900">Forgejo</span>
-                  <span className="mt-0.5 text-xs text-neutral-500">Self-hosted community forge</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => { setProvider("gitea"); setTestResult(null); }}
-                  className={`flex flex-col items-start rounded-xl border p-4 text-left transition-all ${
-                    provider === "gitea"
-                      ? "border-neutral-900 bg-neutral-50 shadow-xs ring-1 ring-neutral-900"
-                      : "border-neutral-200 hover:border-neutral-300"
-                  }`}
-                >
-                  <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-600 text-white font-bold text-sm">
-                    G
-                  </div>
-                  <span className="mt-3 text-[15px] font-semibold text-neutral-900">Gitea</span>
-                  <span className="mt-0.5 text-xs text-neutral-500">Self-hosted lightweight Git</span>
-                </button>
+                {[
+                  {
+                    id: "github" as const,
+                    label: "GitHub",
+                    badge: "Cloud / Enterprise",
+                    hint: "Cloud or GitHub Enterprise with 1-click automated App creation",
+                    icon: (
+                      <div className="flex size-7 items-center justify-center rounded-md bg-neutral-900 text-white">
+                        <GitHubMark />
+                      </div>
+                    ),
+                  },
+                  {
+                    id: "forgejo" as const,
+                    label: "Forgejo",
+                    badge: "Self-Hosted",
+                    hint: "Self-hosted community forge with REST API & OAuth integration",
+                    icon: (
+                      <div className="flex size-7 items-center justify-center rounded-md bg-orange-600 text-white font-bold text-xs">
+                        F
+                      </div>
+                    ),
+                  },
+                  {
+                    id: "gitea" as const,
+                    label: "Gitea",
+                    badge: "Self-Hosted",
+                    hint: "Self-hosted lightweight Git server with PKCE OAuth sign-in",
+                    icon: (
+                      <div className="flex size-7 items-center justify-center rounded-md bg-emerald-600 text-white font-bold text-xs">
+                        G
+                      </div>
+                    ),
+                  },
+                ].map((p) => {
+                  const isSelected = provider === p.id;
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => {
+                        setProvider(p.id);
+                        setTestResult(null);
+                      }}
+                      className={`flex flex-col rounded-xl border transition-all cursor-pointer select-none ${
+                        isSelected
+                          ? "border-neutral-900 bg-neutral-100 ring-1 ring-neutral-900 shadow-xs"
+                          : "border-neutral-200/90 bg-neutral-50 hover:border-neutral-300 shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between px-4 pt-3 pb-2.5">
+                        <div className="flex items-center gap-2.5">
+                          {p.icon}
+                          <span className="text-[15px] font-semibold text-neutral-900">{p.label}</span>
+                        </div>
+                        <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
+                          {p.badge}
+                        </span>
+                      </div>
+                      <div className="mx-1.5 mb-1.5 flex flex-1 flex-col rounded-lg border border-neutral-200 bg-white p-3.5">
+                        <div className="text-xs text-neutral-600 leading-relaxed min-h-[36px]">{p.hint}</div>
+                        <div className="mt-3 flex items-center justify-between border-t border-neutral-100 pt-2.5">
+                          <span className="text-[11px] font-medium text-neutral-500">
+                            {isSelected ? "Active Provider" : "Click to select"}
+                          </span>
+                          <div
+                            className={`flex size-4 items-center justify-center rounded-full border transition-colors ${
+                              isSelected
+                                ? "border-neutral-900 bg-neutral-900 text-white"
+                                : "border-neutral-300 bg-white"
+                            }`}
+                          >
+                            {isSelected && <div className="size-1.5 rounded-full bg-white" />}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Provider Config Details */}
@@ -718,107 +749,128 @@ export function OnboardingPage({
                     ⚡ <strong>Non-blocking background download:</strong> If local checkpoints need downloading, the download will run smoothly in the background. You can proceed with onboarding right away without waiting!
                   </div>
 
-                  <div className="rounded-xl border border-neutral-200 p-4">
-                    <label className="block text-xs font-semibold text-neutral-900">
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-900 mb-2">
                       System 1 Model (Required)
                     </label>
-                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <label
-                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 text-xs ${
-                          localS1 === "laya" ? "border-neutral-900 bg-neutral-50 ring-1 ring-neutral-900" : "border-neutral-200"
-                        }`}
-                      >
-                        <div>
-                          <div className="font-semibold text-neutral-900">Laya Typed-Decisions</div>
-                          <div className="text-neutral-500">455 MB · Instant CPU/GPU scoring</div>
-                        </div>
-                        <input
-                          type="radio"
-                          name="localS1"
-                          checked={localS1 === "laya"}
-                          onChange={() => setLocalS1("laya")}
-                          className="size-4"
-                        />
-                      </label>
-
-                      <label
-                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 text-xs ${
-                          localS1 === "kev" ? "border-neutral-900 bg-neutral-50 ring-1 ring-neutral-900" : "border-neutral-200"
-                        }`}
-                      >
-                        <div>
-                          <div className="font-semibold text-neutral-900">Kev 0.8B (S1)</div>
-                          <div className="text-neutral-500">828 MB · High-precision rubrics</div>
-                        </div>
-                        <input
-                          type="radio"
-                          name="localS1"
-                          checked={localS1 === "kev"}
-                          onChange={() => setLocalS1("kev")}
-                          className="size-4"
-                        />
-                      </label>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {[
+                        {
+                          id: "laya",
+                          name: "Laya Typed-Decisions",
+                          size: "455 MB",
+                          speed: "Instant CPU / GPU",
+                          desc: "Deterministic rubric scoring, safety gates & blast radius evaluation.",
+                        },
+                        {
+                          id: "kev",
+                          name: "Kev 0.8B (S1)",
+                          size: "828 MB",
+                          speed: "High Precision",
+                          desc: "Deeper nuance for complex PRs and strict organization standards.",
+                        },
+                      ].map((m) => {
+                        const isSelected = localS1 === m.id;
+                        return (
+                          <div
+                            key={m.id}
+                            onClick={() => setLocalS1(m.id)}
+                            className={`flex flex-col rounded-xl border transition-all cursor-pointer select-none ${
+                              isSelected
+                                ? "border-neutral-900 bg-neutral-100 ring-1 ring-neutral-900 shadow-xs"
+                                : "border-neutral-200/90 bg-neutral-50 hover:border-neutral-300 shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between px-4 pt-3 pb-2.5">
+                              <span className="text-sm font-semibold text-neutral-900">{m.name}</span>
+                              <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
+                                {m.size}
+                              </span>
+                            </div>
+                            <div className="mx-1.5 mb-1.5 flex flex-1 flex-col rounded-lg border border-neutral-200 bg-white p-3.5">
+                              <div className="text-xs text-neutral-600 leading-relaxed min-h-[32px]">{m.desc}</div>
+                              <div className="mt-3 flex items-center justify-between border-t border-neutral-100 pt-2.5">
+                                <span className="text-[11px] font-medium text-neutral-500">{m.speed}</span>
+                                <div
+                                  className={`flex size-4 items-center justify-center rounded-full border transition-colors ${
+                                    isSelected
+                                      ? "border-neutral-900 bg-neutral-900 text-white"
+                                      : "border-neutral-300 bg-white"
+                                  }`}
+                                >
+                                  {isSelected && <div className="size-1.5 rounded-full bg-white" />}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-neutral-200 p-4">
-                    <label className="block text-xs font-semibold text-neutral-900">
+                  <div className="mt-6">
+                    <label className="block text-xs font-semibold text-neutral-900 mb-2">
                       Language Model (Optional)
                     </label>
-                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <label
-                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 text-xs ${
-                          localLlm === "qwen2.5-coder-1.5b" ? "border-neutral-900 bg-neutral-50 ring-1 ring-neutral-900" : "border-neutral-200"
-                        }`}
-                      >
-                        <div>
-                          <div className="font-semibold text-neutral-900">Qwen2.5-Coder 1.5B</div>
-                          <div className="text-neutral-500">1.0 GB · Fast laptop model</div>
-                        </div>
-                        <input
-                          type="radio"
-                          name="localLlm"
-                          checked={localLlm === "qwen2.5-coder-1.5b"}
-                          onChange={() => setLocalLlm("qwen2.5-coder-1.5b")}
-                          className="size-4"
-                        />
-                      </label>
-
-                      <label
-                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 text-xs ${
-                          localLlm === "qwen2.5-coder-7b" ? "border-neutral-900 bg-neutral-50 ring-1 ring-neutral-900" : "border-neutral-200"
-                        }`}
-                      >
-                        <div>
-                          <div className="font-semibold text-neutral-900">Qwen2.5-Coder 7B</div>
-                          <div className="text-neutral-500">4.7 GB · Full staff reviewer</div>
-                        </div>
-                        <input
-                          type="radio"
-                          name="localLlm"
-                          checked={localLlm === "qwen2.5-coder-7b"}
-                          onChange={() => setLocalLlm("qwen2.5-coder-7b")}
-                          className="size-4"
-                        />
-                      </label>
-
-                      <label
-                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 text-xs ${
-                          localLlm === "codereviewer" ? "border-neutral-900 bg-neutral-50 ring-1 ring-neutral-900" : "border-neutral-200"
-                        }`}
-                      >
-                        <div>
-                          <div className="font-semibold text-neutral-900">CodeReviewer</div>
-                          <div className="text-neutral-500">890 MB · Diff comments only</div>
-                        </div>
-                        <input
-                          type="radio"
-                          name="localLlm"
-                          checked={localLlm === "codereviewer"}
-                          onChange={() => setLocalLlm("codereviewer")}
-                          className="size-4"
-                        />
-                      </label>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      {[
+                        {
+                          id: "qwen2.5-coder-1.5b",
+                          name: "Qwen2.5-Coder 1.5B",
+                          size: "1.0 GB",
+                          role: "Fast laptop reviewer",
+                          desc: "Lightweight, fast summary and file walkthrough comments.",
+                        },
+                        {
+                          id: "qwen2.5-coder-7b",
+                          name: "Qwen2.5-Coder 7B",
+                          size: "4.7 GB",
+                          role: "Staff reviewer",
+                          desc: "Comprehensive code critique with committable inline suggestions.",
+                        },
+                        {
+                          id: "codereviewer",
+                          name: "CodeReviewer",
+                          size: "890 MB",
+                          role: "Diff comments only",
+                          desc: "Specialized model for inline hunk comments and fixes.",
+                        },
+                      ].map((m) => {
+                        const isSelected = localLlm === m.id;
+                        return (
+                          <div
+                            key={m.id}
+                            onClick={() => setLocalLlm(m.id)}
+                            className={`flex flex-col rounded-xl border transition-all cursor-pointer select-none ${
+                              isSelected
+                                ? "border-neutral-900 bg-neutral-100 ring-1 ring-neutral-900 shadow-xs"
+                                : "border-neutral-200/90 bg-neutral-50 hover:border-neutral-300 shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between px-4 pt-3 pb-2.5">
+                              <span className="text-sm font-semibold text-neutral-900">{m.name}</span>
+                              <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
+                                {m.size}
+                              </span>
+                            </div>
+                            <div className="mx-1.5 mb-1.5 flex flex-1 flex-col rounded-lg border border-neutral-200 bg-white p-3.5">
+                              <div className="text-xs text-neutral-600 leading-relaxed min-h-[32px]">{m.desc}</div>
+                              <div className="mt-3 flex items-center justify-between border-t border-neutral-100 pt-2.5">
+                                <span className="text-[11px] font-medium text-neutral-500">{m.role}</span>
+                                <div
+                                  className={`flex size-4 items-center justify-center rounded-full border transition-colors ${
+                                    isSelected
+                                      ? "border-neutral-900 bg-neutral-900 text-white"
+                                      : "border-neutral-300 bg-white"
+                                  }`}
+                                >
+                                  {isSelected && <div className="size-1.5 rounded-full bg-white" />}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
