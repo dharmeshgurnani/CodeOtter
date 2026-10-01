@@ -76,9 +76,6 @@ export function OnboardingPage({
   const [selectedRepos, setSelectedRepos] = useState<string[]>([]);
   const [repoSearch, setRepoSearch] = useState("");
   const [reposLoading, setReposLoading] = useState(false);
-  const [patToken, setPatToken] = useState("");
-  const [patBusy, setPatBusy] = useState(false);
-  const [showPatBox, setShowPatBox] = useState(false);
 
   // Initial Data Load & Query Parameter Handling
   useEffect(() => {
@@ -128,28 +125,6 @@ export function OnboardingPage({
       })
       .catch(() => {})
       .finally(() => setReposLoading(false));
-  };
-
-  const handleSaveTokenAndRefresh = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!patToken.trim()) return;
-    setPatBusy(true);
-    setError("");
-    try {
-      const res = await fetch("/api/onboarding/save-provider", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ provider: "github", token: patToken.trim() }),
-      });
-      if (!res.ok) throw new Error("Failed to save token");
-      toast.success("GitHub credentials saved! Refreshing repositories...");
-      setPatToken("");
-      loadRepositories();
-    } catch (err: any) {
-      setError(err.message || "Failed to save token");
-    } finally {
-      setPatBusy(false);
-    }
   };
 
   useEffect(() => {
@@ -1203,41 +1178,6 @@ export function OnboardingPage({
                     )}
                   </div>
                 </form>
-
-                {/* Optional GitHub Token Discovery Helper */}
-                <div className="mt-2.5 rounded-lg border border-neutral-200/80 bg-neutral-50/70 p-2.5 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-neutral-600">
-                      Have private or organization repositories?
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowPatBox(!showPatBox)}
-                      className="font-medium text-neutral-800 hover:underline cursor-pointer"
-                    >
-                      {showPatBox ? "Close" : "Connect GitHub Token (PAT)"}
-                    </button>
-                  </div>
-                  {showPatBox && (
-                    <form onSubmit={handleSaveTokenAndRefresh} className="mt-2 flex items-center gap-2">
-                      <input
-                        type="password"
-                        placeholder="Paste Personal Access Token (ghp_... with repo scope)"
-                        value={patToken}
-                        onChange={(e) => setPatToken(e.target.value)}
-                        className="flex-1 rounded-md border border-neutral-300 bg-white px-2.5 py-1 text-xs text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-hidden"
-                      />
-                      <Button
-                        type="submit"
-                        size="sm"
-                        disabled={patBusy || !patToken.trim()}
-                        className="h-7 text-xs font-medium px-3 shrink-0"
-                      >
-                        {patBusy ? "Discovering..." : "Discover Repos"}
-                      </Button>
-                    </form>
-                  )}
-                </div>
               </div>
 
               {/* Repositories Discovery List */}
@@ -1280,7 +1220,7 @@ export function OnboardingPage({
 
                     {filteredRepos.length === 0 && !repoSearch.trim() ? (
                       <div className="p-8 text-center text-sm text-neutral-500">
-                        No repositories auto-discovered. Type your repository name (e.g. <code>owner/repo</code>) in the search bar above and click Add, or connect a GitHub Token above to auto-discover all your public &amp; private repositories.
+                        No repositories found matching your filter. Type your repository name (e.g. <code>owner/repo</code>) in the search bar above to pin it.
                       </div>
                     ) : (
                       filteredRepos.map((r) => {

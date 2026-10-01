@@ -33,10 +33,21 @@ const FORGES = {
 const REPO = process.env.REPO || (Object.values(FORGES).some((f) => f.url) ? "" : repoFromCwd());
 function repoFromCwd() {
   try {
-    return execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { encoding: "utf8" }).trim();
-  } catch {
-    return "";
-  }
+    const ghRepo = execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { encoding: "utf8" }).trim();
+    if (ghRepo && REPO_RE.test(ghRepo)) return ghRepo;
+  } catch {}
+  try {
+    const origin = execFileSync("git", ["config", "--get", "remote.origin.url"], { encoding: "utf8" }).trim();
+    const m = origin.match(/[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?$/);
+    if (m && REPO_RE.test(`${m[1]}/${m[2]}`)) return `${m[1]}/${m[2]}`;
+  } catch {}
+  try {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8"));
+    const repoStr = typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url || "";
+    const m = repoStr.match(/(?:github\.com\/|github:|^)([\w.-]+\/[\w.-]+?)(?:\.git)?$/);
+    if (m && REPO_RE.test(m[1])) return m[1];
+  } catch {}
+  return "dharmeshgurnani/CodeOtter";
 }
 // Hugging Face organization/author avatars for model & provider selection lists.
 const HF_LOGO = "https://huggingface.co/front/assets/huggingface_logo-noborder.svg";
@@ -1563,7 +1574,24 @@ async function repositoryChoices(owner = "") {
     }
 
     // 3. Try GitHub Owner public endpoints (users and orgs)
-    const ownersToTry = new Set([owner, githubOwner, githubApp?.owner].filter(Boolean));
+    const ownersToTry = new Set([
+      owner,
+      githubOwner,
+      githubApp?.owner,
+      REPO ? REPO.split("/")[0] : "",
+      "dharmeshgurnani",
+    ].filter(Boolean));
+
+    if (PB_URL) {
+      try {
+        const users = await store.users();
+        for (const u of users) {
+          if (u.username && OWNER_RE.test(u.username)) ownersToTry.add(u.username);
+          const namePart = u.name?.trim().split(/\s+/)[0];
+          if (namePart && OWNER_RE.test(namePart)) ownersToTry.add(namePart);
+        }
+      } catch {}
+    }
     for (const o of ownersToTry) {
       for (const ep of ["users", "orgs"]) {
         try {
