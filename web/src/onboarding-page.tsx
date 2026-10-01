@@ -1,0 +1,1008 @@
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { DitherCanvas } from "@/components/dither-canvas";
+import { GitHubMark } from "./login-page";
+
+type OnboardingStatus = {
+  completed: boolean;
+  appUrl: string;
+  hasPb: boolean;
+  primaryProvider: string;
+  forges: Record<string, { url: string; configured: boolean }>;
+  oauth: any;
+  repos: string[];
+  s1: { provider: string; model: string; baseUrl: string; hasKey: boolean };
+  llm: { provider: string; model: string; baseUrl: string; hasKey: boolean };
+  localModels: {
+    s1: { id: string; label: string; sizeMB: number; status: string }[];
+    llm: { id: string; label: string; sizeMB: number; status: string }[];
+  };
+};
+
+type RepoChoice = { id: string; label: string; org: string };
+
+export function OnboardingPage({
+  onComplete,
+  go,
+}: {
+  onComplete: (targetOrg: string) => void;
+  go: (path: string) => void;
+}) {
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<OnboardingStatus | null>(null);
+  const [error, setError] = useState("");
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // Step 1: Provider State
+  const [provider, setProvider] = useState<"github" | "forgejo" | "gitea">("github");
+  const [ghToken, setGhToken] = useState("");
+  const [ghClientId, setGhClientId] = useState("");
+  const [ghClientSecret, setGhClientSecret] = useState("");
+  const [forgeUrl, setForgeUrl] = useState("");
+  const [forgeToken, setForgeToken] = useState("");
+  const [forgeClientId, setForgeClientId] = useState("");
+  const [forgeClientSecret, setForgeClientSecret] = useState("");
+
+  // Step 2: Model State
+  const [modelMode, setModelMode] = useState<"local" | "cloud">("local");
+  // Local choices
+  const [localS1, setLocalS1] = useState("laya");
+  const [localLlm, setLocalLlm] = useState("qwen2.5-coder-1.5b");
+  // Cloud choices
+  const [cloudS1Provider, setCloudS1Provider] = useState("jev");
+  const [cloudS1Key, setCloudS1Key] = useState("");
+  const [cloudS1Url, setCloudS1Url] = useState("");
+  const [cloudLlmProvider, setCloudLlmProvider] = useState("anthropic");
+  const [cloudLlmModel, setCloudLlmModel] = useState("claude-3-5-sonnet-latest");
+  const [cloudLlmKey, setCloudLlmKey] = useState("");
+  const [cloudLlmUrl, setCloudLlmUrl] = useState("");
+
+  // Step 3: Repositories State
+  const [repoChoices, setRepoChoices] = useState<RepoChoice[]>([]);
+  const [selectedRepos, setSelectedRepos] = useState<string[]>([]);
+  const [repoSearch, setRepoSearch] = useState("");
+  const [customRepo, setCustomRepo] = useState("");
+  const [reposLoading, setReposLoading] = useState(false);
+
+  // Initial Data Load
+  useEffect(() => {
+    fetch("/api/onboarding")
+      .then((r) => r.json())
+      .then((data: OnboardingStatus) => {
+        setStatus(data);
+        if (data.primaryProvider === "forgejo" || data.primaryProvider === "gitea") {
+          setProvider(data.primaryProvider);
+          const f = data.forges[data.primaryProvider];
+          if (f?.url) setForgeUrl(f.url);
+        }
+        if (data.repos?.length) setSelectedRepos(data.repos);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Fetch Available Repositories for Step 3
+  const loadRepositories = () => {
+    setReposLoading(true);
+    fetch("/api/onboarding/repos")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.repos)) {
+          setRepoChoices(d.repos);
+          if (selectedRepos.length === 0 && d.repos.length > 0) {
+            setSelectedRepos([d.repos[0].id]);
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => setReposLoading(false));
+  };
+
+  useEffect(() => {
+    if (step === 3) {
+      loadRepositories();
+    }
+  }, [step]);
+
+  // Test Provider Connection
+  const handleTestProvider = async () => {
+    setError("");
+    setBusy(true);
+    setTestResult(null);
+    try {
+      const payload: any = { provider };
+      if (provider === "github") {
+        if (ghToken) payload.token = ghToken;
+      } else {
+        payload.url = forgeUrl;
+        payload.token = forgeToken;
+      }
+      const res = await fetch("/api/onboarding/test-provider", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setTestResult({ ok: false, message: data.error || data.message || "Connection failed" });
+      } else {
+        setTestResult({ ok: true, message: data.message || "Connection successful" });
+      }
+    } catch (err: any) {
+      setTestResult({ ok: false, message: err.message || "Connection failed" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Step 1 -> Step 2
+  const handleSaveStep1 = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      const payload: any = { provider };
+      if (provider === "github") {
+        if (ghToken) payload.token = ghToken;
+        if (ghClientId) payload.clientId = ghClientId;
+        if (ghClientSecret) payload.clientSecret = ghClientSecret;
+      } else {
+        if (!forgeUrl.trim()) throw new Error("Server URL is required");
+        payload.url = forgeUrl;
+        payload.token = forgeToken;
+        payload.clientId = forgeClientId;
+        payload.clientSecret = forgeClientSecret;
+      }
+
+      const res = await fetch("/api/onboarding/save-provider", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || "Failed to save provider configuration");
+      }
+      setTestResult(null);
+      setStep(2);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Step 2 -> Step 3
+  const handleSaveStep2 = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      const payload: any = {};
+      if (modelMode === "local") {
+        payload.s1 = { provider: localS1 };
+        if (localLlm && localLlm !== "none") {
+          payload.llm = { provider: localLlm };
+        }
+      } else {
+        payload.s1 = {
+          provider: cloudS1Provider,
+          apiKey: cloudS1Key,
+          baseUrl: cloudS1Url,
+        };
+        if (cloudLlmProvider && cloudLlmProvider !== "none") {
+          payload.llm = {
+            provider: cloudLlmProvider,
+            model: cloudLlmModel,
+            apiKey: cloudLlmKey,
+            baseUrl: cloudLlmUrl,
+          };
+        }
+      }
+
+      const res = await fetch("/api/onboarding/save-models", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || "Failed to save model configuration");
+      }
+      setStep(3);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Step 3 -> Step 4
+  const handleSaveStep3 = async () => {
+    setError("");
+    if (selectedRepos.length === 0) {
+      setError("Please select at least one repository to onboard.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/onboarding/save-repos", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repos: selectedRepos }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || "Failed to save repositories");
+      }
+      setStep(4);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Step 4 Complete -> Dashboard
+  const handleComplete = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/onboarding/complete", { method: "POST" });
+      const data = await res.json();
+      localStorage.setItem("pr-scorer.onboarding_done", "true");
+      onComplete(data.org || selectedRepos[0]?.split("/")[0] || "");
+    } catch {
+      localStorage.setItem("pr-scorer.onboarding_done", "true");
+      onComplete(selectedRepos[0]?.split("/")[0] || "");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleRepo = (id: string) => {
+    setSelectedRepos((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]));
+  };
+
+  const addCustomRepo = () => {
+    const r = customRepo.trim();
+    if (!r) return;
+    if (!selectedRepos.includes(r)) {
+      setSelectedRepos((prev) => [...prev, r]);
+      setRepoChoices((prev) => [{ id: r, label: r, org: r.split("/")[0] ?? "" }, ...prev]);
+    }
+    setCustomRepo("");
+  };
+
+  const filteredRepos = repoChoices.filter(
+    (r) =>
+      r.label.toLowerCase().includes(repoSearch.toLowerCase()) ||
+      r.id.toLowerCase().includes(repoSearch.toLowerCase())
+  );
+
+  const callbackUrl = `${status?.appUrl || window.location.origin}/auth/callback`;
+
+  if (loading) {
+    return (
+      <div className="flex min-h-svh items-center justify-center bg-white p-8">
+        <div className="flex flex-col items-center gap-3">
+          <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-10 animate-pulse rounded-lg shadow-xs" />
+          <p className="text-sm font-medium text-neutral-600">Loading setup wizard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid min-h-svh grid-cols-1 bg-white lg:grid-cols-[minmax(540px,7fr)_5fr]">
+      {/* Left: Interactive Wizard */}
+      <div className="flex flex-col px-6 py-6 sm:px-14 sm:py-10">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-8 rounded-lg shadow-xs" />
+            <span className="text-[17px] font-semibold tracking-tight text-neutral-900">CodeOtter Setup</span>
+          </div>
+          <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-600">
+            Step {step} of 4
+          </span>
+        </div>
+
+        {/* Stepper Progress Indicator */}
+        <div className="mt-6 grid grid-cols-4 gap-2">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className={`h-1.5 rounded-full transition-colors ${
+                i <= step ? "bg-neutral-900" : "bg-neutral-200"
+              }`}
+            />
+          ))}
+        </div>
+
+        <div className="mt-8 flex-1">
+          {error && (
+            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-3.5 text-sm text-red-800">
+              {error}
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* STEP 1: Git & OAuth Provider                                              */}
+          {/* ========================================================================= */}
+          {step === 1 && (
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 sm:text-3xl">
+                Choose your Primary Git &amp; OAuth Provider
+              </h1>
+              <p className="mt-2 text-[15px] text-neutral-600">
+                Select where your onboarded repositories and developer identities live.
+              </p>
+
+              {/* Informational Message */}
+              <div className="mt-4 flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50/70 p-3.5 text-sm text-blue-900">
+                <span className="text-base">ℹ️</span>
+                <span>
+                  Don&apos;t worry — if you use multiple forges, you can easily connect and configure the rest later in <strong>Admin &rarr; OAuth</strong>.
+                </span>
+              </div>
+
+              {/* Provider Selection Cards */}
+              <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => { setProvider("github"); setTestResult(null); }}
+                  className={`flex flex-col items-start rounded-xl border p-4 text-left transition-all ${
+                    provider === "github"
+                      ? "border-neutral-900 bg-neutral-50 shadow-xs ring-1 ring-neutral-900"
+                      : "border-neutral-200 hover:border-neutral-300"
+                  }`}
+                >
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-neutral-900 text-white">
+                    <GitHubMark />
+                  </div>
+                  <span className="mt-3 text-[15px] font-semibold text-neutral-900">GitHub</span>
+                  <span className="mt-0.5 text-xs text-neutral-500">Cloud or GitHub Enterprise</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setProvider("forgejo"); setTestResult(null); }}
+                  className={`flex flex-col items-start rounded-xl border p-4 text-left transition-all ${
+                    provider === "forgejo"
+                      ? "border-neutral-900 bg-neutral-50 shadow-xs ring-1 ring-neutral-900"
+                      : "border-neutral-200 hover:border-neutral-300"
+                  }`}
+                >
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-orange-600 text-white font-bold text-sm">
+                    F
+                  </div>
+                  <span className="mt-3 text-[15px] font-semibold text-neutral-900">Forgejo</span>
+                  <span className="mt-0.5 text-xs text-neutral-500">Self-hosted community forge</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setProvider("gitea"); setTestResult(null); }}
+                  className={`flex flex-col items-start rounded-xl border p-4 text-left transition-all ${
+                    provider === "gitea"
+                      ? "border-neutral-900 bg-neutral-50 shadow-xs ring-1 ring-neutral-900"
+                      : "border-neutral-200 hover:border-neutral-300"
+                  }`}
+                >
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-600 text-white font-bold text-sm">
+                    G
+                  </div>
+                  <span className="mt-3 text-[15px] font-semibold text-neutral-900">Gitea</span>
+                  <span className="mt-0.5 text-xs text-neutral-500">Self-hosted lightweight Git</span>
+                </button>
+              </div>
+
+              {/* Provider Config Details */}
+              <div className="mt-6 rounded-xl border border-neutral-200 bg-neutral-50/50 p-5">
+                {provider === "github" ? (
+                  <div className="space-y-4">
+                    <h2 className="text-sm font-semibold text-neutral-900">GitHub Connection</h2>
+                    <p className="text-xs text-neutral-600">
+                      CodeOtter reads repositories via GitHub CLI (`gh`) or a Personal Access Token (`GH_TOKEN`). For OAuth developer sign-in, provide OAuth app credentials.
+                    </p>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">OAuth Callback URL</label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={callbackUrl}
+                        className="mt-1 w-full rounded-lg border border-neutral-200 bg-neutral-100 px-3 py-2 text-xs font-mono text-neutral-700 select-all"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">Client ID (OAuth)</label>
+                        <input
+                          type="text"
+                          value={ghClientId}
+                          onChange={(e) => setGhClientId(e.target.value)}
+                          placeholder="Ov23..."
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">Client Secret (OAuth)</label>
+                        <input
+                          type="password"
+                          value={ghClientSecret}
+                          onChange={(e) => setGhClientSecret(e.target.value)}
+                          placeholder="secret..."
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">Personal Access Token (Optional for discovery)</label>
+                      <input
+                        type="password"
+                        value={ghToken}
+                        onChange={(e) => setGhToken(e.target.value)}
+                        placeholder="ghp_... or gho_..."
+                        className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <h2 className="text-sm font-semibold text-neutral-900">
+                      {provider === "forgejo" ? "Forgejo" : "Gitea"} Server Connection
+                    </h2>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">Server Origin URL *</label>
+                      <input
+                        type="url"
+                        value={forgeUrl}
+                        onChange={(e) => setForgeUrl(e.target.value)}
+                        placeholder={provider === "forgejo" ? "https://forgejo.company.internal" : "https://gitea.company.internal"}
+                        className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">Repository Access Token (Required for reviews)</label>
+                      <input
+                        type="password"
+                        value={forgeToken}
+                        onChange={(e) => setForgeToken(e.target.value)}
+                        placeholder="Paste personal access token"
+                        className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">OAuth Client ID (Optional)</label>
+                        <input
+                          type="text"
+                          value={forgeClientId}
+                          onChange={(e) => setForgeClientId(e.target.value)}
+                          placeholder="Client ID from Settings / Applications"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">OAuth Client Secret (Optional)</label>
+                        <input
+                          type="password"
+                          value={forgeClientSecret}
+                          onChange={(e) => setForgeClientSecret(e.target.value)}
+                          placeholder="Client Secret"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-4 flex items-center justify-between pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={handleTestProvider}
+                  >
+                    {busy ? "Testing..." : "Test Connection"}
+                  </Button>
+                  {testResult && (
+                    <span
+                      className={`text-xs font-medium ${
+                        testResult.ok ? "text-green-700" : "text-red-700"
+                      }`}
+                    >
+                      {testResult.ok ? "✅" : "❌"} {testResult.message}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-8 flex justify-end">
+                <Button size="lg" disabled={busy} onClick={handleSaveStep1}>
+                  Next: Configure AI Models &rarr;
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* STEP 2: AI Review Engine (System 1 + LLM)                                 */}
+          {/* ========================================================================= */}
+          {step === 2 && (
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 sm:text-3xl">
+                Configure Dual-Engine AI Models
+              </h1>
+              <p className="mt-2 text-[15px] text-neutral-600">
+                CodeOtter uses two concurrent engines: <strong>System 1</strong> for typed rubrics &amp; merge gates, and <strong>Language Model (LLM)</strong> for narrative walkthroughs &amp; suggestions.
+              </p>
+
+              {/* Engine Architecture Callout */}
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md bg-neutral-900 px-2 py-0.5 text-xs font-semibold text-white">Required</span>
+                    <h3 className="text-sm font-semibold text-neutral-900">System 1 Model</h3>
+                  </div>
+                  <p className="mt-1 text-xs text-neutral-600">
+                    Evaluates calibrated 0–100 scores (Quality, Blast Radius, Risk, Tests) and deterministic pre-merge safety gates.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md bg-neutral-200 px-2 py-0.5 text-xs font-semibold text-neutral-800">Optional</span>
+                    <h3 className="text-sm font-semibold text-neutral-900">Language Model (LLM)</h3>
+                  </div>
+                  <p className="mt-1 text-xs text-neutral-600">
+                    Writes executive summary, file cohort walkthroughs, and line-anchored actionable comments with committable fixes.
+                  </p>
+                </div>
+              </div>
+
+              {/* Mode Toggle */}
+              <div className="mt-6 flex rounded-lg border border-neutral-200 bg-neutral-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setModelMode("local")}
+                  className={`flex-1 rounded-md py-2 text-center text-sm font-medium transition-all ${
+                    modelMode === "local" ? "bg-white text-neutral-900 shadow-xs" : "text-neutral-600 hover:text-neutral-900"
+                  }`}
+                >
+                  💻 100% Offline / Local Hardware
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModelMode("cloud")}
+                  className={`flex-1 rounded-md py-2 text-center text-sm font-medium transition-all ${
+                    modelMode === "cloud" ? "bg-white text-neutral-900 shadow-xs" : "text-neutral-600 hover:text-neutral-900"
+                  }`}
+                >
+                  ☁️ Hosted Cloud APIs (BYOK)
+                </button>
+              </div>
+
+              {modelMode === "local" ? (
+                <div className="mt-5 space-y-4">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3.5 text-xs text-amber-900">
+                    ⚡ <strong>Non-blocking background download:</strong> If local checkpoints need downloading, the download will run smoothly in the background. You can proceed with onboarding right away without waiting!
+                  </div>
+
+                  <div className="rounded-xl border border-neutral-200 p-4">
+                    <label className="block text-xs font-semibold text-neutral-900">
+                      System 1 Model (Required)
+                    </label>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <label
+                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 text-xs ${
+                          localS1 === "laya" ? "border-neutral-900 bg-neutral-50 ring-1 ring-neutral-900" : "border-neutral-200"
+                        }`}
+                      >
+                        <div>
+                          <div className="font-semibold text-neutral-900">Laya Typed-Decisions</div>
+                          <div className="text-neutral-500">455 MB · Instant CPU/GPU scoring</div>
+                        </div>
+                        <input
+                          type="radio"
+                          name="localS1"
+                          checked={localS1 === "laya"}
+                          onChange={() => setLocalS1("laya")}
+                          className="size-4"
+                        />
+                      </label>
+
+                      <label
+                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 text-xs ${
+                          localS1 === "kev" ? "border-neutral-900 bg-neutral-50 ring-1 ring-neutral-900" : "border-neutral-200"
+                        }`}
+                      >
+                        <div>
+                          <div className="font-semibold text-neutral-900">Kev 0.8B (S1)</div>
+                          <div className="text-neutral-500">828 MB · High-precision rubrics</div>
+                        </div>
+                        <input
+                          type="radio"
+                          name="localS1"
+                          checked={localS1 === "kev"}
+                          onChange={() => setLocalS1("kev")}
+                          className="size-4"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-neutral-200 p-4">
+                    <label className="block text-xs font-semibold text-neutral-900">
+                      Language Model (Optional)
+                    </label>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <label
+                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 text-xs ${
+                          localLlm === "qwen2.5-coder-1.5b" ? "border-neutral-900 bg-neutral-50 ring-1 ring-neutral-900" : "border-neutral-200"
+                        }`}
+                      >
+                        <div>
+                          <div className="font-semibold text-neutral-900">Qwen2.5-Coder 1.5B</div>
+                          <div className="text-neutral-500">1.0 GB · Fast laptop model</div>
+                        </div>
+                        <input
+                          type="radio"
+                          name="localLlm"
+                          checked={localLlm === "qwen2.5-coder-1.5b"}
+                          onChange={() => setLocalLlm("qwen2.5-coder-1.5b")}
+                          className="size-4"
+                        />
+                      </label>
+
+                      <label
+                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 text-xs ${
+                          localLlm === "qwen2.5-coder-7b" ? "border-neutral-900 bg-neutral-50 ring-1 ring-neutral-900" : "border-neutral-200"
+                        }`}
+                      >
+                        <div>
+                          <div className="font-semibold text-neutral-900">Qwen2.5-Coder 7B</div>
+                          <div className="text-neutral-500">4.7 GB · Full staff reviewer</div>
+                        </div>
+                        <input
+                          type="radio"
+                          name="localLlm"
+                          checked={localLlm === "qwen2.5-coder-7b"}
+                          onChange={() => setLocalLlm("qwen2.5-coder-7b")}
+                          className="size-4"
+                        />
+                      </label>
+
+                      <label
+                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 text-xs ${
+                          localLlm === "codereviewer" ? "border-neutral-900 bg-neutral-50 ring-1 ring-neutral-900" : "border-neutral-200"
+                        }`}
+                      >
+                        <div>
+                          <div className="font-semibold text-neutral-900">CodeReviewer</div>
+                          <div className="text-neutral-500">890 MB · Diff comments only</div>
+                        </div>
+                        <input
+                          type="radio"
+                          name="localLlm"
+                          checked={localLlm === "codereviewer"}
+                          onChange={() => setLocalLlm("codereviewer")}
+                          className="size-4"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-5 space-y-4">
+                  {/* Cloud System 1 */}
+                  <div className="rounded-xl border border-neutral-200 p-4">
+                    <h3 className="text-xs font-semibold text-neutral-900">System 1 Provider (Required)</h3>
+                    <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">Provider</label>
+                        <select
+                          value={cloudS1Provider}
+                          onChange={(e) => setCloudS1Provider(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
+                        >
+                          <option value="jev">TypeSafe Jev (Cloud)</option>
+                          <option value="jev_openrouter">OpenRouter (TypeSafe Jev)</option>
+                          <option value="custom">Custom System 1 Endpoint</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">API Key</label>
+                        <input
+                          type="password"
+                          value={cloudS1Key}
+                          onChange={(e) => setCloudS1Key(e.target.value)}
+                          placeholder="Paste API key"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
+                        />
+                      </div>
+                    </div>
+                    {cloudS1Provider === "custom" && (
+                      <div className="mt-3">
+                        <label className="block text-xs font-medium text-neutral-700">Custom Base URL</label>
+                        <input
+                          type="text"
+                          value={cloudS1Url}
+                          onChange={(e) => setCloudS1Url(e.target.value)}
+                          placeholder="http://127.0.0.1:8080/v1"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Cloud LLM */}
+                  <div className="rounded-xl border border-neutral-200 p-4">
+                    <h3 className="text-xs font-semibold text-neutral-900">Language Model Provider (Optional)</h3>
+                    <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">Provider</label>
+                        <select
+                          value={cloudLlmProvider}
+                          onChange={(e) => setCloudLlmProvider(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
+                        >
+                          <option value="anthropic">Anthropic (Claude)</option>
+                          <option value="openai">OpenAI (GPT-4o/5)</option>
+                          <option value="minimax">MiniMax</option>
+                          <option value="openrouter">OpenRouter</option>
+                          <option value="ollama">Ollama (Local Server)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">Model Name</label>
+                        <input
+                          type="text"
+                          value={cloudLlmModel}
+                          onChange={(e) => setCloudLlmModel(e.target.value)}
+                          placeholder="claude-3-5-sonnet-latest"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">API Key</label>
+                        <input
+                          type="password"
+                          value={cloudLlmKey}
+                          onChange={(e) => setCloudLlmKey(e.target.value)}
+                          placeholder="Paste API key"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
+                        />
+                      </div>
+                    </div>
+                    {cloudLlmProvider === "ollama" && (
+                      <div className="mt-3">
+                        <label className="block text-xs font-medium text-neutral-700">Ollama Server Base URL</label>
+                        <input
+                          type="text"
+                          value={cloudLlmUrl}
+                          onChange={(e) => setCloudLlmUrl(e.target.value)}
+                          placeholder="http://localhost:11434/v1"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-8 flex justify-between">
+                <Button variant="outline" onClick={() => setStep(1)}>
+                  &larr; Back
+                </Button>
+                <Button size="lg" disabled={busy} onClick={handleSaveStep2}>
+                  Next: Connect Repositories &rarr;
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* STEP 3: Connect Repositories                                              */}
+          {/* ========================================================================= */}
+          {step === 3 && (
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 sm:text-3xl">
+                Select Repositories to Onboard
+              </h1>
+              <p className="mt-2 text-[15px] text-neutral-600">
+                Select one or multiple repositories. Pull requests will be scored, reviewed, and tracked automatically.
+              </p>
+
+              {/* Filter & Custom Add Bar */}
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <input
+                  type="text"
+                  placeholder="Filter repositories..."
+                  value={repoSearch}
+                  onChange={(e) => setRepoSearch(e.target.value)}
+                  className="w-full max-w-sm rounded-lg border border-neutral-300 bg-white px-3.5 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                />
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Add owner/name manually"
+                    value={customRepo}
+                    onChange={(e) => setCustomRepo(e.target.value)}
+                    className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                  />
+                  <Button type="button" variant="outline" size="sm" onClick={addCustomRepo}>
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              {/* Repo Selection Count */}
+              <div className="mt-4 flex items-center justify-between text-xs text-neutral-500">
+                <span>
+                  <strong>{selectedRepos.length}</strong> repository{selectedRepos.length === 1 ? "" : "ies"} selected (at least 1 required)
+                </span>
+                {repoChoices.length > 0 && (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRepos(repoChoices.map((r) => r.id))}
+                      className="text-neutral-700 hover:underline"
+                    >
+                      Select all
+                    </button>
+                    <span>·</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRepos([])}
+                      className="text-neutral-700 hover:underline"
+                    >
+                      Deselect all
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Repo Checkbox Table */}
+              <div className="mt-3 max-h-[340px] overflow-y-auto rounded-xl border border-neutral-200 bg-white">
+                {reposLoading ? (
+                  <div className="p-8 text-center text-sm text-neutral-500">
+                    Discovering repositories from connected provider...
+                  </div>
+                ) : filteredRepos.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-neutral-500">
+                    {repoChoices.length === 0
+                      ? "No repositories automatically discovered. Add your repository manually above."
+                      : "No repositories match your search filter."}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-neutral-100">
+                    {filteredRepos.map((r) => {
+                      const isChecked = selectedRepos.includes(r.id);
+                      return (
+                        <div
+                          key={r.id}
+                          onClick={() => toggleRepo(r.id)}
+                          className={`flex cursor-pointer items-center justify-between px-4 py-3 text-sm transition-colors ${
+                            isChecked ? "bg-neutral-50 font-medium" : "hover:bg-neutral-50/50"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {}}
+                              className="size-4 rounded-md border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                            />
+                            <span className="text-neutral-900">{r.label}</span>
+                          </div>
+                          <span className="rounded-md bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">
+                            {r.org}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-8 flex justify-between">
+                <Button variant="outline" onClick={() => setStep(2)}>
+                  &larr; Back
+                </Button>
+                <Button
+                  size="lg"
+                  disabled={busy || selectedRepos.length === 0}
+                  onClick={handleSaveStep3}
+                >
+                  Next: Finish Setup &rarr;
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* STEP 4: All Set & Land on Dashboard                                       */}
+          {/* ========================================================================= */}
+          {step === 4 && (
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 sm:text-3xl">
+                We are all set.
+              </h1>
+              <p className="mt-2 text-[15px] text-neutral-600">
+                Your CodeOtter instance is configured and ready to autonomously score and review pull requests.
+              </p>
+
+              {/* Summary Card */}
+              <div className="mt-6 divide-y divide-neutral-100 rounded-xl border border-neutral-200 bg-neutral-50/50 p-5">
+                <div className="flex items-center justify-between py-2 text-sm">
+                  <span className="text-neutral-500">Primary Git Provider</span>
+                  <span className="font-semibold uppercase tracking-wider text-neutral-900">{provider}</span>
+                </div>
+                <div className="flex items-center justify-between py-2 text-sm">
+                  <span className="text-neutral-500">System 1 Scoring Engine</span>
+                  <span className="font-semibold text-neutral-900">
+                    {modelMode === "local" ? localS1 : cloudS1Provider} (Active)
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2 text-sm">
+                  <span className="text-neutral-500">Language Model (LLM)</span>
+                  <span className="font-semibold text-neutral-900">
+                    {modelMode === "local" ? localLlm : cloudLlmProvider} (Active)
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2 text-sm">
+                  <span className="text-neutral-500">Onboarded Repositories</span>
+                  <span className="font-semibold text-neutral-900">{selectedRepos.length} configured</span>
+                </div>
+              </div>
+
+              {/* Repos Preview Chips */}
+              <div className="mt-4 flex flex-wrap gap-1.5">
+                {selectedRepos.map((r) => (
+                  <span
+                    key={r}
+                    className="rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-xs font-medium text-neutral-800"
+                  >
+                    {r}
+                  </span>
+                ))}
+              </div>
+
+              <div className="mt-10 flex justify-end">
+                <Button size="lg" disabled={busy} onClick={handleComplete} className="px-8">
+                  {busy ? "Finalizing..." : "Go to Dashboard \u2192"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-500">
+          <a className="no-underline hover:underline" href="https://github.com/dharmeshgurnani/CodeOtter#readme" target="_blank" rel="noreferrer">Documentation</a>
+          <a className="no-underline hover:underline" href="https://github.com/dharmeshgurnani/CodeOtter" target="_blank" rel="noreferrer">Source</a>
+          <a className="no-underline hover:underline cursor-pointer" onClick={() => go("/")}>Skip to dashboard</a>
+        </div>
+      </div>
+
+      {/* Right: Showcase & Visual Shader */}
+      <div className="relative hidden overflow-hidden bg-[#0a0a0b] text-white lg:block">
+        <DitherCanvas className="absolute inset-0 h-full w-full" pixel={3} />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/70 to-transparent" />
+        <div className="relative flex h-full flex-col justify-end p-12 xl:p-16">
+          <div className="space-y-4">
+            <span className="inline-block rounded-md bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white">
+              Autonomous PR Intelligence
+            </span>
+            <h2 className="max-w-[20ch] text-[32px] font-semibold leading-[1.15] tracking-tight xl:text-[38px]">
+              Calibrated review scores, blast radius &amp; merge gates on your hardware.
+            </h2>
+            <p className="max-w-[44ch] text-[15px] leading-relaxed text-white/70">
+              Run 100% offline with zero external cloud dependencies or connect hosted models of your choice.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

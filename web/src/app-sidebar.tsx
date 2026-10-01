@@ -281,7 +281,7 @@ export function AppSidebar({ repositoriesLoaded = true, forgeUrls = {}, repos, r
           <SidebarGroup>
             <SidebarGroupLabel>Admin</SidebarGroupLabel>
             <SidebarMenu>
-              <NavGroup title="Admin" icon={ShieldCheck} route={route} go={go} pages={settingsPages.filter((p) => p.group === "admin").map((p) => ({ title: p.title, path: `/settings/${p.id}` }))} />
+              <NavGroup title="Admin" icon={ShieldCheck} route={route} go={go} pages={[...settingsPages.filter((p) => p.group === "admin").map((p) => ({ title: p.title, path: `/settings/${p.id}` })), { title: "Setup wizard", path: "/onboarding" }]} />
             </SidebarMenu>
           </SidebarGroup>
         )}

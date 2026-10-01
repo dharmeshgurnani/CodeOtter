@@ -69,7 +69,7 @@ export type Review = {
   at: string;
 };
 export type User = { id: string; name: string; email: string; role: string; avatar: string };
-export type Board = { repo: string; repos: string[]; forgejoUrl?: string; forgeUrls?: Record<string, string>; model: string; baseUrl: string; store: string; settingsPages: { id: string; title: string; group: "settings" | "admin" }[]; reviewed: Review[]; open: OpenPr[] };
+export type Board = { repo: string; repos: string[]; onboardingNeeded?: boolean; forgejoUrl?: string; forgeUrls?: Record<string, string>; model: string; baseUrl: string; store: string; settingsPages: { id: string; title: string; group: "settings" | "admin" }[]; reviewed: Review[]; open: OpenPr[] };
 
 export const repoFromUrl = (url: string, origins: Record<string, string> = {}) => {
   try {

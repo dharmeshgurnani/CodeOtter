@@ -3006,7 +3006,145 @@ http
         const rs = await repos();
         const org = requestOrg(url);
         const scoped = rs.filter((r) => !org || r.startsWith(`${org}/`));
-        return json({ repo: scoped[0] || "", repos: rs, forgejoUrl: FORGES.forgejo.url, forgeUrls: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, f.url])), model: `${c.provider}/${c.model}`, baseUrl: c.baseUrl, store: PB_URL ? "pocketbase" : "files", settingsPages: await settingsPages(g.user), reviewed: (await store.all()).filter((r) => !org || repoOf(r.pr).startsWith(`${org}/`)), open: (await Promise.all(scoped.map(openPrs))).flat() });
+        const onboardingComplete = (await store.getSetting("onboardingComplete")) === true;
+        const onboardingNeeded = !onboardingComplete && rs.length === 0;
+        return json({ repo: scoped[0] || "", repos: rs, onboardingNeeded, forgejoUrl: FORGES.forgejo.url, forgeUrls: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, f.url])), model: `${c.provider}/${c.model}`, baseUrl: c.baseUrl, store: PB_URL ? "pocketbase" : "files", settingsPages: await settingsPages(g.user), reviewed: (await store.all()).filter((r) => !org || repoOf(r.pr).startsWith(`${org}/`)), open: (await Promise.all(scoped.map(openPrs))).flat() });
+      }
+      if (url.pathname.startsWith("/api/onboarding")) {
+        const g = await gate(req, res, "admin");
+        if (!g.ok) return;
+        if (url.pathname === "/api/onboarding" || url.pathname === "/api/onboarding/status") {
+          const rs = await repos();
+          const savedComplete = (await store.getSetting("onboardingComplete")) === true;
+          const s1 = await s1Config();
+          const llm = await llmConfig();
+          const o = PB_URL ? await store.getOAuth() : null;
+          return json({
+            completed: savedComplete && rs.length > 0,
+            appUrl: APP_URL,
+            hasPb: !!PB_URL,
+            primaryProvider: (await store.getSetting("primaryProvider")) || (FORGES.forgejo.url ? "forgejo" : FORGES.gitea.url ? "gitea" : "github"),
+            forges: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, { url: f.url, configured: !!f.url && !!f.token }])),
+            oauth: o,
+            repos: rs,
+            s1: { provider: s1.provider, model: s1.model, baseUrl: s1.baseUrl, hasKey: !!s1.apiKey },
+            llm: { provider: llm.provider, model: llm.model, baseUrl: llm.baseUrl, hasKey: !!llm.apiKey },
+            localModels: {
+              s1: LOCAL_S1.map((m) => ({ id: m.id, label: m.label, sizeMB: m.sizeMB, status: localStatus(m).state })),
+              llm: LOCAL_LLM.map((m) => ({ id: m.id, label: m.label, sizeMB: m.sizeMB, status: localStatus(m).state })),
+            },
+          });
+        }
+        if (url.pathname === "/api/onboarding/repos") {
+          const choices = await repositoryChoices();
+          return json({ repos: choices.map((r) => ({ id: r, label: repoLabel(r), org: r.split("/")[0] })) });
+        }
+        if (url.pathname === "/api/onboarding/test-provider" && req.method === "POST") {
+          const body = await readJson(req);
+          const provider = body.provider || "github";
+          if (provider === "github") {
+            try {
+              if (body.token) {
+                const r = await fetch("https://api.github.com/user", { headers: { authorization: `token ${body.token}`, "user-agent": "CodeOtter" } });
+                if (!r.ok) throw new Error(`GitHub token verification failed (${r.status})`);
+                const user = await r.json();
+                return json({ ok: true, message: `Connected as @${user.login}` });
+              }
+              const out = gh("repo", "list", "--limit", "1", "--json", "nameWithOwner");
+              return json({ ok: true, message: "Connected via GitHub CLI" });
+            } catch (err) {
+              return json({ ok: false, error: err.message });
+            }
+          }
+          if (provider === "forgejo" || provider === "gitea") {
+            try {
+              const origin = forgeOrigin(body.url || FORGES[provider].url);
+              const token = body.token || FORGES[provider].token;
+              if (!origin) throw new Error(`Please provide a ${FORGES[provider].label} server URL`);
+              const res = await fetch(`${origin}/api/v1/user`, { headers: { ...(token ? { authorization: `token ${token}` } : {}), accept: "application/json" } });
+              if (!res.ok) throw new Error(`${FORGES[provider].label} returned HTTP ${res.status}`);
+              const user = await res.json();
+              return json({ ok: true, message: `Connected to ${FORGES[provider].label} as @${user.username || user.login || "user"}` });
+            } catch (err) {
+              return json({ ok: false, error: err.message });
+            }
+          }
+          throw new Error("Unknown provider");
+        }
+        if (url.pathname === "/api/onboarding/save-provider" && req.method === "POST") {
+          const body = await readJson(req);
+          const provider = body.provider || "github";
+          await store.setSetting("primaryProvider", provider);
+          if (provider === "forgejo" || provider === "gitea") {
+            const nextUrl = forgeOrigin(body.url);
+            const token = String(body.token || "");
+            if (nextUrl) {
+              await store.setSetting(provider, { url: nextUrl, token });
+              await store.setSetting(`${provider}Origin`, nextUrl);
+              FORGES[provider].url = nextUrl;
+              FORGES[provider].token = token;
+            }
+          }
+          if (PB_URL && (body.clientId || body.clientSecret)) {
+            const o = await store.getOAuth();
+            const spec = LOGIN_PROVIDERS[provider];
+            if (spec) {
+              const providers = o.providers.filter((p) => p.name !== spec.pb);
+              providers.push({
+                name: spec.pb,
+                clientId: String(body.clientId || "").trim(),
+                ...(body.clientSecret ? { clientSecret: String(body.clientSecret) } : {}),
+                ...(provider !== "github" ? {
+                  displayName: spec.label,
+                  pkce: true,
+                  authURL: `${FORGES[provider].url}/login/oauth/authorize`,
+                  tokenURL: `${FORGES[provider].url}/login/oauth/access_token`,
+                  userInfoURL: provider === "gitea" ? `${FORGES[provider].url}/api/v1/user` : `${FORGES[provider].url}/login/oauth/userinfo`,
+                } : {}),
+              });
+              await store.setOAuth({ ...o, enabled: true, providers });
+            }
+          }
+          return json({ ok: true });
+        }
+        if (url.pathname === "/api/onboarding/save-models" && req.method === "POST") {
+          const body = await readJson(req);
+          if (body.s1) {
+            const s1 = body.s1;
+            if (LOCAL_S1.some((m) => m.id === s1.provider)) {
+              await store.setSetting("s1", { provider: s1.provider });
+              const m = LOCAL[s1.provider];
+              if (m && !modelReady(m) && !downloads.get(m.id)?.active) downloadModel(m);
+            } else if (S1_PROVIDERS[s1.provider] || s1.provider === "custom") {
+              await store.setSetting("s1", { provider: s1.provider, model: s1.model || "", apiKey: s1.apiKey || "", baseUrl: s1.baseUrl || "" });
+            }
+          }
+          if (body.llm) {
+            const llm = body.llm;
+            if (LOCAL_LLM.some((m) => m.id === llm.provider)) {
+              await store.setSetting("llm", { provider: `local_${llm.provider}` });
+              const m = LOCAL[llm.provider];
+              if (m && !modelReady(m) && !downloads.get(m.id)?.active) downloadModel(m);
+            } else if (PROVIDERS[llm.provider]) {
+              await store.setSetting("llm", { provider: llm.provider, model: llm.model || "", apiKey: llm.apiKey || "", baseUrl: llm.baseUrl || "" });
+            }
+          }
+          modelCache.clear();
+          return json({ ok: true });
+        }
+        if (url.pathname === "/api/onboarding/save-repos" && req.method === "POST") {
+          const body = await readJson(req);
+          const nextRepos = Array.isArray(body.repos) ? body.repos.filter(Boolean) : [];
+          if (!nextRepos.length) throw new Error("Please select at least one repository");
+          await store.setSetting("repos", nextRepos);
+          return json({ ok: true, repos: nextRepos });
+        }
+        if (url.pathname === "/api/onboarding/complete" && req.method === "POST") {
+          await store.setSetting("onboardingComplete", true);
+          const rs = await repos();
+          const primaryOrg = rs[0] ? rs[0].split("/")[0] : "";
+          return json({ ok: true, org: primaryOrg });
+        }
       }
       if (url.pathname === "/api/home") {
         if (!(await gate(req, res)).ok) return;

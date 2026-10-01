@@ -7,6 +7,7 @@ import { ReviewPage } from "./review-page";
 import { SettingsPage } from "./settings-page";
 import { HomePage } from "./home-page";
 import { LoginPage } from "./login-page";
+import { OnboardingPage } from "./onboarding-page";
 import { TableSkeleton } from "@/components/skeletons";
 import { Link } from "@/components/link";
 import { type Board, type Review, type User, repoFromUrl, repoLabel, VERDICT, effort, tone } from "./types";
@@ -115,8 +116,15 @@ export default function App() {
   const repoParts = path.startsWith("/repo/") ? path.slice("/repo/".length).split("/") : [];
   const repoPage = repoParts.slice(0, 2).join("/");
   const repoView = repoParts[2] === "open" ? "open" : "reviews";
-  const known = path === "/" || path === "/login" || path === "/review" || !!settingsPage || repoParts.length >= 2;
+  const known = path === "/" || path === "/login" || path === "/onboarding" || path === "/review" || !!settingsPage || repoParts.length >= 2;
   useEffect(() => { if (!known) go("/", true); }, [known]);
+
+  useEffect(() => {
+    if (board?.onboardingNeeded && path !== "/onboarding" && path !== "/login" && !localStorage.getItem("pr-scorer.onboarding_done")) {
+      go("/onboarding", true);
+    }
+  }, [board?.onboardingNeeded, path]);
+
   const prRef = query.get("pr") ?? "";
   const prRepo = query.get("repo") ?? "";
   useEffect(() => {
@@ -138,6 +146,11 @@ export default function App() {
       updateSeo({
         title: "Sign in · CodeOtter",
         description: "Sign in to access CodeOtter AI pull request reviews, blast radius metrics, and merge gates.",
+      });
+    } else if (path === "/onboarding") {
+      updateSeo({
+        title: "Setup & Onboarding · CodeOtter",
+        description: "Configure your primary Git provider, AI review engines, and onboard repositories.",
       });
     } else if (settingsPage) {
       const pageMeta = board?.settingsPages.find((p) => p.id === settingsPage);
@@ -166,6 +179,7 @@ export default function App() {
   }, [path, settingsPage, repoPage, repoView, org, board]);
 
   if (path === "/login") return <LoginPage error={loginError} onLogin={login} go={go} />;
+  if (path === "/onboarding") return <OnboardingPage onComplete={(targetOrg) => { if (targetOrg) setOrg(targetOrg); go("/"); load(); }} go={go} />;
   return (
     <SidebarProvider defaultOpen={sidebarDefaultOpen()}>
       <AppSidebar repositoriesLoaded={!!board} forgeUrls={board?.forgeUrls ?? {}} repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(scopedBoard)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
