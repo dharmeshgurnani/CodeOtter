@@ -327,6 +327,19 @@ export function OnboardingPage({
     setSelectedRepos((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]));
   };
 
+  const handleAddFromSearch = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const name = repoSearch.trim().replace(/^https:\/\/github\.com\//, "").replace(/\/+$/, "");
+    if (!name) return;
+    if (!selectedRepos.includes(name)) {
+      setSelectedRepos((prev) => [...prev, name]);
+    }
+    if (!repoChoices.some((c) => c.id === name)) {
+      setRepoChoices((prev) => [{ id: name, label: name, org: name.split("/")[0] || "" }, ...prev]);
+    }
+    setRepoSearch("");
+  };
+
   const filteredRepos = repoChoices.filter(
     (r) =>
       r.label.toLowerCase().includes(repoSearch.toLowerCase()) ||
@@ -1127,25 +1140,33 @@ export function OnboardingPage({
                   </span>
                 </div>
 
-                <div className="relative flex items-center">
+                <form onSubmit={handleAddFromSearch} className="relative flex items-center">
                   <Search className="absolute left-3 size-4 text-neutral-400 pointer-events-none" />
                   <input
                     type="text"
-                    placeholder="Search available repositories..."
+                    placeholder="Search or type owner/repo name..."
                     value={repoSearch}
                     onChange={(e) => setRepoSearch(e.target.value)}
-                    className="w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-3.5 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-hidden shadow-xs"
+                    className="w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-20 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-hidden shadow-xs"
                   />
-                  {repoSearch && (
-                    <button
-                      type="button"
-                      onClick={() => setRepoSearch("")}
-                      className="absolute right-2.5 rounded-md p-1 text-neutral-400 hover:text-neutral-700 cursor-pointer"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  )}
-                </div>
+                  <div className="absolute right-1.5 flex items-center gap-1">
+                    {repoSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setRepoSearch("")}
+                        className="rounded-md p-1 text-neutral-400 hover:text-neutral-700 cursor-pointer"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    )}
+                    {repoSearch.trim() && (
+                      <Button type="submit" size="sm" className="h-7 px-2.5 text-xs font-medium">
+                        <Plus className="size-3.5" />
+                        Add
+                      </Button>
+                    )}
+                  </div>
+                </form>
               </div>
 
               {/* Repositories Discovery List */}
@@ -1154,66 +1175,98 @@ export function OnboardingPage({
                   <div className="p-8 text-center text-sm text-neutral-500">
                     Discovering repositories from connected provider...
                   </div>
-                ) : filteredRepos.length === 0 ? (
-                  <div className="p-8 text-center text-sm text-neutral-500">
-                    {repoChoices.length === 0
-                      ? "No repositories found on the connected account."
-                      : "No repositories match your search."}
-                  </div>
                 ) : (
-                  filteredRepos.map((r) => {
-                    const isPinned = selectedRepos.includes(r.id);
-                    return (
-                      <div
-                        key={r.id}
-                        className={`flex items-center justify-between px-4 py-3 text-sm transition-colors ${
-                          isPinned ? "bg-neutral-50/60" : "hover:bg-neutral-50/40"
-                        }`}
-                      >
+                  <>
+                    {/* If typing something not yet in choices, show instant Add row */}
+                    {repoSearch.trim() && !repoChoices.some((c) => c.id.toLowerCase() === repoSearch.trim().toLowerCase()) && (
+                      <div className="flex items-center justify-between px-4 py-3 text-sm bg-neutral-50/70">
                         <div className="flex min-w-0 items-center gap-3">
                           <Avatar className="size-7 shrink-0 rounded-md border border-neutral-200 bg-white">
                             <AvatarFallback className="rounded-md text-[10px] font-semibold">
-                              {initials(r.label)}
+                              {initials(repoSearch.trim())}
                             </AvatarFallback>
                           </Avatar>
                           <div className="min-w-0">
                             <span className="block truncate font-medium text-neutral-900">
-                              {r.label}
+                              {repoSearch.trim()}
                             </span>
                             <span className="block text-[11px] text-neutral-500">
-                              {r.org}
+                              Add repository to onboarding
                             </span>
                           </div>
                         </div>
-
-                        <div className="ml-3 shrink-0">
-                          {isPinned ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => toggleRepo(r.id)}
-                              className="h-8 gap-1.5 text-xs font-medium bg-neutral-100 text-neutral-700 hover:bg-red-50 hover:text-red-700 hover:border-red-200 border border-neutral-200 transition-colors"
-                            >
-                              <Check className="size-3.5 text-emerald-600" />
-                              Pinned
-                            </Button>
-                          ) : (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => toggleRepo(r.id)}
-                              className="h-8 gap-1 text-xs font-medium hover:bg-neutral-900 hover:text-white transition-colors"
-                            >
-                              <Plus className="size-3.5" />
-                              Add
-                            </Button>
-                          )}
-                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => handleAddFromSearch()}
+                          className="h-8 gap-1 text-xs font-medium shrink-0"
+                        >
+                          <Plus className="size-3.5" />
+                          Add &amp; Pin
+                        </Button>
                       </div>
-                    );
-                  })
+                    )}
+
+                    {filteredRepos.length === 0 && !repoSearch.trim() ? (
+                      <div className="p-8 text-center text-sm text-neutral-500">
+                        No repositories auto-discovered. Type your repository name (e.g. <code>owner/repo</code>) above and click Add to pin it.
+                      </div>
+                    ) : (
+                      filteredRepos.map((r) => {
+                        const isPinned = selectedRepos.includes(r.id);
+                        return (
+                          <div
+                            key={r.id}
+                            className={`flex items-center justify-between px-4 py-3 text-sm transition-colors ${
+                              isPinned ? "bg-neutral-50/60" : "hover:bg-neutral-50/40"
+                            }`}
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <Avatar className="size-7 shrink-0 rounded-md border border-neutral-200 bg-white">
+                                <AvatarFallback className="rounded-md text-[10px] font-semibold">
+                                  {initials(r.label)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="min-w-0">
+                                <span className="block truncate font-medium text-neutral-900">
+                                  {r.label}
+                                </span>
+                                <span className="block text-[11px] text-neutral-500">
+                                  {r.org}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="ml-3 shrink-0">
+                              {isPinned ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => toggleRepo(r.id)}
+                                  className="h-8 gap-1.5 text-xs font-medium bg-neutral-100 text-neutral-700 hover:bg-red-50 hover:text-red-700 hover:border-red-200 border border-neutral-200 transition-colors"
+                                >
+                                  <Check className="size-3.5 text-emerald-600" />
+                                  Pinned
+                                </Button>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => toggleRepo(r.id)}
+                                  className="h-8 gap-1 text-xs font-medium hover:bg-neutral-900 hover:text-white transition-colors"
+                                >
+                                  <Plus className="size-3.5" />
+                                  Add
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </>
                 )}
               </div>
 

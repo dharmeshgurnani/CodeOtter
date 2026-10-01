@@ -1437,21 +1437,56 @@ let ghReposCache;
 async function repositoryChoices(owner = "") {
   if (owner && !OWNER_RE.test(owner)) return [];
   if (isForgeRepo(owner)) return (await forgeList("user/repos", forgeId(owner))).map((r) => `${forgeId(owner)}~${r.full_name}`).filter((r) => REPO_RE.test(r) && r.startsWith(`${owner}/`));
+
+  const savedGhToken = (await store.getSetting("githubToken")) || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+  if (savedGhToken) {
+    process.env.GITHUB_TOKEN = savedGhToken;
+    process.env.GH_TOKEN = savedGhToken;
+  }
+
   ghReposCache ||= new Map();
   if (!ghReposCache.has(owner)) {
-    try {
-      ghReposCache.set(owner, JSON.parse(gh("repo", "list", ...(owner ? [owner] : []), "--limit", "100", "--json", "nameWithOwner")).map((r) => r.nameWithOwner));
-    } catch {
-      ghReposCache.set(owner, []);
+    let list = [];
+    if (savedGhToken) {
+      try {
+        const ghUrl = owner ? `https://api.github.com/users/${owner}/repos?per_page=100&sort=updated` : `https://api.github.com/user/repos?per_page=100&sort=updated&type=all`;
+        const res = await fetch(ghUrl, {
+          headers: {
+            authorization: `token ${savedGhToken}`,
+            accept: "application/vnd.github+json",
+            "user-agent": "CodeOtter",
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (res.ok) {
+          const items = await res.json();
+          if (Array.isArray(items)) {
+            list = items.map((r) => r.full_name).filter(Boolean);
+          }
+        }
+      } catch {}
     }
+    if (!list.length) {
+      try {
+        list = JSON.parse(gh("repo", "list", ...(owner ? [owner] : []), "--limit", "100", "--json", "nameWithOwner")).map((r) => r.nameWithOwner);
+      } catch {}
+    }
+    ghReposCache.set(owner, list);
   }
-  const github = ghReposCache.get(owner);
+  const github = ghReposCache.get(owner) || [];
+  const allChoices = new Set(github);
+  if (REPO && (!owner || REPO.startsWith(`${owner}/`))) allChoices.add(REPO);
+  const currentSaved = await store.getSetting("repos");
+  if (Array.isArray(currentSaved)) {
+    for (const r of currentSaved) if (!owner || r.startsWith(`${owner}/`)) allChoices.add(r);
+  }
+
   if (!owner) {
     const remote = await Promise.all(Object.entries(FORGES).filter(([, f]) => f.url && f.token).map(async ([id]) =>
       (await forgeList("user/repos", id)).map((r) => `${id}~${r.full_name}`).filter((r) => REPO_RE.test(r))));
-    return [...github, ...remote.flat()];
+    for (const r of remote.flat()) allChoices.add(r);
   }
-  return github;
+  return [...allChoices];
 }
 
 const activeReviews = new Map();
@@ -3076,6 +3111,13 @@ http
           const body = await readJson(req);
           const provider = body.provider || "github";
           await store.setSetting("primaryProvider", provider);
+          if (provider === "github" && body.token) {
+            const tok = String(body.token).trim();
+            await store.setSetting("githubToken", tok);
+            process.env.GITHUB_TOKEN = tok;
+            process.env.GH_TOKEN = tok;
+            ghReposCache = null;
+          }
           if (provider === "forgejo" || provider === "gitea") {
             const nextUrl = forgeOrigin(body.url);
             const token = String(body.token || "");
