@@ -1493,20 +1493,25 @@ async function getGitHubAppRepos(appConfig) {
       const instToken = tokenData.token;
       if (!instToken) continue;
 
-      const reposRes = await fetch("https://api.github.com/installation/repositories?per_page=100", {
-        headers: {
-          authorization: `token ${instToken}`,
-          accept: "application/vnd.github+json",
-          "user-agent": "CodeOtter",
-        },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!reposRes.ok) continue;
-      const reposData = await reposRes.json();
-      if (Array.isArray(reposData.repositories)) {
-        for (const r of reposData.repositories) {
+      let page = 1;
+      while (page <= 10) {
+        const reposRes = await fetch(`https://api.github.com/installation/repositories?per_page=100&page=${page}`, {
+          headers: {
+            authorization: `Bearer ${instToken}`,
+            accept: "application/vnd.github+json",
+            "user-agent": "CodeOtter",
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!reposRes.ok) break;
+        const reposData = await reposRes.json();
+        const batch = Array.isArray(reposData.repositories) ? reposData.repositories : [];
+        if (!batch.length) break;
+        for (const r of batch) {
           if (r.full_name) repoNames.push(r.full_name);
         }
+        if (batch.length < 100) break;
+        page++;
       }
     }
     return repoNames;
@@ -2914,6 +2919,7 @@ const SETTINGS_PAGES = {
           url: APP_URL,
           redirect_url: `${APP_URL}/github/manifest/callback`,
           callback_urls: [`${APP_URL}/auth/callback`],
+          setup_url: `${APP_URL}/onboarding?step=2&connected=github`,
           public: false,
           default_permissions: {
             emails: "read",
@@ -3450,6 +3456,11 @@ http
         setCookie(res, "pr_manifest", "", 0);
         setCookie(res, "pr_manifest_return", "", 0);
         ghReposCache = null;
+        if (app.slug && returnTo.startsWith("/onboarding")) {
+          res.statusCode = 302;
+          res.setHeader("location", `https://github.com/apps/${encodeURIComponent(app.slug)}/installations/new`);
+          return res.end();
+        }
         res.statusCode = 302;
         res.setHeader("location", `${returnTo}?connected=${encodeURIComponent(app.html_url || app.slug || "github")}`);
         return res.end();

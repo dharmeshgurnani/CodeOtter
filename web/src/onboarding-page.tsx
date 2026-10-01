@@ -516,7 +516,7 @@ export function OnboardingPage({
                         <div>
                           <h2 className="text-sm font-semibold text-neutral-900">1-Click Automated Setup</h2>
                           <p className="mt-0.5 text-xs text-neutral-600">
-                            Creates a dedicated GitHub App with callback URLs and permissions preconfigured with zero copy-pasting.
+                            Creates and installs a dedicated GitHub App to automatically discover all your public &amp; private repositories.
                           </p>
                         </div>
                         <Button
@@ -526,7 +526,7 @@ export function OnboardingPage({
                           onClick={handleCreateGitHubApp}
                           className="shrink-0 font-medium"
                         >
-                          {busy ? "Opening GitHub..." : "Create GitHub App for me \u2192"}
+                          {busy ? "Opening GitHub..." : "Create & Connect GitHub App \u2192"}
                         </Button>
                       </div>
                     </div>
