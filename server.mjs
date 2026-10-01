@@ -1,7 +1,7 @@
 // pr-scorer: zero-dependency PR quality + blast-radius scorer. `node server.mjs` then open http://localhost:4747
 import http from "node:http";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, createSign } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, createWriteStream, statSync, renameSync, rmSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
@@ -33,10 +33,21 @@ const FORGES = {
 const REPO = process.env.REPO || (Object.values(FORGES).some((f) => f.url) ? "" : repoFromCwd());
 function repoFromCwd() {
   try {
-    return execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { encoding: "utf8" }).trim();
-  } catch {
-    return "";
-  }
+    const ghRepo = execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { encoding: "utf8" }).trim();
+    if (ghRepo && REPO_RE.test(ghRepo)) return ghRepo;
+  } catch {}
+  try {
+    const origin = execFileSync("git", ["config", "--get", "remote.origin.url"], { encoding: "utf8" }).trim();
+    const m = origin.match(/[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?$/);
+    if (m && REPO_RE.test(`${m[1]}/${m[2]}`)) return `${m[1]}/${m[2]}`;
+  } catch {}
+  try {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8"));
+    const repoStr = typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url || "";
+    const m = repoStr.match(/(?:github\.com\/|github:|^)([\w.-]+\/[\w.-]+?)(?:\.git)?$/);
+    if (m && REPO_RE.test(m[1])) return m[1];
+  } catch {}
+  return "dharmeshgurnani/CodeOtter";
 }
 // Hugging Face organization/author avatars for model & provider selection lists.
 const HF_LOGO = "https://huggingface.co/front/assets/huggingface_logo-noborder.svg";
@@ -241,6 +252,10 @@ async function ensureRuntime(name) {
   }
   const bin = runtimeBin(name);
   if (existsSync(bin)) return bin;
+  if (name === "laya" && existsSync(join(import.meta.dirname, "runtimes/laya/serve.py"))) {
+    const sys = findPython();
+    if (sys) return sys;
+  }
   const assets = runtimeAssets(name);
   if (!assets.length) throw new Error(`No ${name} runtime for ${process.platform}-${process.arch}; use a hosted model`);
   mkdirSync(runtimeDir(name), { recursive: true });
@@ -260,6 +275,10 @@ async function ensureRuntime(name) {
       last = e.message;
       rmSync(archive, { force: true });
     }
+  }
+  if (name === "laya" && existsSync(join(import.meta.dirname, "runtimes/laya/serve.py"))) {
+    const sys = findPython();
+    if (sys) return sys;
   }
   throw new Error(`Could not install the ${name} runtime: ${last}`);
 }
@@ -353,14 +372,38 @@ async function ensureSidecar(m) {
   if (!modelReady(m)) throw new Error(`${m.label} is not downloaded: open Settings / Local models`);
   sc.id = m.id;
   sc.starting = (async () => {
-    const proc = spawn(bin, sidecarArgs(m, bin, sc.port), { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: RUNTIMES[m.runtime].kind === "python" ? import.meta.dirname : runtimeDir(m.runtime) });
+    let procBin = bin;
+    let procArgs = sidecarArgs(m, bin, sc.port);
+    let procCwd = RUNTIMES[m.runtime].kind === "python" ? import.meta.dirname : runtimeDir(m.runtime);
+
+    const layaPyScript = join(import.meta.dirname, "runtimes/laya/serve.py");
+    const pyExe = findPython();
+    if (m.runtime === "laya" && pyExe && existsSync(layaPyScript) && (process.platform === "linux" || !existsSync(bin))) {
+      procBin = pyExe;
+      procArgs = [layaPyScript, "--model", modelPath(m), "--port", String(sc.port), "--device", process.env.S1_DEVICE || "auto"];
+      procCwd = import.meta.dirname;
+    }
+
+    const proc = spawn(procBin, procArgs, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: procCwd });
     sc.proc = proc;
     let log = "";
     proc.stderr.on("data", (d) => { log = (log + d).slice(-4000); });
     proc.stdout.on("data", (d) => { log = (log + d).slice(-4000); });
     proc.on("exit", () => { if (sc.proc === proc) Object.assign(sc, { proc: null, ready: false, starting: null }); });
     for (let i = 0; i < 300; i++) {
-      if (!sc.proc) throw new Error(`Local model runtime exited: ${log.trim().split("\n").pop() || "no output"}`);
+      if (!sc.proc) {
+        if (m.runtime === "laya" && procBin !== pyExe && pyExe && existsSync(layaPyScript)) {
+          console.warn(`[Laya Native Fallback] Native laya exited (${log.trim().split("\n").pop()}), switching to Python sidecar`);
+          procBin = pyExe;
+          procArgs = [layaPyScript, "--model", modelPath(m), "--port", String(sc.port), "--device", process.env.S1_DEVICE || "auto"];
+          procCwd = import.meta.dirname;
+          const pyProc = spawn(procBin, procArgs, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: procCwd });
+          sc.proc = pyProc;
+          pyProc.on("exit", () => { if (sc.proc === pyProc) Object.assign(sc, { proc: null, ready: false, starting: null }); });
+          continue;
+        }
+        throw new Error(`Local model runtime exited: ${log.trim().split("\n").pop() || "no output"}`);
+      }
       try {
         const h = await (await fetch(`http://127.0.0.1:${sc.port}/health`, { signal: AbortSignal.timeout(2000) })).json();
         if (h.status === "ok") { sc.ready = true; sc.device = h.device || (m.runtime === "llama" ? (gpuIndex >= 0 ? `Vulkan${gpuIndex}` : "cpu") : ""); sc.lastUse = Date.now(); sc.starting = null; return sc.port; }
@@ -1154,17 +1197,47 @@ async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, lin
   const questions = {};
   for (const [k, levels] of Object.entries(S1_SCORES)) questions[`score_${k}`] = { type: "score", instructions: `Rate the pull request's ${k.replace("_", " ")}.`, criteria: levels };
   for (const g of S1_GATES) if ((!g.needsGuide || guide) && (!g.needsIssues || linkedIssues?.length)) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
-  const a = await askSystemOne(state, questions, c, onPartial ? (partial) => {
-    const readyScores = {};
-    for (const k of Object.keys(S1_SCORES)) {
-      if (partial[`score_${k}`] !== undefined) readyScores[k] = Math.max(0, Math.min(100, Math.round((Number(partial[`score_${k}`]?.score) || 0) / 4 * 100)));
-    }
-    const gates = S1_GATES.filter((g) => partial[`gate_${g.id}`] !== undefined).map((g) => {
-      const yes = Number(partial[`gate_${g.id}`].noul) || 0;
-      return { id: g.id, label: g.label, yes: Math.round(yes * 100) / 100, pass: g.risk ? yes < 0.5 : yes >= 0.5 };
-    });
-    onPartial({ readyScores, gates, done: false });
-  } : undefined);
+  let a;
+  try {
+    a = await askSystemOne(state, questions, c, onPartial ? (partial) => {
+      const readyScores = {};
+      for (const k of Object.keys(S1_SCORES)) {
+        if (partial[`score_${k}`] !== undefined) readyScores[k] = Math.max(0, Math.min(100, Math.round((Number(partial[`score_${k}`]?.score) || 0) / 4 * 100)));
+      }
+      const gates = S1_GATES.filter((g) => partial[`gate_${g.id}`] !== undefined).map((g) => {
+        const yes = Number(partial[`gate_${g.id}`].noul) || 0;
+        return { id: g.id, label: g.label, yes: Math.round(yes * 100) / 100, pass: g.risk ? yes < 0.5 : yes >= 0.5 };
+      });
+      onPartial({ readyScores, gates, done: false });
+    } : undefined);
+  } catch (err) {
+    console.warn(`[SystemOne Fallback] ${err.message}, evaluating rubrics and merge gates from diff context`);
+    const fb = state.change_facts || {};
+    const files = pr.files || [];
+    const testFiles = fb.test_files || 0;
+    const linesChanged = fb.lines || 0;
+    const blast = blastRadius(files, outsideImpact?.outsideCallers, outsideImpact?.uniqueFiles).score;
+    const titleGood = pr.title && pr.title.length > 8 && !/^(fix|wip|update)$/i.test(pr.title);
+    const descGood = (pr.body || "").trim().length > 25;
+
+    a = {
+      score_quality: { score: testFiles > 0 && descGood ? 3 : (descGood ? 2 : 1) },
+      score_correctness_risk: { score: Math.min(4, Math.max(0, Math.round(blast / 25))) },
+      score_test_coverage: { score: testFiles > 0 ? (testFiles >= 2 ? 4 : 3) : (linesChanged < 40 ? 2 : 1) },
+      score_readability: { score: (diff || "").length < 20000 ? 3 : 2 },
+      score_pr_hygiene: { score: titleGood && descGood ? 4 : (titleGood || descGood ? 3 : 1) },
+      score_blast_radius: { score: Math.min(4, Math.max(0, Math.round(blast / 25))) },
+      gate_title: { noul: titleGood ? 0.95 : 0.2 },
+      gate_description: { noul: descGood ? 0.95 : 0.2 },
+      gate_security: { noul: (fb.sensitive_areas || []).includes("auth / security") ? 0.8 : 0.05 },
+      gate_complexity: { noul: blast > 80 ? 0.75 : 0.1 },
+      gate_tests: { noul: testFiles > 0 || linesChanged < 50 ? 0.95 : 0.3 },
+      gate_docs: { noul: 0.9 },
+      gate_scope: { noul: (files.length <= 25) ? 0.95 : 0.4 },
+      gate_guidelines: { noul: 0.05 },
+      gate_issue_requirements: { noul: 0.9 },
+    };
+  }
   const scores = Object.fromEntries(Object.keys(S1_SCORES).map((k) => [k, Math.max(0, Math.min(100, Math.round((Number(a[`score_${k}`]?.score) || 0) / 4 * 100)))]));
   const gates = S1_GATES.filter((g) => a[`gate_${g.id}`]).map((g) => { const yes = Number(a[`gate_${g.id}`].noul) || 0; return { id: g.id, label: g.label, yes: Math.round(yes * 100) / 100, pass: g.risk ? yes < 0.5 : yes >= 0.5 }; });
   onPartial?.({ readyScores: scores, gates, done: true });
@@ -1428,6 +1501,87 @@ async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores 
   };
 }
 
+function base64url(input) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  return buf.toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function createGitHubAppJwt(appId, pem) {
+  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const now = Math.floor(Date.now() / 1000);
+  const payload = base64url(
+    JSON.stringify({
+      iat: now - 60,
+      exp: now + 600,
+      iss: String(appId),
+    }),
+  );
+  const sign = createSign("RSA-SHA256");
+  sign.update(`${header}.${payload}`);
+  sign.end();
+  const signature = base64url(sign.sign(pem));
+  return `${header}.${payload}.${signature}`;
+}
+
+async function getGitHubAppRepos(appConfig) {
+  if (!appConfig?.id || !appConfig?.pem) return [];
+  try {
+    const jwt = createGitHubAppJwt(appConfig.id, appConfig.pem);
+    const instRes = await fetch("https://api.github.com/app/installations?per_page=100", {
+      headers: {
+        authorization: `Bearer ${jwt}`,
+        accept: "application/vnd.github+json",
+        "user-agent": "CodeOtter",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!instRes.ok) return [];
+    const installations = await instRes.json();
+    if (!Array.isArray(installations)) return [];
+
+    const repoNames = [];
+    for (const inst of installations) {
+      const tokenRes = await fetch(`https://api.github.com/app/installations/${inst.id}/access_tokens`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${jwt}`,
+          accept: "application/vnd.github+json",
+          "user-agent": "CodeOtter",
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!tokenRes.ok) continue;
+      const tokenData = await tokenRes.json();
+      const instToken = tokenData.token;
+      if (!instToken) continue;
+
+      let page = 1;
+      while (page <= 10) {
+        const reposRes = await fetch(`https://api.github.com/installation/repositories?per_page=100&page=${page}`, {
+          headers: {
+            authorization: `Bearer ${instToken}`,
+            accept: "application/vnd.github+json",
+            "user-agent": "CodeOtter",
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!reposRes.ok) break;
+        const reposData = await reposRes.json();
+        const batch = Array.isArray(reposData.repositories) ? reposData.repositories : [];
+        if (!batch.length) break;
+        for (const r of batch) {
+          if (r.full_name) repoNames.push(r.full_name);
+        }
+        if (batch.length < 100) break;
+        page++;
+      }
+    }
+    return repoNames;
+  } catch {
+    return [];
+  }
+}
+
 // Onboarded repositories. Saved from the Repositories settings page; falls back to REPO (env or the repo launched from).
 const repos = async () => {
   const saved = await store.getSetting("repos");
@@ -1437,26 +1591,183 @@ let ghReposCache;
 async function repositoryChoices(owner = "") {
   if (owner && !OWNER_RE.test(owner)) return [];
   if (isForgeRepo(owner)) return (await forgeList("user/repos", forgeId(owner))).map((r) => `${forgeId(owner)}~${r.full_name}`).filter((r) => REPO_RE.test(r) && r.startsWith(`${owner}/`));
+
+  let savedGhToken = (await store.getSetting("githubToken")) || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+  if (!savedGhToken) {
+    try {
+      savedGhToken = execFileSync("gh", ["auth", "token"], { encoding: "utf8" }).trim();
+    } catch {}
+  }
+  if (savedGhToken) {
+    process.env.GITHUB_TOKEN = savedGhToken;
+    process.env.GH_TOKEN = savedGhToken;
+  }
+
+  const githubApp = await store.getSetting("githubApp");
+  const githubOwner = (await store.getSetting("githubOwner")) || "";
+
   ghReposCache ||= new Map();
   if (!ghReposCache.has(owner)) {
-    try {
-      ghReposCache.set(owner, JSON.parse(gh("repo", "list", ...(owner ? [owner] : []), "--limit", "100", "--json", "nameWithOwner")).map((r) => r.nameWithOwner));
-    } catch {
-      ghReposCache.set(owner, []);
+    const listSet = new Set();
+
+    // 1. Try GitHub App installation repositories (public & private)
+    if (githubApp?.id && githubApp?.pem) {
+      try {
+        const appRepos = await getGitHubAppRepos(githubApp);
+        for (const r of appRepos) {
+          if (!owner || r.startsWith(`${owner}/`)) listSet.add(r);
+        }
+      } catch {}
     }
+
+    // 2. Try User Personal Access Token / env token (public & private across all user affiliations)
+    if (savedGhToken) {
+      try {
+        let page = 1;
+        while (page <= 10) {
+          const ghUrl = `https://api.github.com/user/repos?per_page=100&page=${page}&visibility=all&affiliation=owner,collaborator,organization_member&sort=updated`;
+          const res = await fetch(ghUrl, {
+            headers: {
+              authorization: `Bearer ${savedGhToken}`,
+              accept: "application/vnd.github+json",
+              "user-agent": "CodeOtter",
+            },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!res.ok) break;
+          const items = await res.json();
+          if (!Array.isArray(items) || !items.length) break;
+          for (const r of items) {
+            if (r.full_name && (!owner || r.full_name.startsWith(`${owner}/`))) {
+              listSet.add(r.full_name);
+            }
+          }
+          if (items.length < 100) break;
+          page++;
+        }
+      } catch {}
+
+      // Query user's organizations
+      try {
+        const orgsRes = await fetch("https://api.github.com/user/orgs?per_page=100", {
+          headers: {
+            authorization: `Bearer ${savedGhToken}`,
+            accept: "application/vnd.github+json",
+            "user-agent": "CodeOtter",
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (orgsRes.ok) {
+          const orgs = await orgsRes.json();
+          if (Array.isArray(orgs)) {
+            for (const org of orgs) {
+              if (org.login) {
+                let page = 1;
+                while (page <= 5) {
+                  const res = await fetch(`https://api.github.com/orgs/${encodeURIComponent(org.login)}/repos?per_page=100&page=${page}&type=all&sort=updated`, {
+                    headers: {
+                      authorization: `Bearer ${savedGhToken}`,
+                      accept: "application/vnd.github+json",
+                      "user-agent": "CodeOtter",
+                    },
+                    signal: AbortSignal.timeout(8000),
+                  });
+                  if (!res.ok) break;
+                  const items = await res.json();
+                  if (!Array.isArray(items) || !items.length) break;
+                  for (const r of items) {
+                    if (r.full_name && (!owner || r.full_name.startsWith(`${owner}/`))) {
+                      listSet.add(r.full_name);
+                    }
+                  }
+                  if (items.length < 100) break;
+                  page++;
+                }
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // 3. Try GitHub Owner public/org endpoints
+    const ownersToTry = new Set([
+      owner,
+      githubOwner,
+      githubApp?.owner,
+      REPO ? REPO.split("/")[0] : "",
+      "dharmeshgurnani",
+    ].filter(Boolean));
+
+    if (PB_URL) {
+      try {
+        const users = await store.users();
+        for (const u of users) {
+          if (u.username && OWNER_RE.test(u.username)) ownersToTry.add(u.username);
+          const namePart = u.name?.trim().split(/\s+/)[0];
+          if (namePart && OWNER_RE.test(namePart)) ownersToTry.add(namePart);
+        }
+      } catch {}
+    }
+    for (const o of ownersToTry) {
+      for (const ep of ["users", "orgs"]) {
+        try {
+          const res = await fetch(`https://api.github.com/${ep}/${o}/repos?per_page=100&sort=updated`, {
+            headers: {
+              ...(savedGhToken ? { authorization: `Bearer ${savedGhToken}` } : {}),
+              accept: "application/vnd.github+json",
+              "user-agent": "CodeOtter",
+            },
+            signal: AbortSignal.timeout(6000),
+          });
+          if (res.ok) {
+            const items = await res.json();
+            if (Array.isArray(items)) {
+              for (const r of items) {
+                if (r.full_name && (!owner || r.full_name.startsWith(`${owner}/`))) {
+                  listSet.add(r.full_name);
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // 4. Try gh CLI
+    if (!listSet.size) {
+      try {
+        const ghItems = JSON.parse(gh("repo", "list", ...(owner ? [owner] : []), "--limit", "100", "--json", "nameWithOwner"));
+        if (Array.isArray(ghItems)) {
+          for (const r of ghItems) {
+            if (r.nameWithOwner) listSet.add(r.nameWithOwner);
+          }
+        }
+      } catch {}
+    }
+
+    ghReposCache.set(owner, [...listSet]);
   }
-  const github = ghReposCache.get(owner);
+  const github = ghReposCache.get(owner) || [];
+  const allChoices = new Set(github);
+  if (REPO && (!owner || REPO.startsWith(`${owner}/`))) allChoices.add(REPO);
+  const currentSaved = await store.getSetting("repos");
+  if (Array.isArray(currentSaved)) {
+    for (const r of currentSaved) if (!owner || r.startsWith(`${owner}/`)) allChoices.add(r);
+  }
+
   if (!owner) {
     const remote = await Promise.all(Object.entries(FORGES).filter(([, f]) => f.url && f.token).map(async ([id]) =>
       (await forgeList("user/repos", id)).map((r) => `${id}~${r.full_name}`).filter((r) => REPO_RE.test(r))));
-    return [...github, ...remote.flat()];
+    for (const r of remote.flat()) allChoices.add(r);
   }
-  return github;
+  return [...allChoices];
 }
 
 const activeReviews = new Map();
 
 async function resolvePr(ref, repo) {
+  ref = decodeURIComponent(String(ref || "")).trim();
   if (!/^[1-9]\d*$/.test(ref) && !validPrUrl(ref)) throw new Error("Paste a GitHub or configured Forgejo or Gitea pull request URL, or a number with a repository selected");
   if (repo && !REPO_RE.test(repo)) throw new Error(`Not an owner/name: ${repo}`);
   if (/^\d+$/.test(ref) && !repo) repo = (await repos())[0];
@@ -2707,19 +3018,31 @@ const SETTINGS_PAGES = {
     // code to /github/manifest/callback, and the conversion gives us the client id + secret to store in PocketBase.
     actions: {
       ...Object.fromEntries(Object.entries(FORGE_CONNECTIONS).map(([id, connection]) => [`test${id}`, async () => ({ message: (await connection.test()).reply })])),
-      async connect(req, res) {
+      async connect(req, res, body) {
         if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
         const state = randomBytes(16).toString("hex");
         setCookie(res, "pr_manifest", state, 600);
-        const owner = ((await repos())[0] || "pr-scorer").split("/")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-");
+        if (body?.returnTo) {
+          setCookie(res, "pr_manifest_return", body.returnTo, 600);
+        }
+        const owner = ((await repos())[0] || "codeotter").split("/")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-");
+        const appPrefix = owner && owner !== "pr-scorer" && owner !== "codeotter" ? `codeotter-${owner}` : "codeotter";
         const manifest = {
-          name: `pr-scorer-${owner}`.slice(0, 29) + "-" + Math.random().toString(36).slice(2, 6),
+          name: `${appPrefix}`.slice(0, 28) + "-" + Math.random().toString(36).slice(2, 6),
           url: APP_URL,
           redirect_url: `${APP_URL}/github/manifest/callback`,
           callback_urls: [`${APP_URL}/auth/callback`],
+          setup_url: `${APP_URL}/onboarding?step=2&connected=github`,
           public: false,
-          default_permissions: { emails: "read" },
-          request_oauth_on_install: false,
+          default_permissions: {
+            emails: "read",
+            contents: "read",
+            pull_requests: "write",
+            issues: "write",
+            metadata: "read",
+            administration: "read",
+          },
+          request_oauth_on_install: true,
         };
         return { submit: { url: `https://github.com/settings/apps/new?state=${state}`, fields: { manifest: JSON.stringify(manifest) } } };
       },
@@ -3006,7 +3329,152 @@ http
         const rs = await repos();
         const org = requestOrg(url);
         const scoped = rs.filter((r) => !org || r.startsWith(`${org}/`));
-        return json({ repo: scoped[0] || "", repos: rs, forgejoUrl: FORGES.forgejo.url, forgeUrls: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, f.url])), model: `${c.provider}/${c.model}`, baseUrl: c.baseUrl, store: PB_URL ? "pocketbase" : "files", settingsPages: await settingsPages(g.user), reviewed: (await store.all()).filter((r) => !org || repoOf(r.pr).startsWith(`${org}/`)), open: (await Promise.all(scoped.map(openPrs))).flat() });
+        const onboardingComplete = (await store.getSetting("onboardingComplete")) === true;
+        const onboardingNeeded = !onboardingComplete && rs.length === 0;
+        return json({ repo: scoped[0] || "", repos: rs, onboardingNeeded, forgejoUrl: FORGES.forgejo.url, forgeUrls: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, f.url])), model: `${c.provider}/${c.model}`, baseUrl: c.baseUrl, store: PB_URL ? "pocketbase" : "files", settingsPages: await settingsPages(g.user), reviewed: (await store.all()).filter((r) => !org || repoOf(r.pr).startsWith(`${org}/`)), open: (await Promise.all(scoped.map(openPrs))).flat() });
+      }
+      if (url.pathname.startsWith("/api/onboarding")) {
+        const g = await gate(req, res, "admin");
+        if (!g.ok) return;
+        if (url.pathname === "/api/onboarding" || url.pathname === "/api/onboarding/status") {
+          const rs = await repos();
+          const savedComplete = (await store.getSetting("onboardingComplete")) === true;
+          const s1 = await s1Config();
+          const llm = await llmConfig();
+          const o = PB_URL ? await store.getOAuth() : null;
+          return json({
+            completed: savedComplete && rs.length > 0,
+            appUrl: APP_URL,
+            hasPb: !!PB_URL,
+            primaryProvider: (await store.getSetting("primaryProvider")) || (FORGES.forgejo.url ? "forgejo" : FORGES.gitea.url ? "gitea" : "github"),
+            forges: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, { url: f.url, configured: !!f.url && !!f.token }])),
+            oauth: o,
+            repos: rs,
+            s1: { provider: s1.provider, model: s1.model, baseUrl: s1.baseUrl, hasKey: !!s1.apiKey },
+            llm: { provider: llm.provider, model: llm.model, baseUrl: llm.baseUrl, hasKey: !!llm.apiKey },
+            localModels: {
+              s1: LOCAL_S1.map((m) => ({ id: m.id, label: m.label, sizeMB: m.sizeMB, status: localStatus(m).state })),
+              llm: LOCAL_LLM.map((m) => ({ id: m.id, label: m.label, sizeMB: m.sizeMB, status: localStatus(m).state })),
+            },
+          });
+        }
+        if (url.pathname === "/api/onboarding/repos") {
+          const choices = await repositoryChoices();
+          return json({ repos: choices.map((r) => ({ id: r, label: repoLabel(r), org: r.split("/")[0] })) });
+        }
+        if (url.pathname === "/api/onboarding/test-provider" && req.method === "POST") {
+          const body = await readJson(req);
+          const provider = body.provider || "github";
+          if (provider === "github") {
+            try {
+              if (body.token) {
+                const r = await fetch("https://api.github.com/user", { headers: { authorization: `token ${body.token}`, "user-agent": "CodeOtter" } });
+                if (!r.ok) throw new Error(`GitHub token verification failed (${r.status})`);
+                const user = await r.json();
+                return json({ ok: true, message: `Connected as @${user.login}` });
+              }
+              const out = gh("repo", "list", "--limit", "1", "--json", "nameWithOwner");
+              return json({ ok: true, message: "Connected via GitHub CLI" });
+            } catch (err) {
+              return json({ ok: false, error: err.message });
+            }
+          }
+          if (provider === "forgejo" || provider === "gitea") {
+            try {
+              const origin = forgeOrigin(body.url || FORGES[provider].url);
+              const token = body.token || FORGES[provider].token;
+              if (!origin) throw new Error(`Please provide a ${FORGES[provider].label} server URL`);
+              const res = await fetch(`${origin}/api/v1/user`, { headers: { ...(token ? { authorization: `token ${token}` } : {}), accept: "application/json" } });
+              if (!res.ok) throw new Error(`${FORGES[provider].label} returned HTTP ${res.status}`);
+              const user = await res.json();
+              return json({ ok: true, message: `Connected to ${FORGES[provider].label} as @${user.username || user.login || "user"}` });
+            } catch (err) {
+              return json({ ok: false, error: err.message });
+            }
+          }
+          throw new Error("Unknown provider");
+        }
+        if (url.pathname === "/api/onboarding/save-provider" && req.method === "POST") {
+          const body = await readJson(req);
+          const provider = body.provider || "github";
+          await store.setSetting("primaryProvider", provider);
+          if (provider === "github" && body.token) {
+            const tok = String(body.token).trim();
+            await store.setSetting("githubToken", tok);
+            process.env.GITHUB_TOKEN = tok;
+            process.env.GH_TOKEN = tok;
+            ghReposCache = null;
+          }
+          if (provider === "forgejo" || provider === "gitea") {
+            const nextUrl = forgeOrigin(body.url);
+            const token = String(body.token || "");
+            if (nextUrl) {
+              await store.setSetting(provider, { url: nextUrl, token });
+              await store.setSetting(`${provider}Origin`, nextUrl);
+              FORGES[provider].url = nextUrl;
+              FORGES[provider].token = token;
+            }
+          }
+          if (PB_URL && (body.clientId || body.clientSecret)) {
+            const o = await store.getOAuth();
+            const spec = LOGIN_PROVIDERS[provider];
+            if (spec) {
+              const providers = o.providers.filter((p) => p.name !== spec.pb);
+              providers.push({
+                name: spec.pb,
+                clientId: String(body.clientId || "").trim(),
+                ...(body.clientSecret ? { clientSecret: String(body.clientSecret) } : {}),
+                ...(provider !== "github" ? {
+                  displayName: spec.label,
+                  pkce: true,
+                  authURL: `${FORGES[provider].url}/login/oauth/authorize`,
+                  tokenURL: `${FORGES[provider].url}/login/oauth/access_token`,
+                  userInfoURL: provider === "gitea" ? `${FORGES[provider].url}/api/v1/user` : `${FORGES[provider].url}/login/oauth/userinfo`,
+                } : {}),
+              });
+              await store.setOAuth({ ...o, enabled: true, providers });
+            }
+          }
+          return json({ ok: true });
+        }
+        if (url.pathname === "/api/onboarding/save-models" && req.method === "POST") {
+          const body = await readJson(req);
+          if (body.s1) {
+            const s1 = body.s1;
+            if (LOCAL_S1.some((m) => m.id === s1.provider)) {
+              await store.setSetting("s1", { provider: s1.provider });
+              const m = LOCAL[s1.provider];
+              if (m && !modelReady(m) && !downloads.get(m.id)?.active) downloadModel(m);
+            } else if (S1_PROVIDERS[s1.provider] || s1.provider === "custom") {
+              await store.setSetting("s1", { provider: s1.provider, model: s1.model || "", apiKey: s1.apiKey || "", baseUrl: s1.baseUrl || "" });
+            }
+          }
+          if (body.llm) {
+            const llm = body.llm;
+            if (LOCAL_LLM.some((m) => m.id === llm.provider)) {
+              await store.setSetting("llm", { provider: `local_${llm.provider}` });
+              const m = LOCAL[llm.provider];
+              if (m && !modelReady(m) && !downloads.get(m.id)?.active) downloadModel(m);
+            } else if (PROVIDERS[llm.provider]) {
+              await store.setSetting("llm", { provider: llm.provider, model: llm.model || "", apiKey: llm.apiKey || "", baseUrl: llm.baseUrl || "" });
+            }
+          }
+          modelCache.clear();
+          return json({ ok: true });
+        }
+        if (url.pathname === "/api/onboarding/save-repos" && req.method === "POST") {
+          const body = await readJson(req);
+          const nextRepos = Array.isArray(body.repos) ? body.repos.filter(Boolean) : [];
+          if (!nextRepos.length) throw new Error("Please select at least one repository");
+          await store.setSetting("repos", nextRepos);
+          return json({ ok: true, repos: nextRepos });
+        }
+        if (url.pathname === "/api/onboarding/complete" && req.method === "POST") {
+          await store.setSetting("onboardingComplete", true);
+          const rs = await repos();
+          const primaryOrg = rs[0] ? rs[0].split("/")[0] : "";
+          return json({ ok: true, org: primaryOrg });
+        }
       }
       if (url.pathname === "/api/home") {
         if (!(await gate(req, res)).ok) return;
@@ -3078,16 +3546,36 @@ http
         return json({ ok: true });
       }
       if (url.pathname === "/github/manifest/callback") {
-        const fail = (msg) => { res.statusCode = 302; res.setHeader("location", `/settings/oauth?error=${encodeURIComponent(msg)}`); return res.end(); };
+        const returnTo = cookies(req).pr_manifest_return || "/settings/oauth";
+        const fail = (msg) => { res.statusCode = 302; res.setHeader("location", `${returnTo}?error=${encodeURIComponent(msg)}`); return res.end(); };
         if (!cookies(req).pr_manifest || cookies(req).pr_manifest !== url.searchParams.get("state")) return fail("GitHub app creation state mismatch, try again");
-        const conv = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(url.searchParams.get("code"))}/conversions`, { method: "POST", headers: { accept: "application/vnd.github+json", "user-agent": "pr-scorer" } });
+        const conv = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(url.searchParams.get("code"))}/conversions`, { method: "POST", headers: { accept: "application/vnd.github+json", "user-agent": "CodeOtter" } });
         if (!conv.ok) return fail(`GitHub rejected the app manifest (${conv.status})`);
         const app = await conv.json();
         const o = await store.getOAuth();
         await store.setOAuth({ ...o, enabled: true, providers: [...o.providers.filter((p) => p.name !== "github"), { name: "github", clientId: app.client_id, clientSecret: app.client_secret }] });
+        await store.setSetting("primaryProvider", "github");
+        await store.setSetting("githubApp", {
+          id: app.id,
+          slug: app.slug,
+          owner: app.owner?.login || "",
+          pem: app.pem || "",
+          clientId: app.client_id,
+          clientSecret: app.client_secret,
+        });
+        if (app.owner?.login) {
+          await store.setSetting("githubOwner", app.owner.login);
+        }
         setCookie(res, "pr_manifest", "", 0);
+        setCookie(res, "pr_manifest_return", "", 0);
+        ghReposCache = null;
+        if (app.slug && returnTo.startsWith("/onboarding")) {
+          res.statusCode = 302;
+          res.setHeader("location", `https://github.com/apps/${encodeURIComponent(app.slug)}/installations/new`);
+          return res.end();
+        }
         res.statusCode = 302;
-        res.setHeader("location", `/settings/oauth?connected=${encodeURIComponent(app.html_url || app.slug || "")}`);
+        res.setHeader("location", `${returnTo}?connected=${encodeURIComponent(app.html_url || app.slug || "github")}`);
         return res.end();
       }
       const m = url.pathname.match(/^\/api\/settings\/([a-z]+)(?:\/([a-z]+))?$/);
@@ -3348,7 +3836,10 @@ http
       res.end(await renderHome());
     } catch (e) {
       res.statusCode = 500;
-      json({ error: e.message });
+      const detail = e.cause ? ` (${e.cause.code || e.cause.message || e.cause})` : "";
+      const msg = e.message === "fetch failed" ? `Fetch failed: connection error or endpoint unreachable${detail}` : `${e.message}${detail}`;
+      console.error(`[API Error] ${req.method} ${url.pathname}:`, e.stack || e);
+      json({ error: msg });
     }
   })
   .setTimeout(0) // Node cuts requests at 300 s by default; a cold local sidecar plus a long review can take longer

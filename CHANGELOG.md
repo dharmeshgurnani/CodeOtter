@@ -2,6 +2,7 @@
 
 ## 0.4.0 (2026-10-01)
 
+- **First-Time Setup & Onboarding Wizard**: automated first-launch detection routing fresh Docker / server deployments into a streamlined 4-step setup wizard (`/onboarding`): primary Git/OAuth provider selection (GitHub, Forgejo, Gitea) with non-blocking multi-forge connection advice, dual-engine AI model configuration (required System 1 + optional LLM with non-blocking asynchronous local model background downloads or hosted BYOK), multi-organization repository multi-selection, and direct landing onto the active organization's dashboard.
 - **Native CodeOtter CLI & CI Review Engine**: zero-dependency standalone binary (`bin/codeotter.mjs` / `npx codeotter`) supporting instant local diff review (`codeotter review --staged`), PR scoring (`codeotter pr <num>`), CI merge gate enforcement with exit codes (`codeotter ci --fail-on-gate --min-score 60`), stdio Model Context Protocol (`codeotter mcp`) server, multi-agent anti-hallucination critique pass, and rich ANSI terminal scorecard rendering.
 - Consolidate provider connections and sign-in under Admin / OAuth, with one sidebar link and separate connection tests.
 

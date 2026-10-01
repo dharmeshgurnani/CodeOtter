@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { BookOpen, GitCommitHorizontal, Loader2, RotateCw, ShieldCheck, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowDown, BookOpen, GitCommitHorizontal, Loader2, RotateCw, ShieldCheck, Sparkles } from "lucide-react";
 import {
   Files,
   FolderItem,
@@ -405,6 +405,41 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
   const [copiedFixKey, setCopiedFixKey] = useState<string>("");
   const [postingSuggestionKey, setPostingSuggestionKey] = useState<string>("");
   const [postedSuggestionKeys, setPostedSuggestionKeys] = useState<Record<string, boolean>>({});
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const terminalScrollRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
+
+  const scrollToBottom = (smooth = true) => {
+    userScrolledUpRef.current = false;
+    setShowScrollBottom(false);
+    if (terminalScrollRef.current) {
+      terminalScrollRef.current.scrollTo({
+        top: terminalScrollRef.current.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
+      });
+    }
+  };
+
+  const handleTerminalScroll = () => {
+    const el = terminalScrollRef.current;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const isUp = distanceToBottom > 48;
+    userScrolledUpRef.current = isUp;
+    setShowScrollBottom(isUp);
+  };
+
+  const handleMarkdownUpdate = () => {
+    if (!userScrolledUpRef.current && terminalScrollRef.current) {
+      terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight;
+    }
+  };
+
+  useEffect(() => {
+    if (!userScrolledUpRef.current && terminalScrollRef.current) {
+      terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight;
+    }
+  }, [r, r?.pending?.narrative]);
 
   useEffect(() => {
     setR(null);
@@ -417,6 +452,8 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
     setCopiedFixKey("");
     setPostingSuggestionKey("");
     setPostedSuggestionKeys({});
+    setShowScrollBottom(false);
+    userScrolledUpRef.current = false;
   }, [pr, repoHint, org]);
 
   useEffect(() => {
@@ -654,7 +691,12 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
           <button
             type="button"
             disabled={!!(pending?.scores || pending?.narrative)}
-            onClick={() => setRerunReq({ id: Date.now(), part: "all" })}
+            onClick={() => {
+              userScrolledUpRef.current = false;
+              setShowScrollBottom(false);
+              setAnimateWrite(true);
+              setRerunReq({ id: Date.now(), part: "all" });
+            }}
             title="Re-run incremental delta review against latest PR commits"
             className="inline-flex items-center gap-1 rounded-md border border-amber-300/80 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-100/80 disabled:opacity-50"
           >
@@ -925,7 +967,7 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
         {/* Single CodeOtter AI Review Dark Terminal Card (fixed height, inner scrollable rendered markdown) */}
         <AnimateCode
           code={buildAiReviewMarkdown(r)}
-          className="min-w-0 max-h-[75vh] min-h-[380px] lg:max-h-none lg:h-[540px] flex flex-col overflow-hidden rounded-[10px] border border-border bg-[#0d1117] text-neutral-200"
+          className="relative min-w-0 max-h-[75vh] min-h-[380px] lg:max-h-none lg:h-[540px] flex flex-col overflow-hidden rounded-[10px] border border-border bg-[#0d1117] text-neutral-200 group"
         >
           <CodeHeader
             icon={Sparkles}
@@ -933,7 +975,12 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
             action={
               <button
                 type="button"
-                onClick={() => setRerunReq({ id: Date.now(), part: "llm" })}
+                onClick={() => {
+                  userScrolledUpRef.current = false;
+                  setShowScrollBottom(false);
+                  setAnimateWrite(true);
+                  setRerunReq({ id: Date.now(), part: "llm" });
+                }}
                 disabled={!!pending?.narrative}
                 title="Re-run AI review"
                 aria-label="Re-run AI review"
@@ -946,15 +993,31 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
           >
             <b className="font-semibold text-neutral-900">CodeOtter AI Review</b>
           </CodeHeader>
-          <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-5 bg-[#0d1117]">
+          <div
+            ref={terminalScrollRef}
+            onScroll={handleTerminalScroll}
+            className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-5 bg-[#0d1117] scroll-smooth"
+          >
             <MarkdownView
               content={buildAiReviewMarkdown(r)}
               variant="dark"
               writing={animateWrite && !pending?.narrative}
               cursor={animateWrite || !!pending?.narrative}
               duration={2400}
+              onUpdate={handleMarkdownUpdate}
             />
           </div>
+          {showScrollBottom && (
+            <button
+              type="button"
+              onClick={() => scrollToBottom(true)}
+              className="absolute bottom-12 right-4 z-20 inline-flex items-center gap-1.5 rounded-full border border-neutral-700 bg-neutral-900/95 px-3 py-1 text-xs font-medium text-amber-400 shadow-xl backdrop-blur transition-all hover:bg-neutral-800 hover:border-neutral-600 active:scale-95"
+              aria-label="Scroll to bottom of review"
+            >
+              <ArrowDown className="size-3.5 text-amber-400 animate-bounce" />
+              <span>Scroll to bottom</span>
+            </button>
+          )}
           {pending?.narrative && (
             <ClaudeThinkingBar guide={r.guide} commitsCount={prCommits.length} />
           )}
