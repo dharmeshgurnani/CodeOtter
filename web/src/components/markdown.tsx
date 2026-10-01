@@ -416,8 +416,10 @@ export function MarkdownView({
   variant = "light",
   writing = false,
   cursor = false,
-  duration = 2000,
+  duration = 2400,
   className,
+  onUpdate,
+  onDone,
 }: {
   content: string;
   variant?: "light" | "dark";
@@ -425,6 +427,8 @@ export function MarkdownView({
   cursor?: boolean;
   duration?: number;
   className?: string;
+  onUpdate?: (visibleText: string) => void;
+  onDone?: () => void;
 }) {
   const [visible, setVisible] = useState(writing ? "" : content);
   const [done, setDone] = useState(!writing);
@@ -433,29 +437,39 @@ export function MarkdownView({
     if (!writing) {
       setVisible(content);
       setDone(true);
+      onUpdate?.(content);
       return;
     }
     if (!content) {
       setVisible("");
       setDone(true);
+      onUpdate?.("");
       return;
     }
     setDone(false);
     const totalLen = content.length;
-    const steps = 60;
-    const chunkSize = Math.max(12, Math.ceil(totalLen / steps));
-    const stepMs = Math.max(16, Math.floor(duration / steps));
+    // Calculate realistic agent streaming cadence
+    const targetSteps = Math.min(180, Math.max(30, Math.floor(totalLen / 16)));
+    const stepMs = Math.max(14, Math.floor(duration / targetSteps));
+    const baseChunk = Math.max(6, Math.ceil(totalLen / targetSteps));
     let idx = 0;
+
     const timer = setInterval(() => {
-      idx = Math.min(totalLen, idx + chunkSize);
-      setVisible(content.slice(0, idx));
+      // Add subtle natural jitter to chunk size for organic streaming feel
+      const jitter = Math.floor(Math.random() * 5) - 2;
+      const stepChunk = Math.max(2, baseChunk + jitter);
+      idx = Math.min(totalLen, idx + stepChunk);
+      const nextText = content.slice(0, idx);
+      setVisible(nextText);
+      onUpdate?.(nextText);
       if (idx >= totalLen) {
         clearInterval(timer);
         setDone(true);
+        onDone?.();
       }
     }, stepMs);
     return () => clearInterval(timer);
-  }, [content, writing, duration]);
+  }, [content, writing, duration, onUpdate, onDone]);
 
   const isDark = variant === "dark";
   const textToRender = writing ? visible : content;
@@ -620,7 +634,15 @@ export function MarkdownView({
         {textToRender}
       </ReactMarkdown>
       {cursor && (!done || writing) && (
-        <span className="ml-1 inline-block h-4 w-2 translate-y-0.5 animate-pulse bg-amber-400" />
+        <span
+          className={cn(
+            "ml-1 inline-block h-3.5 w-2 translate-y-0.5 rounded-[1px] animate-pulse select-none align-baseline",
+            isDark
+              ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]"
+              : "bg-neutral-800",
+          )}
+          aria-hidden="true"
+        />
       )}
     </div>
   );
