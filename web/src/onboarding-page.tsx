@@ -747,6 +747,7 @@ export function OnboardingPage({
                           name: "Laya typed-decisions",
                           maker: "Convai Innovations",
                           icon: "https://cdn-avatars.huggingface.co/v1/production/uploads/1596903074565-noauth.jpeg",
+                          badge: "Recommended",
                           size: "455 MB",
                           speed: "Instant CPU / GPU",
                           desc: "421M encoder. Deterministic rubric scoring, safety gates & blast radius evaluation.",
@@ -783,9 +784,16 @@ export function OnboardingPage({
                                   <span className="block text-[11px] text-neutral-500">{m.maker}</span>
                                 </div>
                               </div>
-                              <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
-                                {m.size}
-                              </span>
+                              <div className="flex flex-col items-end gap-1">
+                                {m.badge && (
+                                  <span className="rounded-md bg-neutral-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                                    {m.badge}
+                                  </span>
+                                )}
+                                <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
+                                  {m.size}
+                                </span>
+                              </div>
                             </div>
                             <div className="mx-1.5 mb-1.5 flex flex-1 flex-col rounded-lg border border-neutral-200 bg-white p-3.5">
                               <div className="text-xs text-neutral-600 leading-relaxed min-h-[32px]">{m.desc}</div>
@@ -808,12 +816,12 @@ export function OnboardingPage({
                     </div>
                   </div>
 
-                  {/* Language Model Selection (Microsoft CodeReviewer Recommended & Pre-selected) */}
+                  {/* Language Model Selection (Microsoft CodeReviewer Recommended & Pre-selected, 2 cards per row) */}
                   <div>
                     <label className="block text-xs font-semibold text-neutral-900 mb-2">
                       Language Model (LLM)
                     </label>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {[
                         {
                           id: "codereviewer",
