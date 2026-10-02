@@ -2,6 +2,8 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | Fast triage: System One rates correctness risk and blast radius of each new or updated PR from a whole-change digest, sets the `codeotter/triage` commit status and an updatable PR comment, polled every 2 minutes; GitHub Actions wait job in docs/ci-triage.md | 2026-10-02 |
+| [ ] | Validate System One triage on past pull requests with known outcomes and set the default stop threshold from the results | |
 | [x] | Full-Stack Setup & Onboarding Wizard (first-time deployment detection, primary Git/OAuth provider selection for GitHub/Forgejo/Gitea, dual-engine AI model configuration with non-blocking local background downloads, multi-org searchable repository onboarding, and direct dashboard landing) | 2026-10-01 |
 | [x] | Native CodeOtter CLI & CI Review Engine (`bin/codeotter.mjs`, `codeotter review`, `codeotter pr`, `codeotter ci --fail-on-gate`, `codeotter mcp` stdio server, multi-agent critique pass, rich ANSI terminal scorecard) | 2026-10-01 |
 | [x] | Forgejo repositories + OAuth alongside GitHub: implemented; isolated integration tests, production build and browser checks pass. User authorized the Gitea follow-up | 2026-09-30 |

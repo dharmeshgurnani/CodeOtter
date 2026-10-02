@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Fast triage**: System One rates correctness risk and blast radius of every new or updated pull request in onboarded repositories (polled every 2 minutes) and sets the `codeotter/triage` commit status (`pending`, `success`, `failure` at or above the configured risk, `error` with the reason), plus an updatable PR comment when Post scores is on. About 80 seconds with Kev on CPU. Settings under Admin / Model provider / Fast triage; `POST /api/triage?pr=` runs one on demand. GitHub Actions wait job in `docs/ci-triage.md`. New GitHub App installs request `statuses: write`.
+- Small-context local System One models read a digest of the whole change (every file with line counts, tests, areas, then the largest hunks) instead of the first characters of the raw diff.
+- **Scores come from a model or not at all**: removed the rule-based System One stand-in (`runtimes/laya/serve.py`) and the in-server fallback that turned file counts and folder names into scores and gates. A System One model that fails to start, errors or skips a question now fails the review with the model's error on the review page, and nothing is posted to the PR. A language model that owns the scores must return all of them, including blast radius, or the review fails.
+- **System One checks CodeReviewer's comments**: each CodeReviewer comment is sent to System One with its hunk, and only comments it judges, with at least 0.7 confidence, to name a concrete problem become findings (capped at the review's `maxFindings`). The summary states how many were kept.
+- Small-context System One models (Laya 1,024 tokens, Kev 2,048) show an info icon on their cards in onboarding, Model provider and Local models: on larger pull requests they see only part of the change. Onboarding now preselects Kev 0.8B.
+- Laya runtime 0.9.7. The 0.9.5 Linux build stopped with "Illegal instruction" on CPUs without AVX-512 (Docker on most laptops).
+- Anthropic model list: `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`. Reviews ask for high effort and fail clearly if the reply is cut off.
+
 ## 0.4.0 (2026-10-01)
 
 - **First-Time Setup & Onboarding Wizard**: automated first-launch detection routing fresh Docker / server deployments into a streamlined 4-step setup wizard (`/onboarding`): primary Git/OAuth provider selection (GitHub, Forgejo, Gitea) with non-blocking multi-forge connection advice, dual-engine AI model configuration (required System 1 + optional LLM with non-blocking asynchronous local model background downloads or hosted BYOK), multi-organization repository multi-selection, and direct landing onto the active organization's dashboard.

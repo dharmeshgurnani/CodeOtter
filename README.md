@@ -265,6 +265,9 @@ Evaluates structured rubrics and merge-policy criteria in a single lightning-fas
 
 *Both engines run in parallel; reviews take only as long as the slowest pass. Either engine can also operate standalone.*
 
+### Fast triage: stop the pipeline early
+System One rates each new or updated pull request's correctness risk and blast radius from a digest of the whole change and sets the `codeotter/triage` commit status, about 80 seconds on CPU with Kev 0.8B. A GitHub Actions job waits for it: red stops the long build, green lets it run. Turn it on under **Admin / Model provider / Fast triage**; workflow in [docs/ci-triage.md](docs/ci-triage.md). If System One fails, the status is `error` with the reason, never a guessed score.
+
 ---
 
 ## 💻 100% Offline Mode (Zero Cloud)

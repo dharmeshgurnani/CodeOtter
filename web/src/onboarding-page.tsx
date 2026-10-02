@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, Plus, RotateCw, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InfoTip } from "@/components/info-tip";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DitherCanvas } from "@/components/dither-canvas";
 import { Toaster, toast } from "sonner";
@@ -25,7 +26,7 @@ type OnboardingStatus = {
   s1: { provider: string; model: string; baseUrl: string; hasKey: boolean };
   llm: { provider: string; model: string; baseUrl: string; hasKey: boolean };
   localModels: {
-    s1: { id: string; label: string; sizeMB: number; status: string }[];
+    s1: { id: string; label: string; sizeMB: number; status: string; info?: string }[];
     llm: { id: string; label: string; sizeMB: number; status: string }[];
   };
 };
@@ -60,7 +61,7 @@ export function OnboardingPage({
   // Step 2: Model State
   const [modelMode, setModelMode] = useState<"local" | "cloud">("local");
   // Local choices (Laya for S1, Microsoft CodeReviewer as recommended default for LLM)
-  const [localS1, setLocalS1] = useState("laya");
+  const [localS1, setLocalS1] = useState("kev");
   const [localLlm, setLocalLlm] = useState("codereviewer");
   // Cloud choices
   const [cloudS1Provider, setCloudS1Provider] = useState("jev");
@@ -722,7 +723,7 @@ export function OnboardingPage({
 
               {modelMode === "local" ? (
                 <div className="mt-5 space-y-6">
-                  {/* System 1 Model Selection (Laya Default) */}
+                  {/* System 1 Model Selection (Kev Default) */}
                   <div>
                     <div className="mb-2">
                       <label className="block text-xs font-semibold text-neutral-900">
@@ -735,15 +736,6 @@ export function OnboardingPage({
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {[
                         {
-                          id: "laya",
-                          name: "Laya typed-decisions",
-                          maker: "Convai Innovations",
-                          icon: "https://cdn-avatars.huggingface.co/v1/production/uploads/1596903074565-noauth.jpeg",
-                          size: "455 MB",
-                          speed: "Instant CPU / GPU",
-                          desc: "421M encoder. Deterministic rubric scoring, safety gates & blast radius evaluation.",
-                        },
-                        {
                           id: "kev",
                           name: "Kev 0.8B (S1)",
                           maker: "Jared Palmer",
@@ -752,7 +744,16 @@ export function OnboardingPage({
                           speed: "High Precision",
                           desc: "Qwen3.5-0.8B decision model. Deeper nuance for complex pull requests.",
                         },
-                      ].map((m) => {
+{
+                          id: "laya",
+                          name: "Laya typed-decisions",
+                          maker: "Convai Innovations",
+                          icon: "https://cdn-avatars.huggingface.co/v1/production/uploads/1596903074565-noauth.jpeg",
+                          size: "455 MB",
+                          speed: "Instant CPU / GPU",
+                          desc: "421M encoder. Deterministic rubric scoring, safety gates & blast radius evaluation.",
+                        },
+                                              ].map((m) => {
                         const isSelected = localS1 === m.id;
                         return (
                           <div
@@ -772,6 +773,7 @@ export function OnboardingPage({
                                 </Avatar>
                                 <div>
                                   <span className="text-sm font-semibold text-neutral-900">{m.name}</span>
+                                  {(() => { const info = status?.localModels?.s1.find((x) => x.id === m.id)?.info; return info ? <span className="ml-1.5"><InfoTip text={info} /></span> : null; })()}
                                   <span className="block text-[11px] text-neutral-500">{m.maker}</span>
                                 </div>
                               </div>

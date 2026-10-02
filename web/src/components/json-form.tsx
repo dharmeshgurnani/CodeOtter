@@ -5,12 +5,13 @@ import { Check, ChevronsUpDown, Settings2, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InfoTip } from "@/components/info-tip";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/animate-ui/components/radix/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/animate-ui/components/radix/dropdown-menu";
 
 export type Option = { value: string | number; label: string; icon?: string };
 // A list item may carry its own settings (fields + values); they open in an Animate UI dialog from a gear icon on the row.
-export type ListItem = string | { id: string; label: string; icon?: string; meta?: string; badge?: string; progress?: number; actions?: Action[]; settings?: { title?: string; description?: string; fields: Field[]; values: Record<string, unknown> } };
+export type ListItem = string | { id: string; label: string; icon?: string; meta?: string; info?: string; badge?: string; progress?: number; actions?: Action[]; settings?: { title?: string; description?: string; fields: Field[]; values: Record<string, unknown> } };
 export type Field = {
   key: string;
   label: string;
@@ -24,6 +25,7 @@ export type Field = {
   hideWhen?: { field: string; in: string[] };
   link?: { label: string; url: string };
   linkBy?: { field: string; map: Record<string, { label: string; url: string }> };
+  infoBy?: { field: string; map: Record<string, string> }; // info icon beside the label, chosen by another field's value
   removable?: boolean; // list: whether rows can be removed (default true)
   min?: number;
   max?: number;
@@ -101,7 +103,7 @@ const Control = ({ f, vals, onChange, onSaveList, id, scope = "", onItemAction }
                 </Avatar>
               )}
               <span className="min-w-[160px] flex-1">
-                <span className="block truncate font-medium">{it.label}{it.badge && <span className="ml-2 rounded-md bg-green-100 px-1.5 py-px text-[11px] font-normal text-green-800 align-middle">{it.badge}</span>}</span>
+                <span className="block truncate font-medium">{it.label}{it.info && <span className="ml-1.5"><InfoTip text={it.info} /></span>}{it.badge && <span className="ml-2 rounded-md bg-green-100 px-1.5 py-px text-[11px] font-normal text-green-800 align-middle">{it.badge}</span>}</span>
                 {it.meta && <span className="block text-xs text-muted-foreground">{it.meta}</span>}
                 {it.progress !== undefined && (
                   <span className="mt-1.5 block h-1.5 w-full max-w-[320px] overflow-hidden rounded-full bg-neutral-200"><span className="block h-full bg-brand" style={{ width: `${Math.max(0, Math.min(100, it.progress))}%` }} /></span>
@@ -242,9 +244,10 @@ export function JsonForm({
                 .filter((f) => !f.hideWhen || !f.hideWhen.in.includes(String(vals[f.hideWhen.field])))
                 .map((f) => {
                   const link = f.link ?? f.linkBy?.map[String(vals[f.linkBy.field])];
+                  const info = f.infoBy?.map[String(vals[f.infoBy.field])];
                   return (
                     <div key={f.key} className="grid grid-cols-1 gap-1.5 px-4 py-3 sm:grid-cols-[200px_1fr] sm:gap-4">
-                      <label className="sm:pt-2 text-sm font-medium text-neutral-800" htmlFor={f.type === "checkbox" || f.type === "readonly" || f.type === "list" ? undefined : `f-${s.id}-${f.key}`}>{f.label}</label>
+                      <label className="sm:pt-2 text-sm font-medium text-neutral-800" htmlFor={f.type === "checkbox" || f.type === "readonly" || f.type === "list" ? undefined : `f-${s.id}-${f.key}`}>{f.label}{info && <span className="ml-1.5"><InfoTip text={info} /></span>}</label>
                       <div className="min-w-0">
                         <Control f={f} vals={vals} id={`f-${s.id}-${f.key}`} scope={s.id} onChange={(v) => onChange(s.id, applyChange(s, vals, f.key, v))} onSaveList={(v) => onAction(s.id, "save", undefined, applyChange(s, vals, f.key, v))} onItemAction={(itemId, actionId) => onAction(s.id, actionId, itemId)} />
                         {(f.hint || link) && (
