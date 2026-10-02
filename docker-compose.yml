@@ -1,13 +1,29 @@
 services:
   codeotter:
     container_name: codeotter
-    build: .
+    # :latest follows every release; pin :0.4 (or :0.4.0) to hold back.
+    image: ghcr.io/dharmeshgurnani/codeotter:latest
     ports:
       - "4747:4747"   # app
       - "127.0.0.1:8090:8090"   # PocketBase admin UI at /_/ (loopback only; put it behind your own auth if exposing it)
     env_file: .env
     volumes:
       - pb_data:/app/pb_data
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
     restart: unless-stopped
+
+  # Pulls a newer image hourly and restarts CodeOtter on it. Only containers labelled above. Remove to update by hand.
+  watchtower:
+    container_name: codeotter-watchtower
+    image: nickfedor/watchtower:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_POLL_INTERVAL: "3600"
+    restart: unless-stopped
+
 volumes:
   pb_data:

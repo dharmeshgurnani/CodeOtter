@@ -1,5 +1,6 @@
 # Stage 1: build the React UI
-FROM node:22-bookworm-slim AS web
+# Built on the runner's own platform; only the runtime stage is per-architecture.
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web
 WORKDIR /app/web
 RUN npm i -g pnpm
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./

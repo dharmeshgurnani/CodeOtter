@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, ChevronRight, ChevronsUpDown, ExternalLink, FolderGit2, House, LogIn, LogOut, Plus, Settings2, ShieldCheck } from "lucide-react";
+import { BookOpen, ChevronRight, CircleArrowUp, ChevronsUpDown, ExternalLink, FolderGit2, House, LogIn, LogOut, Plus, Settings2, ShieldCheck } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -44,6 +44,7 @@ type Props = {
   onLogin: () => void;
   onLogout: () => void;
   go: (path: string) => void;
+  update?: { version: string; url: string } | null;
 };
 
 // Selected page link: accent text plus a bar over the sub-menu guide line, so it never looks like the category title above it.
@@ -191,7 +192,7 @@ function NavUser({ user, signInAvailable, onLogin, onLogout }: { user: User | nu
   );
 }
 
-export function AppSidebar({ repositoriesLoaded = true, forgeUrls = {}, repos, route, openCounts, settingsPages, org, setOrg, user, signInAvailable, onLogin, onLogout, go: rawGo }: Props) {
+export function AppSidebar({ repositoriesLoaded = true, forgeUrls = {}, repos, route, openCounts, settingsPages, org, setOrg, user, signInAvailable, onLogin, onLogout, go: rawGo, update }: Props) {
   const { isMobile, setOpenMobile } = useSidebar();
   const go = (path: string) => {
     if (isMobile) setOpenMobile(false);
@@ -288,6 +289,16 @@ export function AppSidebar({ repositoriesLoaded = true, forgeUrls = {}, repos, r
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
+          {update && (
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild tooltip={`v${update.version} available`} className="text-brand">
+                <a href={update.url} target="_blank" rel="noreferrer">
+                  <CircleArrowUp />
+                  <span>v{update.version} available</span>
+                </a>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip={forgeLabel(org)}>
               <a href={forgeId(org) ? `${forgeUrls[forgeId(org)]}/${org.split("~")[1]}` : org ? `https://github.com/${org}` : "https://github.com"} target="_blank" rel="noreferrer">

@@ -30,7 +30,25 @@ const FORGES = {
   forgejo: { label: "Forgejo", pb: "oidc", url: forgeOrigin(process.env.FORGEJO_URL || ""), token: process.env.FORGEJO_TOKEN || "" },
   gitea: { label: "Gitea", pb: "gitea", url: forgeOrigin(process.env.GITEA_URL || ""), token: process.env.GITEA_TOKEN || "" },
 };
-const REPO = process.env.REPO || (Object.values(FORGES).some((f) => f.url) ? "" : repoFromCwd());
+// Newest published release, refreshed in the background at most every 6 hours. CODEOTTER_UPDATE_CHECK=0 turns it off.
+const VERSION = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8")).version;
+const release = { at: 0, version: "", url: "" };
+const newer = (a, b) => { const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; };
+function availableUpdate() {
+  if (process.env.CODEOTTER_UPDATE_CHECK === "0") return null;
+  if (Date.now() - release.at > 6 * 3600e3) {
+    release.at = Date.now();
+    fetch("https://api.github.com/repos/dharmeshgurnani/CodeOtter/releases/latest", { headers: { accept: "application/vnd.github+json", "user-agent": "CodeOtter" }, redirect: "error", signal: AbortSignal.timeout(5000) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const v = String(j?.tag_name || "").replace(/^v/, "");
+        if (/^\d+\.\d+\.\d+$/.test(v)) Object.assign(release, { version: v, url: `https://github.com/dharmeshgurnani/CodeOtter/releases/tag/v${v}` });
+      })
+      .catch(() => {});
+  }
+  return release.version && newer(release.version, VERSION) ? { version: release.version, url: release.url } : null;
+}
+const REPO = process.env.REPO ||(Object.values(FORGES).some((f) => f.url) ? "" : repoFromCwd());
 function repoFromCwd() {
   try {
     const ghRepo = execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { encoding: "utf8" }).trim();
@@ -3470,7 +3488,7 @@ http
         const scoped = rs.filter((r) => !org || r.startsWith(`${org}/`));
         const onboardingComplete = (await store.getSetting("onboardingComplete")) === true;
         const onboardingNeeded = !onboardingComplete && rs.length === 0;
-        return json({ repo: scoped[0] || "", repos: rs, onboardingNeeded, forgejoUrl: FORGES.forgejo.url, forgeUrls: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, f.url])), model: `${c.provider}/${c.model}`, baseUrl: c.baseUrl, store: PB_URL ? "pocketbase" : "files", settingsPages: await settingsPages(g.user), reviewed: (await store.all()).filter((r) => !org || repoOf(r.pr).startsWith(`${org}/`)), open: (await Promise.all(scoped.map(openPrs))).flat() });
+        return json({ repo: scoped[0] || "", repos: rs, onboardingNeeded, forgejoUrl: FORGES.forgejo.url, forgeUrls: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, f.url])), model: `${c.provider}/${c.model}`, baseUrl: c.baseUrl, store: PB_URL ? "pocketbase" : "files", update: availableUpdate(), settingsPages: await settingsPages(g.user), reviewed: (await store.all()).filter((r) => !org || repoOf(r.pr).startsWith(`${org}/`)), open: (await Promise.all(scoped.map(openPrs))).flat() });
       }
       if (url.pathname.startsWith("/api/onboarding")) {
         const g = await gate(req, res, "admin");
