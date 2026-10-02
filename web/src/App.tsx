@@ -182,7 +182,7 @@ export default function App() {
   if (path === "/onboarding") return <OnboardingPage onComplete={(targetOrg) => { if (targetOrg) setOrg(targetOrg); go("/"); load(); }} go={go} />;
   return (
     <SidebarProvider defaultOpen={sidebarDefaultOpen()}>
-      <AppSidebar repositoriesLoaded={!!board} forgeUrls={board?.forgeUrls ?? {}} repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(scopedBoard)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
+      <AppSidebar update={board?.update} repositoriesLoaded={!!board} forgeUrls={board?.forgeUrls ?? {}} repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(scopedBoard)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
       <SidebarInset className="min-w-0">
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3 text-base sm:px-6">
           <span className="flex min-w-0 items-center gap-2.5">
