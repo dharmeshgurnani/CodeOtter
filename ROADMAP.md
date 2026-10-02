@@ -2,6 +2,12 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | One-click deploy: `install.sh` for any VPS (Caddy HTTPS with a domain), Deploy to Azure and Render buttons, Linode StackScript | 2026-10-02 |
+| [ ] | Linode: publish `deploy/linode-stackscript.sh` as a public StackScript (cloud.linode.com/stackscripts/create) and add its button | |
+| [ ] | Railway: template from `ghcr.io/dharmeshgurnani/codeotter` with a volume at `/app/pb_data` and a generated `PB_ADMIN_PASSWORD`; add the `railway.com/deploy/...` button | |
+| [ ] | AWS: CloudFormation template (EC2 + `install.sh` user data) hosted in S3 for a Launch Stack button | |
+| [ ] | DigitalOcean and Vultr: apply as marketplace vendors for 1-Click apps | |
+| [ ] | Coolify and Dokploy: submit one-click templates | |
 | [x] | Automatic Docker updates: release tags publish a multi-arch image to GHCR, Compose runs Watchtower, sidebar shows a newer release to admins | 2026-10-02 |
 | [x] | Fast triage: System One rates correctness risk and blast radius of each new or updated PR from a whole-change digest, sets the `codeotter/triage` commit status and an updatable PR comment, polled every 2 minutes; GitHub Actions wait job in docs/ci-triage.md | 2026-10-02 |
 | [ ] | Validate System One triage on past pull requests with known outcomes and set the default stop threshold from the results | |

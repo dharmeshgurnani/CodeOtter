@@ -1,0 +1,104 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "vmName": { "type": "string", "defaultValue": "codeotter" },
+    "vmSize": { "type": "string", "defaultValue": "Standard_B2ms", "metadata": { "description": "Local models need 8 GB RAM or more." } },
+    "adminUsername": { "type": "string", "defaultValue": "azureuser" },
+    "sshPublicKey": { "type": "string", "metadata": { "description": "Contents of ~/.ssh/id_ed25519.pub" } },
+    "dnsLabel": { "type": "string", "defaultValue": "[concat('codeotter-', uniqueString(resourceGroup().id))]", "metadata": { "description": "Address becomes https://<label>.<region>.cloudapp.azure.com" } },
+    "ghToken": { "type": "securestring", "defaultValue": "", "metadata": { "description": "Optional. Can also be set in the app." } },
+    "llmApiKey": { "type": "securestring", "defaultValue": "", "metadata": { "description": "Optional. Can also be set in the app." } }
+  },
+  "variables": {
+    "location": "[resourceGroup().location]",
+    "fqdn": "[concat(parameters('dnsLabel'), '.', variables('location'), '.cloudapp.azure.com')]",
+    "script": "[concat('#!/bin/bash\ncurl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/install.sh | CODEOTTER_DOMAIN=', variables('fqdn'), ' GH_TOKEN=''', parameters('ghToken'), ''' LLM_API_KEY=''', parameters('llmApiKey'), ''' bash\n')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2023-09-01",
+      "name": "[concat(parameters('vmName'), '-nsg')]",
+      "location": "[variables('location')]",
+      "properties": {
+        "securityRules": [
+          { "name": "ssh", "properties": { "priority": 1000, "direction": "Inbound", "access": "Allow", "protocol": "Tcp", "sourcePortRange": "*", "destinationPortRange": "22", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*" } },
+          { "name": "http", "properties": { "priority": 1010, "direction": "Inbound", "access": "Allow", "protocol": "Tcp", "sourcePortRange": "*", "destinationPortRange": "80", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*" } },
+          { "name": "https", "properties": { "priority": 1020, "direction": "Inbound", "access": "Allow", "protocol": "*", "sourcePortRange": "*", "destinationPortRange": "443", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*" } }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-09-01",
+      "name": "[concat(parameters('vmName'), '-vnet')]",
+      "location": "[variables('location')]",
+      "properties": {
+        "addressSpace": { "addressPrefixes": ["10.0.0.0/16"] },
+        "subnets": [{ "name": "default", "properties": { "addressPrefix": "10.0.0.0/24" } }]
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-09-01",
+      "name": "[concat(parameters('vmName'), '-ip')]",
+      "location": "[variables('location')]",
+      "sku": { "name": "Standard" },
+      "properties": {
+        "publicIPAllocationMethod": "Static",
+        "dnsSettings": { "domainNameLabel": "[parameters('dnsLabel')]" }
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-09-01",
+      "name": "[concat(parameters('vmName'), '-nic')]",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', concat(parameters('vmName'), '-vnet'))]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('vmName'), '-ip'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('vmName'), '-nsg'))]"
+      ],
+      "properties": {
+        "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('vmName'), '-nsg'))]" },
+        "ipConfigurations": [{
+          "name": "ipconfig1",
+          "properties": {
+            "privateIPAllocationMethod": "Dynamic",
+            "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', concat(parameters('vmName'), '-vnet'), 'default')]" },
+            "publicIPAddress": { "id": "[resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('vmName'), '-ip'))]" }
+          }
+        }]
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2023-09-01",
+      "name": "[parameters('vmName')]",
+      "location": "[variables('location')]",
+      "dependsOn": ["[resourceId('Microsoft.Network/networkInterfaces', concat(parameters('vmName'), '-nic'))]"],
+      "properties": {
+        "hardwareProfile": { "vmSize": "[parameters('vmSize')]" },
+        "osProfile": {
+          "computerName": "[parameters('vmName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "customData": "[base64(variables('script'))]",
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": true,
+            "ssh": { "publicKeys": [{ "path": "[concat('/home/', parameters('adminUsername'), '/.ssh/authorized_keys')]", "keyData": "[parameters('sshPublicKey')]" }] }
+          }
+        },
+        "storageProfile": {
+          "imageReference": { "publisher": "Canonical", "offer": "ubuntu-24_04-lts", "sku": "server", "version": "latest" },
+          "osDisk": { "createOption": "FromImage", "diskSizeGB": 64, "managedDisk": { "storageAccountType": "StandardSSD_LRS" } }
+        },
+        "networkProfile": { "networkInterfaces": [{ "id": "[resourceId('Microsoft.Network/networkInterfaces', concat(parameters('vmName'), '-nic'))]" }] }
+      }
+    }
+  ],
+  "outputs": {
+    "url": { "type": "string", "value": "[concat('https://', variables('fqdn'))]" },
+    "ssh": { "type": "string", "value": "[concat('ssh ', parameters('adminUsername'), '@', variables('fqdn'))]" }
+  }
+}

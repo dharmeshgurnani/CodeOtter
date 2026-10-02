@@ -15,7 +15,8 @@ if (existsSync(ENV_FILE) && typeof process.loadEnvFile === "function") {
 
 const PORT = process.env.PORT || 4747;
 // Public address of this app, used for the OAuth callback. Set APP_URL when deployed behind a domain.
-const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
+// Render and Railway publish the service's own address, so one-click deploys work without setting it.
+const APP_URL = (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || (process.env.RAILWAY_PUBLIC_DOMAIN && `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`) || `http://localhost:${PORT}`).replace(/\/+$/, "");
 // ponytail: default repo = the git repo you launch from; set REPO to point elsewhere
 function forgeOrigin(value) {
   if (!value) return "";
