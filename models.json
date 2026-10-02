@@ -1,8 +1,8 @@
 {
   "runtimes": {
     "laya": {
-      "version": "0.9.5",
-      "source": "https://github.com/monatis/ggmlc/releases/download/v0.9.5/",
+      "version": "0.9.7",
+      "source": "https://github.com/monatis/ggmlc/releases/download/v0.9.7/",
       "license": "MIT",
       "bin": "laya",
       "assets": {

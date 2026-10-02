@@ -106,7 +106,7 @@ function providerIcon(key) {
 
 // Providers. Everything except Anthropic speaks the OpenAI chat/completions shape.
 const PROVIDERS = {
-  anthropic: { label: "Anthropic", api: "anthropic", baseUrl: "https://api.anthropic.com", models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"], keyEnv: "ANTHROPIC_API_KEY", keyUrl: "https://console.anthropic.com/settings/keys" },
+  anthropic: { label: "Anthropic", api: "anthropic", baseUrl: "https://api.anthropic.com", models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"], keyEnv: "ANTHROPIC_API_KEY", keyUrl: "https://console.anthropic.com/settings/keys" },
   openai: { label: "OpenAI (ChatGPT)", api: "openai", baseUrl: "https://api.openai.com/v1", models: ["gpt-5", "gpt-5-mini", "gpt-4.1"], keyEnv: "OPENAI_API_KEY", keyUrl: "https://platform.openai.com/api-keys" },
   minimax: { label: "MiniMax", api: "openai", baseUrl: "https://api.minimax.io/v1", models: ["MiniMax-M3", "MiniMax-M2.5"], keyEnv: "MINIMAX_API_KEY", keyUrl: "https://platform.minimax.io/user-center/basic-information/interface-key" },
   openrouter: { label: "OpenRouter", api: "openai", baseUrl: "https://openrouter.ai/api/v1", models: ["typesafe/jev-router", "anthropic/claude-sonnet-5", "openai/gpt-5", "qwen/qwen3-coder", "deepseek/deepseek-chat"], keyEnv: "OPENROUTER_API_KEY", keyUrl: "https://openrouter.ai/keys" },
@@ -160,6 +160,8 @@ const CATALOG = JSON.parse(readFileSync(join(import.meta.dirname, "models.json")
 const DATA_DIR = process.env.PR_SCORER_DATA || join(import.meta.dirname, ".local");
 const LOCAL = Object.fromEntries(CATALOG.models.map((m) => [m.id, m])); // both kinds: "s1" (typed) and "llm" (chat)
 const LOCAL_S1 = CATALOG.models.filter((m) => m.kind === "s1");
+// Shown beside small-context System One models wherever they are picked: they read only part of a large pull request.
+const contextNote = (m) => (m.kind === "s1" && m.contextTokens < 8192 ? `Reads ${m.contextTokens} tokens (about ${m.contextChars.toLocaleString("en")} characters) per question. On larger pull requests it sees only part of the change, so scores and gates are less accurate.` : "");
 const LOCAL_LLM = CATALOG.models.filter((m) => m.kind === "llm");
 const S1_PROVIDERS = {
   jev: { label: "TypeSafe Jev", baseUrl: "https://api.typesafe.ai", models: ["jev-latest", "jev-1.13.0"], keyEnv: "TYPESAFE_API_KEY", keyUrl: "https://console.typesafe.ai/settings/keys" },
@@ -252,10 +254,6 @@ async function ensureRuntime(name) {
   }
   const bin = runtimeBin(name);
   if (existsSync(bin)) return bin;
-  if (name === "laya" && existsSync(join(import.meta.dirname, "runtimes/laya/serve.py"))) {
-    const sys = findPython();
-    if (sys) return sys;
-  }
   const assets = runtimeAssets(name);
   if (!assets.length) throw new Error(`No ${name} runtime for ${process.platform}-${process.arch}; use a hosted model`);
   mkdirSync(runtimeDir(name), { recursive: true });
@@ -275,10 +273,6 @@ async function ensureRuntime(name) {
       last = e.message;
       rmSync(archive, { force: true });
     }
-  }
-  if (name === "laya" && existsSync(join(import.meta.dirname, "runtimes/laya/serve.py"))) {
-    const sys = findPython();
-    if (sys) return sys;
   }
   throw new Error(`Could not install the ${name} runtime: ${last}`);
 }
@@ -372,38 +366,14 @@ async function ensureSidecar(m) {
   if (!modelReady(m)) throw new Error(`${m.label} is not downloaded: open Settings / Local models`);
   sc.id = m.id;
   sc.starting = (async () => {
-    let procBin = bin;
-    let procArgs = sidecarArgs(m, bin, sc.port);
-    let procCwd = RUNTIMES[m.runtime].kind === "python" ? import.meta.dirname : runtimeDir(m.runtime);
-
-    const layaPyScript = join(import.meta.dirname, "runtimes/laya/serve.py");
-    const pyExe = findPython();
-    if (m.runtime === "laya" && pyExe && existsSync(layaPyScript) && (process.platform === "linux" || !existsSync(bin))) {
-      procBin = pyExe;
-      procArgs = [layaPyScript, "--model", modelPath(m), "--port", String(sc.port), "--device", process.env.S1_DEVICE || "auto"];
-      procCwd = import.meta.dirname;
-    }
-
-    const proc = spawn(procBin, procArgs, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: procCwd });
+    const proc = spawn(bin, sidecarArgs(m, bin, sc.port), { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: RUNTIMES[m.runtime].kind === "python" ? import.meta.dirname : runtimeDir(m.runtime) });
     sc.proc = proc;
     let log = "";
     proc.stderr.on("data", (d) => { log = (log + d).slice(-4000); });
     proc.stdout.on("data", (d) => { log = (log + d).slice(-4000); });
     proc.on("exit", () => { if (sc.proc === proc) Object.assign(sc, { proc: null, ready: false, starting: null }); });
     for (let i = 0; i < 300; i++) {
-      if (!sc.proc) {
-        if (m.runtime === "laya" && procBin !== pyExe && pyExe && existsSync(layaPyScript)) {
-          console.warn(`[Laya Native Fallback] Native laya exited (${log.trim().split("\n").pop()}), switching to Python sidecar`);
-          procBin = pyExe;
-          procArgs = [layaPyScript, "--model", modelPath(m), "--port", String(sc.port), "--device", process.env.S1_DEVICE || "auto"];
-          procCwd = import.meta.dirname;
-          const pyProc = spawn(procBin, procArgs, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, cwd: procCwd });
-          sc.proc = pyProc;
-          pyProc.on("exit", () => { if (sc.proc === pyProc) Object.assign(sc, { proc: null, ready: false, starting: null }); });
-          continue;
-        }
-        throw new Error(`Local model runtime exited: ${log.trim().split("\n").pop() || "no output"}`);
-      }
+      if (!sc.proc) throw new Error(`Local model runtime exited: ${log.trim().split("\n").pop() || "no output"}`);
       try {
         const h = await (await fetch(`http://127.0.0.1:${sc.port}/health`, { signal: AbortSignal.timeout(2000) })).json();
         if (h.status === "ok") { sc.ready = true; sc.device = h.device || (m.runtime === "llama" ? (gpuIndex >= 0 ? `Vulkan${gpuIndex}` : "cpu") : ""); sc.lastUse = Date.now(); sc.starting = null; return sc.port; }
@@ -415,6 +385,26 @@ async function ensureSidecar(m) {
   })();
   return sc.starting;
 }
+// Auto triage: every two minutes, each open pull request in an onboarded repository whose head moved since its last triage gets one.
+let triagePolling = false;
+setInterval(async () => {
+  if (triagePolling) return;
+  triagePolling = true;
+  try {
+    if (!(await triageConfig()).auto) return;
+    const done = (await store.getSetting("triageResults")) || {};
+    for (const repo of await repos()) {
+      for (const p of await openPrs(repo)) {
+        if (!SHA_RE.test(p.headRefOid || "") || done[p.url]?.headSha === p.headRefOid) continue;
+        await triagePr(p.url, repo).catch((e) => console.warn(`[triage] ${p.url}: ${e.message}`));
+      }
+    }
+  } catch (e) {
+    console.warn(`[triage] ${e.message}`);
+  } finally {
+    triagePolling = false;
+  }
+}, 120e3).unref();
 setInterval(() => { for (const k of ["s1", "llm"]) { const sc = sidecars[k]; if (sc.proc && sc.ready && Date.now() - sc.lastUse > 15 * 60e3) stopSidecar(k); } }, 60e3).unref();
 process.on("exit", stopSidecars);
 
@@ -895,12 +885,13 @@ async function askModel(prompt, c) {
     const res = await fetch(`${base}/v1/messages`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": c.apiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: c.model, max_tokens: 16000, messages: [{ role: "user", content: prompt }] }),
-      signal: AbortSignal.timeout(180000),
+      body: JSON.stringify({ model: c.model, max_tokens: 16000, ...(/^claude-(opus|sonnet|fable)-5/.test(c.model) ? { output_config: { effort: "high" } } : {}), messages: [{ role: "user", content: prompt }] }),
+      signal: AbortSignal.timeout(600000),
     });
     if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const msg = await res.json();
     if (msg.stop_reason === "refusal") throw new Error(`Anthropic declined the request (${msg.stop_details?.category || "refusal"})`);
+    if (msg.stop_reason === "max_tokens") throw new Error("Anthropic response was cut off at max_tokens: the review is incomplete");
     return msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   }
   const res = await fetch(`${base}/chat/completions`, {
@@ -1148,6 +1139,7 @@ const S1_GATES = [
   { id: "issue_requirements", label: "Issue requirements", q: "Does the pull request diff fulfill the requirements and acceptance criteria described in the linked issue(s)?", risk: false, needsIssues: true },
 ];
 function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
+  if (c.local) return { pull_request: changeDigest(pr, diff, c.contextChars || 12000) };
   return {
     pull_request: {
       title: pr.title,
@@ -1192,11 +1184,118 @@ function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = []
     diff: diff.slice(0, c.contextChars || 80000),
   };
 }
+// What a small-context System One model reads instead of the head of the raw diff: the whole change in outline (every file
+// with its line counts, tests, areas), then the largest hunks until the budget runs out. The model makes every call.
+function changeDigest(pr, diff, maxChars) {
+  const facts = blastRadius(pr.files || []);
+  const files = [...(pr.files || [])].sort((a, b) => b.additions + b.deletions - (a.additions + a.deletions));
+  // gh lists at most 100 files; the pull request's own totals are exact
+  const total = Math.max(files.length, Number(pr.changedFiles) || 0);
+  const add = Number(pr.additions) || files.reduce((n, f) => n + f.additions, 0);
+  const del = Number(pr.deletions) || files.reduce((n, f) => n + f.deletions, 0);
+  let out = [
+    `Title: ${pr.title}`,
+    `Description: ${String(pr.body || "").replace(/\s+/g, " ").trim().slice(0, 400) || "(none)"}`,
+    `Change: ${total} files, +${add} -${del} lines, ${facts.testFiles} test files, ${facts.dirs} areas${facts.hotspots.length ? `, touches ${facts.hotspots.join(", ")}` : ""}.`,
+    "Files:",
+  ].join("\n");
+  const fileEnd = out.length + Math.floor(maxChars * 0.35);
+  let shown = 0;
+  for (const f of files) {
+    const line = `\n${f.path} +${f.additions} -${f.deletions}`;
+    if (out.length + line.length > fileEnd) break;
+    out += line;
+    shown++;
+  }
+  if (shown < total) out += `\n(${total - shown} more files)`;
+  out += "\nLargest hunks:";
+  for (const h of splitHunks(diff, 60, 1200)) {
+    const block = `\n--- ${h.file} ${h.header}\n${h.diff.trimEnd()}`;
+    if (out.length + block.length > maxChars) { out += block.slice(0, Math.max(0, maxChars - out.length)); break; }
+    out += block;
+  }
+  return out.slice(0, maxChars);
+}
+
+// Fast triage: System One answers two questions about the whole change (correctness risk, blast radius) and the result is
+// published at once as a commit status (codeotter/triage) and an updatable PR comment, so a pipeline can stop or continue
+// within minutes. The deep review (language model / CodeReviewer) stays on demand. Fails loudly: status "error".
+const TRIAGE_CONTEXT = "codeotter/triage";
+const SHA_RE = /^[0-9a-f]{7,40}$/i;
+const triageConfig = async () => ({ auto: false, stopAt: 75, ...((await store.getSetting("triage")) || {}) });
+const triageRuns = new Map();
+async function postTriageStatus(repo, sha, state, description, url) {
+  if (!SHA_RE.test(sha || "")) return;
+  const fields = { state, context: TRIAGE_CONTEXT, description: description.slice(0, 140), target_url: `${APP_URL}/review?pr=${encodeURIComponent(url)}` };
+  if (isForgeRepo(repo)) return forgeApi(`repos/${repo}/statuses/${sha}`, { method: "POST", body: fields });
+  return ghAsync(["api", "--method", "POST", `repos/${repo}/statuses/${sha}`, ...Object.entries(fields).flatMap(([k, v]) => ["-f", `${k}=${v}`])]);
+}
+function formatTriageComment(t) {
+  const level = S1_SCORES.correctness_risk[Math.min(4, Math.round(t.risk / 25))];
+  return [
+    "<!-- codeotter:triage -->",
+    "### 🦦 CodeOtter triage",
+    "",
+    `**${t.verdict === "attention" ? "⚠️ Needs attention" : "✅ OK to continue"}**: correctness risk **${t.risk}/100** (${level}), blast radius ${t.blast}/100. Stops at risk ${t.stopAt}.`,
+    "",
+    `System One \`${t.model}\` · ${t.seconds}s · commit \`${t.headSha.slice(0, 7)}\` · [Full review](${APP_URL}/review?pr=${encodeURIComponent(t.url)})`,
+  ].join("\n");
+}
+async function saveTriage(entry) {
+  const all = (await store.getSetting("triageResults")) || {};
+  all[entry.url] = entry;
+  const keep = Object.values(all).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 500);
+  await store.setSetting("triageResults", Object.fromEntries(keep.map((x) => [x.url, x])));
+  return entry;
+}
+async function triagePr(ref, repoHint = "") {
+  const { urlGuess, spec } = await resolvePr(ref, repoHint);
+  if (triageRuns.has(urlGuess)) return triageRuns.get(urlGuess);
+  const run = (async () => {
+    const started = Date.now();
+    const pr = JSON.parse(await readPr(urlGuess, spec));
+    const repo = repoOf(pr);
+    const sha = SHA_RE.test(pr.headRefOid || "") ? pr.headRefOid : "";
+    const base = { url: pr.url, repo, number: pr.number, title: pr.title, headSha: sha };
+    try {
+      const [cfg, s1] = await Promise.all([triageConfig(), s1Config()]);
+      if (!s1.enabled) throw new Error(s1.provider === "none" ? "No System One model configured: open Admin / Model provider" : `${s1.local?.label || s1.provider} is not ready: open Admin / Local models`);
+      await postTriageStatus(repo, sha, "pending", `System One triage running (${s1.provider})`, pr.url);
+      const diff = await readPr(urlGuess, spec, true);
+      const state = { pull_request: changeDigest(pr, diff, s1.contextChars || 12000) };
+      const questions = Object.fromEntries(["correctness_risk", "blast_radius"].map((k) => [`score_${k}`, { type: "score", instructions: `Rate the pull request's ${k.replace("_", " ")}.`, criteria: S1_SCORES[k] }]));
+      let a;
+      try {
+        a = await askSystemOne(state, questions, s1);
+      } catch (err) {
+        throw new Error(`System One model ${s1.provider}/${s1.model} failed: ${err.message}`);
+      }
+      const pct = (k) => {
+        const v = Number(a?.[`score_${k}`]?.score);
+        if (!Number.isFinite(v)) throw new Error(`System One model ${s1.provider}/${s1.model} did not answer ${k}`);
+        return Math.max(0, Math.min(100, Math.round((v / 4) * 100)));
+      };
+      const risk = pct("correctness_risk");
+      const entry = { ...base, risk, blast: pct("blast_radius"), verdict: risk >= cfg.stopAt ? "attention" : "ok", stopAt: cfg.stopAt, model: `${s1.provider}/${s1.model}`, seconds: Math.round((Date.now() - started) / 1000), at: new Date().toISOString() };
+      await postTriageStatus(repo, sha, entry.verdict === "attention" ? "failure" : "success", `Risk ${risk}/100: ${entry.verdict === "attention" ? "needs attention" : "ok to continue"} (${entry.seconds}s)`, pr.url);
+      const repoCfg = ((await store.getSetting("guides")) || {})[repo] || {};
+      if (repoCfg.postScores ?? (await reviewConfig()).postScores) await syncPrComments({ pr }, repo, { triage: entry });
+      return saveTriage(entry);
+    } catch (e) {
+      await postTriageStatus(repo, sha, "error", `Triage failed: ${e.message}`, pr.url).catch(() => {});
+      await saveTriage({ ...base, error: e.message, at: new Date().toISOString() });
+      throw e;
+    }
+  })().finally(() => triageRuns.delete(urlGuess));
+  triageRuns.set(urlGuess, run);
+  return run;
+}
+
 async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
   const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact);
   const questions = {};
   for (const [k, levels] of Object.entries(S1_SCORES)) questions[`score_${k}`] = { type: "score", instructions: `Rate the pull request's ${k.replace("_", " ")}.`, criteria: levels };
-  for (const g of S1_GATES) if ((!g.needsGuide || guide) && (!g.needsIssues || linkedIssues?.length)) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
+  for (const g of S1_GATES) if ((!g.needsGuide || (guide && !c.local)) && (!g.needsIssues || (linkedIssues?.length && !c.local))) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
   let a;
   try {
     a = await askSystemOne(state, questions, c, onPartial ? (partial) => {
@@ -1211,33 +1310,10 @@ async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, lin
       onPartial({ readyScores, gates, done: false });
     } : undefined);
   } catch (err) {
-    console.warn(`[SystemOne Fallback] ${err.message}, evaluating rubrics and merge gates from diff context`);
-    const fb = state.change_facts || {};
-    const files = pr.files || [];
-    const testFiles = fb.test_files || 0;
-    const linesChanged = fb.lines || 0;
-    const blast = blastRadius(files, outsideImpact?.outsideCallers, outsideImpact?.uniqueFiles).score;
-    const titleGood = pr.title && pr.title.length > 8 && !/^(fix|wip|update)$/i.test(pr.title);
-    const descGood = (pr.body || "").trim().length > 25;
-
-    a = {
-      score_quality: { score: testFiles > 0 && descGood ? 3 : (descGood ? 2 : 1) },
-      score_correctness_risk: { score: Math.min(4, Math.max(0, Math.round(blast / 25))) },
-      score_test_coverage: { score: testFiles > 0 ? (testFiles >= 2 ? 4 : 3) : (linesChanged < 40 ? 2 : 1) },
-      score_readability: { score: (diff || "").length < 20000 ? 3 : 2 },
-      score_pr_hygiene: { score: titleGood && descGood ? 4 : (titleGood || descGood ? 3 : 1) },
-      score_blast_radius: { score: Math.min(4, Math.max(0, Math.round(blast / 25))) },
-      gate_title: { noul: titleGood ? 0.95 : 0.2 },
-      gate_description: { noul: descGood ? 0.95 : 0.2 },
-      gate_security: { noul: (fb.sensitive_areas || []).includes("auth / security") ? 0.8 : 0.05 },
-      gate_complexity: { noul: blast > 80 ? 0.75 : 0.1 },
-      gate_tests: { noul: testFiles > 0 || linesChanged < 50 ? 0.95 : 0.3 },
-      gate_docs: { noul: 0.9 },
-      gate_scope: { noul: (files.length <= 25) ? 0.95 : 0.4 },
-      gate_guidelines: { noul: 0.05 },
-      gate_issue_requirements: { noul: 0.9 },
-    };
+    throw new Error(`System One model ${c.provider}/${c.model} failed: ${err.message}`);
   }
+  const missing = Object.keys(questions).filter((k) => !Number.isFinite(Number(a?.[k]?.[questions[k].type === "score" ? "score" : "noul"] ?? NaN)));
+  if (missing.length) throw new Error(`System One model ${c.provider}/${c.model} did not answer: ${missing.join(", ")}`);
   const scores = Object.fromEntries(Object.keys(S1_SCORES).map((k) => [k, Math.max(0, Math.min(100, Math.round((Number(a[`score_${k}`]?.score) || 0) / 4 * 100)))]));
   const gates = S1_GATES.filter((g) => a[`gate_${g.id}`]).map((g) => { const yes = Number(a[`gate_${g.id}`].noul) || 0; return { id: g.id, label: g.label, yes: Math.round(yes * 100) / 100, pass: g.risk ? yes < 0.5 : yes >= 0.5 }; });
   onPartial?.({ readyScores: scores, gates, done: true });
@@ -1252,7 +1328,7 @@ function splitHunks(diff, maxHunks = 40, maxChars = 2000) {
   const push = () => { if (cur && cur.diff.trim()) out.push(cur); cur = null; };
   for (const line of diff.split("\n")) {
     if (line.startsWith("diff --git")) { push(); file = (line.match(/ b\/(.+)$/) || [])[1] || file; continue; }
-    if (line.startsWith("+++ ")) { file = line.slice(4).replace(/^b\//, "") || file; continue; }
+    if (line.startsWith("+++ ")) { const target = line.slice(4).replace(/^b\//, ""); if (target !== "/dev/null") file = target || file; continue; }
     if (line.startsWith("--- ") || line.startsWith("index ") || line.startsWith("new file") || line.startsWith("deleted file") || line.startsWith("similarity") || line.startsWith("rename ")) continue;
     if (line.startsWith("@@")) { push(); cur = { file, header: line, diff: "" }; continue; }
     if (cur && cur.diff.length < maxChars) cur.diff += line + "\n";
@@ -1329,6 +1405,30 @@ async function reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress
     walkthrough: files.map((f) => ({ file: f, change: `${hunks.filter((h) => h.file === f).length} hunk(s) reviewed` })),
     rawOutput: rawLog.join("\n\n"),
   };
+}
+
+// CodeReviewer writes a comment for every hunk, including questions and style remarks. System One reads each comment with
+// its hunk and keeps only those that name a concrete problem in the change. Fails the review if System One fails.
+const S1_FINDING_MIN = 0.7; // accuracy over coverage: keep a comment only when System One is clearly confident
+const S1_FINDING_CHECK = "The review comment points to a concrete problem in this code change (a bug, broken or missing behaviour, a security issue, or a missing test for changed logic). Answer no for questions, guesses, style or naming preferences, and comments the code change does not support.";
+async function verifyFindingsWithSystemOne(findings, s1, onProgress = null) {
+  const kept = [];
+  for (const [i, f] of findings.entries()) {
+    const [comment, ...hunk] = String(f.detail || "").split("\n\n");
+    const room = Math.max(400, (s1.contextChars || 4000) - comment.length - f.file.length - 400);
+    const state = { file: f.file, review_comment: comment, code_change: hunk.join("\n\n").slice(0, room) };
+    let a;
+    try {
+      a = await askSystemOne(state, { finding_valid: { type: "noul", instructions: S1_FINDING_CHECK } }, s1);
+    } catch (err) {
+      throw new Error(`System One model ${s1.provider}/${s1.model} failed while checking review comments: ${err.message}`);
+    }
+    const yes = Number(a?.finding_valid?.noul);
+    if (!Number.isFinite(yes)) throw new Error(`System One model ${s1.provider}/${s1.model} did not answer the review comment check`);
+    if (yes >= S1_FINDING_MIN) kept.push({ ...f, confidence: Math.round(yes * 100) / 100 });
+    onProgress?.(i + 1, findings.length, kept.length);
+  }
+  return kept.sort((x, y) => y.confidence - x.confidence);
 }
 
 function findFileLineInDiff(file, diff) {
@@ -1467,7 +1567,7 @@ function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = tru
   const incrementalBlock = incrementalCtx?.promptBlock ? `\n${incrementalCtx.promptBlock}\n` : "";
   return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the repository team learnings, the linked issues and acceptance criteria, the git commit history, the outside-diff call graph context, and the code diff. Reply with ONLY a JSON object:
 {"summary":"3-5 sentence architectural walkthrough covering what changed, commit progression, fulfillment of linked issue requirements, adherence to repository guidelines, and outside caller safety","verdict":"approve|comment|request_changes",
-${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus)},\n` : ""} "findings":[{"severity":"blocker|major|minor|nit|high|medium|low","file":"path","line":42,"title":"short","detail":"specific line/behaviour and fix (cite AGENTS.md/CLAUDE.md rule, linked issue #number requirement, or commit if relevant)","suggestion":"optional exact replacement code"}],
+${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus),"blast_radius":0-100 (100 = system-wide or critical-path impact)},\n` : ""} "findings":[{"severity":"blocker|major|minor|nit|high|medium|low","file":"path","line":42,"title":"short","detail":"specific line/behaviour and fix (cite AGENTS.md/CLAUDE.md rule, linked issue #number requirement, or commit if relevant)","suggestion":"optional exact replacement code"}],
  "walkthrough":[{"file":"path","change":"concise summary of change in this file"}]}
 For each finding, include the integer target \`line\` number in the new file and an optional \`suggestion\` containing the exact replacement code snippet for the target line/block (without markdown backticks) so the fix can be applied in one click. Be concrete; cite exact files and rules. Respect all Repository Team Learnings and never flag dismissed patterns. Max ${r.maxFindings} findings, most severe first. Today is ${new Date().toISOString().slice(0, 10)}.
 
@@ -1491,10 +1591,16 @@ async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores 
   }
   const n = (x) => Math.max(0, Math.min(100, Math.round(Number(x)) || 0));
   const str = (x, max) => String(x ?? "").slice(0, max);
+  const scoreKeys = ["quality", "correctness_risk", "test_coverage", "readability", "pr_hygiene", "blast_radius"];
+  if (wantScores) {
+    const missing = scoreKeys.filter((k) => out.scores?.[k] === null || out.scores?.[k] === "" || !Number.isFinite(Number(out.scores?.[k])));
+    if (missing.length) throw new Error(`${c.provider}/${c.model} returned no usable scores for: ${missing.join(", ")}`);
+  }
   return {
     summary: str(out.summary, 2500),
     verdict: ["approve", "comment", "request_changes"].includes(out.verdict) ? out.verdict : "comment",
-    scores: Object.fromEntries(["quality", "correctness_risk", "test_coverage", "readability", "pr_hygiene"].map((k) => [k, n(out.scores?.[k])])),
+    scores: Object.fromEntries(scoreKeys.slice(0, 5).map((k) => [k, n(out.scores?.[k])])),
+    ...(wantScores ? { blastRadius: n(out.scores.blast_radius) } : {}),
     findings: (Array.isArray(out.findings) ? out.findings : []).slice(0, 20).map((f) => deriveSuggestionFromDetail(f, diff)),
     walkthrough: (Array.isArray(out.walkthrough) ? out.walkthrough : []).slice(0, 100).filter((w) => w && typeof w.file === "string").map((w) => ({ file: str(w.file, 300), change: str(w.change, 500) })),
     rawOutput: str(text, 20000),
@@ -1999,10 +2105,11 @@ async function startOrPollReview(ref, force, repo, part = "") {
             if (runLlm) {
               live.review = { ...live.review, ...partial, scores: live.review.scores };
             }
-          }, linkedIssues, learnings, incrementalCtx, outsideImpact).then((nav) => {
+          }, linkedIssues, learnings, incrementalCtx, outsideImpact).then(({ blastRadius: llmBlast, ...nav }) => {
             const scores = (!runScores || s1.enabled)
               ? (hasValidScores(live.review.scores) ? live.review.scores : initialScores)
-              : (hasValidScores(nav.scores) ? nav.scores : initialScores);
+              : nav.scores;
+            if (runScores && !s1.enabled) live.blast = { ...live.blast, score: llmBlast, source: "llm" };
             const merged = { ...nav, scores };
             live.review = runLlm ? merged : { ...live.review, scores };
             live.pending.narrative = false;
@@ -2016,6 +2123,21 @@ async function startOrPollReview(ref, force, repo, part = "") {
 
       const [narrative, typed] = await Promise.all([llmTask, s1Task]);
       let review = runLlm && narrative ? narrative : live.review;
+      if (runLlm && c.api === "codereviewer" && s1.enabled && review?.findings?.length) {
+        const proposed = review.findings;
+        live.pending.narrative = true;
+        live.review = { ...live.review, findings: [] };
+        const kept = (await verifyFindingsWithSystemOne(proposed, s1, (done, total, k) => {
+          live.review = { ...live.review, summary: `System One checked ${done} of ${total} CodeReviewer comments; kept ${k}.` };
+        })).slice(0, rc.maxFindings || REVIEW_DEFAULTS.maxFindings);
+        live.pending.narrative = false;
+        review = {
+          ...review,
+          summary: `${review.summary.replace(/ Found \d+ actionable observation\(s\)\./, "")} System One kept ${kept.length} of ${proposed.length} CodeReviewer comments.`,
+          verdict: kept.length ? "comment" : "approve",
+          findings: kept,
+        };
+      }
       if (typed) {
         const { blast_radius, ...scores } = typed.scores;
         live.blast.score = blast_radius;
@@ -2237,8 +2359,8 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
   }
 }
 
-async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, postReview = false, postInlineSuggestions = false } = {}) {
-  if (!postScores && !postReview && !postInlineSuggestions) return [];
+async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, postReview = false, postInlineSuggestions = false, triage = null } = {}) {
+  if (!postScores && !postReview && !postInlineSuggestions && !triage) return [];
   const commentAuthor = isForgeRepo(repo) ? await forgeApi("user", { source: forgeId(repo) }) : null;
   let existingComments = [];
   try {
@@ -2267,6 +2389,7 @@ async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, post
   };
 
   const posted = [];
+  if (triage) posted.push(await upsert("<!-- codeotter:triage -->", formatTriageComment(triage), "triage"));
   if (postScores) {
     try {
       posted.push(await upsert("<!-- codeotter:scores -->", formatScoresComment(r), "scores"));
@@ -2625,7 +2748,7 @@ const page = (title, actions, body) =>
 async function openPrs(repo) {
   if (isForgeRepo(repo)) return (await forgeList(`repos/${repo}/pulls?state=open`)).map((p) => normalizeForgePr(p, repo));
   try {
-    return JSON.parse(gh("pr", "list", "-R", repo, "--json", "number,title,author,url,updatedAt,additions,deletions,changedFiles", "--limit", "30"));
+    return JSON.parse(gh("pr", "list", "-R", repo, "--json", "number,title,author,url,updatedAt,additions,deletions,changedFiles,headRefOid", "--limit", "30"));
   } catch {
     return [];
   }
@@ -2911,13 +3034,23 @@ const SETTINGS_PAGES = {
           title: "System One model",
           description: "Typed scores and merge gates in one fast pass. Owns scoring when configured; runs alongside the language model.",
           fields: [
-            { key: "provider", label: "Provider", type: "select", options: [{ value: "none", label: "None" }, ...Object.entries(S1_PROVIDERS).map(([value, x]) => ({ value, label: x.label, icon: providerIcon(value) }))] },
+            { key: "provider", label: "Provider", type: "select", options: [{ value: "none", label: "None" }, ...Object.entries(S1_PROVIDERS).map(([value, x]) => ({ value, label: x.label, icon: providerIcon(value) }))], infoBy: { field: "provider", map: Object.fromEntries(LOCAL_S1.filter(contextNote).map((m) => [m.id, contextNote(m)])) } },
             { key: "model", label: "Model", type: "select", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1Live.length ? `${s1Live.length} models listed by ${S1_PROVIDERS[s1.provider].label}.` : "", optionsBy: { field: "provider", map: { none: [], ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.models.map((value) => ({ value, label: value, icon: modelIcon(value, k) }))])), ...(s1Live.length ? { [s1.provider]: s1Live } : {}) } } },
             { key: "apiKey", label: "API key", type: "password", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1.apiKey ? `Saved key ${mask(s1.apiKey)}. Leave blank to keep it.` : s1.provider === "custom" ? "Optional." : "No key saved yet.", placeholder: mask(s1.apiKey) || "paste key", linkBy: { field: "provider", map: Object.fromEntries(Object.entries(S1_PROVIDERS).filter(([, x]) => x.keyUrl).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
             { key: "baseUrl", label: "Base URL", type: "text", hideWhen: { field: "provider", in: ["none", ...localIds] }, placeholder: "http://host:port", defaultBy: { field: "provider", map: { none: "", ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.baseUrl])) } } },
             { key: "status", label: "Status", type: "readonly", hideWhen: { field: "provider", in: ["none", "jev", "jev_openrouter", "custom"] }, hint: s1.local ? "Download, switch or delete local models under Settings / Local models." : "" },
           ],
           actions: [{ id: "save", label: "Save" }, { id: "probe", label: "Test connection", variant: "outline", needsSaved: true }],
+        },
+        {
+          id: "triage",
+          title: "Fast triage",
+          description: "System One rates correctness risk and blast radius of each pull request and sets the codeotter/triage commit status.",
+          fields: [
+            { key: "auto", label: "Automatic", type: "checkbox", text: "Triage new and updated pull requests in onboarded repositories" },
+            { key: "stopAt", label: "Fail status at risk", type: "range", min: 25, max: 100, step: 25, hint: "codeotter/triage fails at or above this correctness risk." },
+          ],
+          actions: [{ id: "save", label: "Save" }],
         },
         {
           id: "review",
@@ -2934,9 +3067,13 @@ const SETTINGS_PAGES = {
           actions: [{ id: "save", label: "Save" }],
         },
       ];
-      return { sections, values: { llm: { provider: c.provider, model: c.model, apiKey: "", baseUrl: c.baseUrl, llmStatus: c.local ? localStatus(c.local).text : "" }, s1: { provider: s1.provider, model: s1.model, apiKey: "", baseUrl: s1.baseUrl, status: s1.local ? localStatus(s1.local).text : "" }, review: r } };
+      return { sections, values: { llm: { provider: c.provider, model: c.model, apiKey: "", baseUrl: c.baseUrl, llmStatus: c.local ? localStatus(c.local).text : "" }, s1: { provider: s1.provider, model: s1.model, apiKey: "", baseUrl: s1.baseUrl, status: s1.local ? localStatus(s1.local).text : "" }, review: r, triage: await triageConfig() } };
     },
     async save(body) {
+      if (body.triage) {
+        const v = body.triage;
+        await store.setSetting("triage", { auto: !!v.auto, stopAt: Math.min(100, Math.max(25, Math.round((Number(v.stopAt) || 75) / 25) * 25)) });
+      }
       if (body.llm) {
         const v = body.llm;
         if (!PROVIDERS[v.provider]) throw new Error(`Unknown provider ${v.provider}`);
@@ -3038,6 +3175,7 @@ const SETTINGS_PAGES = {
             emails: "read",
             contents: "read",
             pull_requests: "write",
+            statuses: "write",
             issues: "write",
             metadata: "read",
             administration: "read",
@@ -3118,6 +3256,7 @@ SETTINGS_PAGES.models = {
         label: m.label.replace(" (local)", ""),
         icon: m.icon || modelIcon(m.repo || m.modelId, m.id),
         badge: active ? "Active" : st.state === "ready" ? "Downloaded" : undefined,
+        info: contextNote(m) || undefined,
         meta: st.state === "ready" || st.state === "missing" ? facts : `${facts} · ${st.text}`,
         progress: st.state === "downloading" && d?.total ? Math.round((d.done / d.total) * 100) : undefined,
         actions: st.state === "ready" ? [...(active ? [] : [{ id: "use", label: "Use" }]), { id: "delete", label: "Delete", variant: "outline" }] : st.state === "downloading" ? [] : [{ id: "download", label: `Download ${m.sizeMB} MB` }],
@@ -3353,7 +3492,7 @@ http
             s1: { provider: s1.provider, model: s1.model, baseUrl: s1.baseUrl, hasKey: !!s1.apiKey },
             llm: { provider: llm.provider, model: llm.model, baseUrl: llm.baseUrl, hasKey: !!llm.apiKey },
             localModels: {
-              s1: LOCAL_S1.map((m) => ({ id: m.id, label: m.label, sizeMB: m.sizeMB, status: localStatus(m).state })),
+              s1: LOCAL_S1.map((m) => ({ id: m.id, label: m.label, sizeMB: m.sizeMB, status: localStatus(m).state, info: contextNote(m) })),
               llm: LOCAL_LLM.map((m) => ({ id: m.id, label: m.label, sizeMB: m.sizeMB, status: localStatus(m).state })),
             },
           });
@@ -3710,6 +3849,17 @@ http
           if (activeReviews.get(prUrl)) activeReviews.get(prUrl).state = updated;
         }
         return json({ ok: true, ...resInfo });
+      }
+      if (url.pathname === "/api/triage") {
+        if (!(await gate(req, res)).ok) return;
+        const org = requestOrg(url);
+        const results = (await store.getSetting("triageResults")) || {};
+        const ref = (url.searchParams.get("pr") || "").trim();
+        if (!ref) return json(Object.values(results).filter((t) => { try { checkRepoScope(t.repo, org); return true; } catch { return false; } }));
+        const resolved = await resolvePr(ref, url.searchParams.get("repo") || "");
+        checkRepoScope(parsePrUrl(resolved.urlGuess).repo, org);
+        if (req.method === "POST") return json(await triagePr(ref, url.searchParams.get("repo") || ""));
+        return json(results[resolved.urlGuess] || null);
       }
       if (url.pathname === "/api/score" || (url.pathname === "/score" && url.searchParams.get("pr"))) {
         if (!(await gate(req, res)).ok) return;
