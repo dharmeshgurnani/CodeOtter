@@ -311,6 +311,27 @@ Every repository onboarded in CodeOtter is automatically inspected at its root v
 
 A production-ready Docker container packages the complete CodeOtter platform—including persistent storage, team auth, and model runners. Deploy anywhere that runs a container (Docker Compose, Railway, Fly.io, Render, Coolify, or a bare VPS).
 
+### One-click deploy
+
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fdharmeshgurnani%2FCodeOtter%2Fmain%2Fdeploy%2Fazure.json)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dharmeshgurnani/CodeOtter)
+
+Any Linux VPS (DigitalOcean, Hetzner, Vultr, Linode, EC2, your own hardware), as root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/install.sh | bash
+# With HTTPS: point a DNS A record at the server first
+curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/install.sh | CODEOTTER_DOMAIN=review.example.com bash
+```
+
+The same line works as cloud-init user data when creating the server. It installs Docker, writes `/opt/codeotter/.env` with a generated PocketBase password, and starts CodeOtter with Watchtower updates. With `CODEOTTER_DOMAIN` it also runs [Caddy](https://caddyserver.com) with a Let's Encrypt certificate and keeps ports 4747 and 8090 on loopback. Re-running it keeps `.env`.
+
+- **Azure** creates an Ubuntu VM with HTTPS on `https://<label>.<region>.cloudapp.azure.com`. Only an SSH public key is required.
+- **Render** needs a paid instance type, because only paid instances keep a disk. Render does not follow `:latest`, so redeploy to update.
+- Sign in right after deploying: the first account becomes the owner.
+
+### Compose
+
 ```bash
 # 1. Prepare environment
 cp .env.example .env       # Set GH_TOKEN and optional model keys

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **One-click deploy**: `install.sh` sets up CodeOtter on any Linux server (Docker, generated PocketBase password, Watchtower, and Caddy HTTPS when `CODEOTTER_DOMAIN` is set). Deploy to Azure (`deploy/azure.json`) and Render (`render.yaml`) buttons in the README; Linode StackScript in `deploy/linode-stackscript.sh`. `APP_URL` defaults to Render's and Railway's public address.
 - **Automatic Docker updates**: each `v*` tag publishes `ghcr.io/dharmeshgurnani/codeotter` (`:latest`, `:X.Y.Z`, `:X.Y`; amd64 and arm64) from `.github/workflows/release-image.yml`. `docker-compose.yml` now pulls that image and runs Watchtower, which updates the CodeOtter container hourly. Admins see "vX.Y.Z available" in the sidebar when a newer release exists; `CODEOTTER_UPDATE_CHECK=0` disables the check.
 - **Fast triage**: System One rates correctness risk and blast radius of every new or updated pull request in onboarded repositories (polled every 2 minutes) and sets the `codeotter/triage` commit status (`pending`, `success`, `failure` at or above the configured risk, `error` with the reason), plus an updatable PR comment when Post scores is on. About 80 seconds with Kev on CPU. Settings under Admin / Model provider / Fast triage; `POST /api/triage?pr=` runs one on demand. GitHub Actions wait job in `docs/ci-triage.md`. New GitHub App installs request `statuses: write`.
 - Small-context local System One models read a digest of the whole change (every file with line counts, tests, areas, then the largest hunks) instead of the first characters of the raw diff.

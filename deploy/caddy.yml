@@ -1,0 +1,24 @@
+# HTTPS in front of CodeOtter with an automatic Let's Encrypt certificate.
+# install.sh enables it when CODEOTTER_DOMAIN is set, via COMPOSE_FILE=docker-compose.yml:caddy.yml in .env.
+services:
+  codeotter:
+    ports: !override
+      - "127.0.0.1:4747:4747"
+      - "127.0.0.1:8090:8090"
+
+  caddy:
+    container_name: codeotter-caddy
+    image: caddy:2
+    command: caddy reverse-proxy --from ${CODEOTTER_DOMAIN} --to codeotter:4747
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

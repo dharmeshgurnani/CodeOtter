@@ -1,0 +1,23 @@
+# One-click deploy: https://render.com/deploy?repo=https://github.com/dharmeshgurnani/CodeOtter
+# The disk holds every review, account and setting; Render only attaches disks to paid instance types.
+services:
+  - type: web
+    name: codeotter
+    runtime: image
+    image:
+      url: ghcr.io/dharmeshgurnani/codeotter:latest
+    plan: standard
+    healthCheckPath: /api/me
+    disk:
+      name: pb-data
+      mountPath: /app/pb_data
+      sizeGB: 20
+    envVars:
+      - key: PORT
+        value: "4747"
+      - key: PB_ADMIN_PASSWORD
+        generateValue: true
+      - key: GH_TOKEN
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
