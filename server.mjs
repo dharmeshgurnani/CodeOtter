@@ -2728,7 +2728,25 @@ ${diff}`, "Describe");
       return "PR description updated";
     },
   },
+  ask: {
+    label: "Ask",
+    input: "Question",
+    async run({ pr, c, guide, diff }, question) {
+      const out = await askJson(c, `Answer a question about this pull request from its diff. Be specific: name files, functions and lines. If the diff does not show enough to answer, say what is missing instead of guessing. Reply with ONLY a JSON object: {"answer":"markdown"}
+
+Question: ${question}
+
+${prBrief(pr, guide)}
+Diff:
+${diff}`, "Ask");
+      const answer = proseOf(out.answer, 6000);
+      if (!answer) throw new Error(`${c.provider}/${c.model} returned no answer`);
+      return { markdown: `**Q:** ${oneLine(question, 500)}\n\n${answer}`, data: { question: oneLine(question, 2000), answer } };
+    },
+  },
 };
+// Model prose posted to a PR: no HTML comments (they could forge CodeOtter's comment markers) and no live @mentions.
+const proseOf = (x, max) => String(x ?? "").replace(/<!--[\s\S]*?(-->|$)/g, "").replace(/(^|[^\w`])@(?=[\w-])/g, "$1@\u200b").trim().slice(0, max);
 const toolResults = new Map();
 async function runPrTool(prUrl, id, { question = "", action = "run" } = {}) {
   const tool = PR_TOOLS[id];

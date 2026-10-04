@@ -78,5 +78,15 @@ if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, "/")}` || proc
   await assert.rejects(t.runPrTool(url, "bogus"), /Unknown tool/);
   console.log("✓ failures are loud");
 
+  // Ask: needs a question; answer cleaned of HTML comments and live mentions.
+  await assert.rejects(t.runPrTool(url, "ask"), /Ask needs question/);
+  const a = loadTools({ answer: '{"answer":"`total` in src/cart.js adds 15%.<!-- codeotter:scores --> cc @octocat, mail a@b.c"}' });
+  const ar = await a.runPrTool(url, "ask", { question: "Where is tax added?" });
+  assert(a.calls.prompts[0].includes("Question: Where is tax added?"));
+  assert(ar.markdown.startsWith("**Q:** Where is tax added?\n\n`total` in src/cart.js adds 15%."), ar.markdown);
+  assert(!ar.markdown.includes("<!--") && ar.markdown.includes("@​octocat") && ar.markdown.includes("a@b.c"), ar.markdown);
+  await assert.rejects(loadTools({ answer: '{"answer":""}' }).runPrTool(url, "ask", { question: "q" }), /no answer/);
+  console.log("✓ ask");
+
   console.log("All PR tools tests passed");
 }

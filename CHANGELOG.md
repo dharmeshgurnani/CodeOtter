@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Ask** (Tools card): answers a free-form question about the PR from its diff and guidelines. Answers posted to the PR have HTML comments removed (so they cannot forge CodeOtter's comment markers) and @mentions defused.
+
 - **Tools card** on the review page, driven by `PR_TOOLS` in `server.mjs` (`GET`/`POST /api/tools`): pick a tool, run it, post the result as an upserted PR comment, or apply it. Tools use the language model with the same dynamic context, diff budget and repository guidelines as reviews.
 - **Describe**: title, type (Bug fix, Feature, Refactor…), summary bullets and a per-file change table. Update PR description writes a `<!-- codeotter:describe -->` block into the PR body, keeping the author's text and replacing the block on later runs.
 
