@@ -124,8 +124,16 @@ try {
     if (u.pathname === "/v1/systemone") {
       res.end(JSON.stringify({ answers: Object.fromEntries(Object.entries(input.questions).map(([key, q]) => [key, q.type === "score" ? { score: 3 } : { noul: 0.9 }])) })); return;
     }
-    prompts.push(input.messages?.[0]?.content || "");
-    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ summary: "Arithmetic uses subtraction.", verdict: "request_changes", scores: { quality: 60, correctness_risk: 80, test_coverage: 20, readability: 80, pr_hygiene: 80 }, walkthrough: [{ file: "math.js", change: "Adds arithmetic." }], findings: [{ file: "math.js", line: 2, severity: "high", title: "Addition subtracts", detail: "Use addition to satisfy the linked issue.", suggestion: "  return a + b;" }] }) } }] }));
+    const asked = input.messages?.[0]?.content || "";
+    prompts.push(asked);
+    // The self-check pass scores the review's findings; everything else gets the review.
+    if (asked.startsWith("You are checking another reviewer's findings")) {
+      res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ scores: [{ index: 0, score: 9, why: "subtraction instead of addition" }] }) } }] })); return;
+    }
+    if (asked.startsWith("Write the description of this pull request")) {
+      res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ title: "Add arithmetic helpers", type: ["Feature"], summary: ["Adds add()."], files: [{ file: "math.js", change: "Adds add()." }] }) } }] })); return;
+    }
+    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ summary: "Arithmetic uses subtraction.", verdict: "request_changes", scores: { quality: 60, correctness_risk: 80, test_coverage: 20, readability: 80, pr_hygiene: 80, blast_radius: 40 }, walkthrough: [{ file: "math.js", change: "Adds arithmetic." }], findings: [{ file: "math.js", line: 2, severity: "high", title: "Addition subtracts", detail: "Use addition to satisfy the linked issue.", suggestion: "  return a + b;" }] }) } }] }));
   });
   modelServer.listen(mp, "127.0.0.1"); await once(modelServer, "listening");
 
@@ -134,7 +142,7 @@ try {
   execFileSync(pbBin, ["superuser", "upsert", "admin@example.test", pbPassword, `--dir=${pbDir}`, `--migrationsDir=${migrations}`], { stdio: "pipe", windowsHide: true });
   child(pbBin, ["serve", `--http=127.0.0.1:${pp}`, `--dir=${pbDir}`, `--migrationsDir=${migrations}`]);
   await ready(`${pb}/api/health`);
-  for (const f of ["server.mjs", "models.json", "showcase.json"]) cpSync(join(root, f), join(dir, f));
+  for (const f of ["server.mjs", "package.json", "models.json", "showcase.json"]) cpSync(join(root, f), join(dir, f));
   cpSync(join(root, "web", "dist"), join(dir, "web", "dist"), { recursive: true });
   // Never invoke the real GitHub CLI or inspect a real checkout during this suite.
   const preload = join(dir, "github-fixture.mjs");
@@ -240,6 +248,63 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   assert.equal(incremental.incremental.newCommits.length, 1, JSON.stringify({ before, head: incremental.headSha, commits: incremental.pr.commits, delta: incremental.incremental }));
   assert.equal(incremental.pr.files.length, 4);
   log("invalid credentials fail visibly; re-review refreshes head SHA, files and new commits");
+
+  // Self-check ran on the review's finding and kept it with the model's score.
+  assert(prompts.some((p) => p.startsWith("You are checking another reviewer's findings") && p.includes("Addition subtracts")));
+  assert.equal(incremental.review.findings[0].confidence, 0.9);
+  // Applying CodeOtter's suggestion and re-reviewing records it as an accepted fix for the repository.
+  const mathFile = await fj("repos/reviewer/sample/contents/math.js?ref=fix-arithmetic");
+  const beforeFix = (await fj(`repos/reviewer/sample/pulls/${pr.number}`)).head.sha;
+  await fj("repos/reviewer/sample/contents/math.js", { method: "PUT", body: { content: Buffer.from("export function add(a, b) {\n  return a + b;\n}\n").toString("base64"), sha: mathFile.sha, branch: "fix-arithmetic" } });
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const latest = await fj(`repos/reviewer/sample/pulls/${pr.number}`);
+    const commits = await fj(`repos/reviewer/sample/pulls/${pr.number}/commits`);
+    if (latest.head.sha !== beforeFix && commits.some((c) => c.sha === latest.head.sha)) break;
+    assert(attempt < 39, "Forgejo did not refresh the pull request after push");
+    await delay(250);
+  }
+  const fixed = await api(`/api/score?pr=${encodeURIComponent(prUrl)}&org=${scope}&force=1`);
+  assert.deepEqual(fixed.acceptedFixes, ["[math.js] Addition subtracts"]);
+  const repoAfterFix = (await api(`/api/settings/repos?org=${scope}`)).values.repos.list.find((x) => x.id === `${provider}~reviewer/sample`);
+  assert.deepEqual(repoAfterFix.settings.values.accepted, ["[math.js] Addition subtracts"]);
+  assert(prompts.at(-2).includes("Fixes this team accepted from earlier reviews") || prompts.at(-1).includes("Fixes this team accepted from earlier reviews"));
+  log("self-check scores findings; an applied suggestion becomes an accepted fix used by later reviews");
+
+  // Tools: Describe runs, posts an upserted comment, and writes its block into the PR body keeping the author's text.
+  const toolList = await api(`/api/tools?org=${scope}`);
+  assert.deepEqual(toolList.map((t) => t.id), ["describe", "ask", "improve", "docs", "changelog"]);
+  assert.equal(toolList.find((t) => t.id === "describe").apply, "Update PR description");
+  const described = await api(`/api/tools?org=${scope}`, { prUrl, tool: "describe", action: "run" });
+  assert.match(described.markdown, /\*\*Title:\*\* Add arithmetic helpers/);
+  await api(`/api/tools?org=${scope}`, { prUrl, tool: "describe", action: "comment" });
+  await api(`/api/tools?org=${scope}`, { prUrl, tool: "describe", action: "comment" });
+  const toolComments = (await fj(`repos/reviewer/sample/issues/${pr.number}/comments?limit=50`)).filter((c) => c.body.includes("<!-- codeotter:tool:describe -->"));
+  assert.equal(toolComments.length, 1, "describe comment is upserted");
+  await api(`/api/tools?org=${scope}`, { prUrl, tool: "describe", action: "apply" });
+  await api(`/api/tools?org=${scope}`, { prUrl, tool: "describe", action: "apply" });
+  const prBody = (await fj(`repos/reviewer/sample/pulls/${pr.number}`)).body;
+  assert(prBody.startsWith(`Closes #${issue.number}`), prBody);
+  assert.equal((prBody.match(/<!-- codeotter:describe -->/g) || []).length, 1, prBody);
+  await assert.rejects(api(`/api/tools?org=reviewer`, { prUrl, tool: "describe", action: "run" }), /outside the active organization/);
+  log("tools: describe runs, comment upserts, PR description block replaces itself, org scope enforced");
+
+  // PR comment commands: a collaborator's /describe gets an eyes reaction, re-runs Describe and upserts its comment; a failing
+  // /ask (the fixture never answers questions) is replied to on the PR.
+  await json(`${pb}/api/collections/settings/records`, { method: "POST", headers: { authorization: adminAuth.token }, body: { key: "review", value: { commands: true } } });
+  const describePrompts = () => prompts.filter((p) => p.startsWith("Write the description of this pull request")).length;
+  const describedBefore = describePrompts();
+  const cmd = await fj(`repos/reviewer/sample/issues/${pr.number}/comments`, { method: "POST", body: { body: "/describe" } });
+  await fj(`repos/reviewer/sample/issues/${pr.number}/comments`, { method: "POST", body: { body: "/ask what does add do?" } });
+  let reacted = false, refreshed = false, askFailed = false;
+  for (let attempt = 0; attempt < 100 && !(reacted && refreshed && askFailed); attempt++) {
+    await delay(1000);
+    reacted = (await fj(`repos/reviewer/sample/issues/comments/${cmd.id}/reactions`) || []).some((r) => r.content === "eyes");
+    const now = await fj(`repos/reviewer/sample/issues/${pr.number}/comments?limit=50`);
+    refreshed = describePrompts() > describedBefore && now.filter((c) => c.body.includes("<!-- codeotter:tool:describe -->")).length === 1;
+    askFailed = now.some((c) => c.body.startsWith("🦦 CodeOtter `/ask` failed:"));
+  }
+  assert(reacted && refreshed && askFailed, JSON.stringify({ reacted, refreshed, askFailed }));
+  log("PR comment commands: reaction, tool result refreshed, failures replied to");
 
   await fj("admin/users", { method: "POST", body: { username: "forker", password, email: "forker@example.test", must_change_password: false } });
   await fj("repos/reviewer/sample/collaborators/forker", { method: "PUT", body: { permission: "read" } });
@@ -397,7 +462,7 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
 
   const fileDir = join(dir, "file-storage");
   mkdirSync(join(fileDir, "scores"), { recursive: true });
-  for (const f of ["server.mjs", "models.json", "showcase.json"]) cpSync(join(root, f), join(fileDir, f));
+  for (const f of ["server.mjs", "package.json", "models.json", "showcase.json"]) cpSync(join(root, f), join(fileDir, f));
   writeFileSync(join(fileDir, "config.json"), JSON.stringify({
     [provider]: { url: forge, token: token.sha1 },
     repos: ["reviewer/sample", `${provider}~reviewer/sample`],

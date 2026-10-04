@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Forgejo/Gitea integration tests (`scripts/test-forges.mjs`) run again (broken since 0.5.0: missing `package.json` in the fixture, and the fixture model returned no blast radius) and now cover the self-check, accepted fixes, Describe (comment and PR description) and PR comment commands against a real server.
+
 - **Accepted fixes**: on a re-review after new commits, each earlier suggestion whose code is now in the file but was not at the previously reviewed commit (compared line by line, ignoring indentation) is recorded for the repository. The 10 most recent go into language model and hosted System One reviews as fixes this team accepted; the list (up to 30) is editable under Settings → Repositories → ⚙️ → Accepted fixes. The positive counterpart of dismiss-and-remember learnings.
 
 - **PR comment commands**: a pull request comment whose first line is `/review`, `/describe`, `/improve`, `/ask <question>`, `/docs` or `/changelog` runs that action and replies on the PR (`/review` re-reviews and posts scores and review; tools post their result). Only owners, members and collaborators (GitHub `author_association`; Forgejo/Gitea write permission) can trigger one. Polled every minute per onboarded repository; the command gets an 👀 reaction, and failures are replied to. Off by default: Admin → Model provider → Review → PR comment commands.

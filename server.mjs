@@ -2462,6 +2462,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
         pr: live.pr,
         ...(currentHeadSha ? { headSha: currentHeadSha } : {}),
         ...(finalIncremental ? { incremental: finalIncremental } : {}),
+        ...(live.acceptedFixes ? { acceptedFixes: live.acceptedFixes } : {}),
         blast: live.blast,
         outsideDiffImpact: live.outsideDiffImpact,
         review,
