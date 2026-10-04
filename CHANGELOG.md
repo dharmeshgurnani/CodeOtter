@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Large pull requests**: a diff over the budget (Review → Diff sent to the model, or a model's context) is no longer cut at a character count. Files are ranked (main language, other code, docs and config, lockfiles and generated output) and added whole, largest first; a file too big to fit shows its leading hunks up to half the budget; deleted files and hunks that only remove lines are listed instead of shown; every file left out is named with its line counts. Applies to language model reviews and hosted System One models; local System One models keep their change digest.
+
 - **Dynamic context**: review diffs extend each code hunk upward to its enclosing declaration (function, method, class; JS/TS, Python, Go, Rust, Java/C#, Kotlin, Swift, Ruby, PHP), read from the head revision, and cut trailing context to one line. Hunks never repeat lines shown by the previous hunk, and a file whose content does not match the diff is left as git produced it. Setting: Admin → Model provider → Review → Context above a change (Off, 8, 16 default, 32 lines). Fast triage is unchanged.
 
 ## 0.5.0 (2026-10-04)
