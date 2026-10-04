@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-10-04)
+
+- **Website**: [codeotter.io](https://codeotter.io) with docs at [codeotter.io/docs](https://codeotter.io/docs/); linked from the README and set as the repository homepage.
+- **Kev 4B** (4,498 MB, Apache-2.0) added to the local System One catalog on Admin → Local models: the most accurate Kev, about five times slower than Kev 0.8B on CPU.
+- llama.cpp runtime b11388 (was b11215); Linux arm64 now tries the Vulkan build before the CPU build. Existing installs keep their downloaded runtime until `runtime/llama` in the data directory is removed.
 - **One-click deploy**: `install.sh` sets up CodeOtter on any Linux server (Docker, generated PocketBase password, Watchtower, and Caddy HTTPS when `CODEOTTER_DOMAIN` is set). Deploy to Azure (`deploy/azure.json`) and Render (`render.yaml`) buttons in the README; Linode StackScript in `deploy/linode-stackscript.sh`. `APP_URL` defaults to Render's and Railway's public address.
 - **Automatic Docker updates**: each `v*` tag publishes `ghcr.io/dharmeshgurnani/codeotter` (`:latest`, `:X.Y.Z`, `:X.Y`; amd64 and arm64) from `.github/workflows/release-image.yml`. `docker-compose.yml` now pulls that image and runs Watchtower, which updates the CodeOtter container hourly. Admins see "vX.Y.Z available" in the sidebar when a newer release exists; `CODEOTTER_UPDATE_CHECK=0` disables the check.
 - **Fast triage**: System One rates correctness risk and blast radius of every new or updated pull request in onboarded repositories (polled every 2 minutes) and sets the `codeotter/triage` commit status (`pending`, `success`, `failure` at or above the configured risk, `error` with the reason), plus an updatable PR comment when Post scores is on. About 80 seconds with Kev on CPU. Settings under Admin / Model provider / Fast triage; `POST /api/triage?pr=` runs one on demand. GitHub Actions wait job in `docs/ci-triage.md`. New GitHub App installs request `statuses: write`.

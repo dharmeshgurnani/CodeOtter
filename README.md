@@ -9,6 +9,8 @@
 ### Autonomous, self-hosted AI code reviews, calibrated scoring gauges, and merge gates — running on your own hardware with any open model.
 
 <p align="center">
+  <a href="https://codeotter.io"><strong>Website</strong></a> &middot;
+  <a href="https://codeotter.io/docs/"><strong>Docs</strong></a> &middot;
   <a href="#-quickstart"><strong>Quickstart</strong></a> &middot;
   <a href="#what-is-codeotter"><strong>What is CodeOtter</strong></a> &middot;
   <a href="#-how-it-works-the-dual-engine"><strong>Dual Engine</strong></a> &middot;
@@ -19,6 +21,7 @@
 </p>
 
 <p align="center">
+  <a href="https://codeotter.io"><img src="https://img.shields.io/badge/Website-codeotter.io-b45309.svg" alt="Website" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-ELv2-c2410c.svg" alt="Elastic License 2.0" /></a>
   <a href="package.json"><img src="https://img.shields.io/badge/Node-%3E%3D20.11-111111.svg" alt="Node Version" /></a>
   <a href="#-security--privacy"><img src="https://img.shields.io/badge/Privacy-Zero_Telemetry-15803d.svg" alt="Zero Telemetry" /></a>
@@ -33,7 +36,7 @@
 
 ## What is CodeOtter?
 
-**CodeOtter** is an open-source, self-hosted pull request review platform built for engineering teams who want calibrated code intelligence without sending private code to third-party SaaS clouds or paying **$24–$30/developer/month**.
+**CodeOtter** is a free-to-self-host pull request review platform built for engineering teams who want calibrated code intelligence without sending private code to third-party SaaS clouds or paying **$24–$30/developer/month**.
 
 Run it **100% offline** on your workstation with open-weight Hugging Face models (`llama.cpp` + `ggmlc` sidecars), or connect your own keys for Claude, OpenAI, MiniMax, or OpenRouter.
 
@@ -284,6 +287,7 @@ With 1-click downloads directly from **Admin → Local models**, open-weight mod
 | :--- | :--- | :--- | :--- |
 | **Laya Typed-Decisions** | System 1 (Scores & Gates) | Instant rubric scoring & gate checks | [`mys/laya-typed-decisions-GGUF`](https://huggingface.co/mys/laya-typed-decisions-GGUF) |
 | **Kev** | System 1 (Scores & Gates) | High-confidence decision calibration | [`mys/kev-0.8b-GGUF`](https://huggingface.co/mys/kev-0.8b-GGUF) |
+| **Kev 4B** | System 1 (Scores & Gates) | Most accurate local scoring, best with a GPU | [`mys/kev-4b-GGUF`](https://huggingface.co/mys/kev-4b-GGUF) |
 | **Qwen2.5-Coder (Compact)** | System 2 (Prose & Walkthrough) | Fast local walkthroughs on laptops | [`Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF`](https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF) |
 | **Qwen2.5-Coder (Standard)** | System 2 (Prose & Walkthrough) | In-depth code critiques & findings | [`Qwen/Qwen2.5-Coder-7B-Instruct-GGUF`](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF) |
 | **Microsoft CodeReviewer** | System 2 (Hunk Findings) | Specialized diff-hunk comment generation | [`microsoft/codereviewer`](https://huggingface.co/microsoft/codereviewer) |
@@ -342,7 +346,7 @@ docker compose up -d       # Dashboard available on http://localhost:4747
 
 **Updates are automatic.** Every release tag publishes `ghcr.io/dharmeshgurnani/codeotter` as `:latest`, `:X.Y.Z` and `:X.Y` (amd64 and arm64). The Compose file runs [Watchtower](https://github.com/nicholas-fedor/watchtower) next to CodeOtter: it checks hourly, pulls a newer image and restarts only the CodeOtter container. `pb_data` stays on its volume and PocketBase applies new migrations on start.
 
-- Hold back: pin `image: ghcr.io/dharmeshgurnani/codeotter:0.4` (patch releases only) or `:0.4.0` (frozen). Roll back the same way.
+- Hold back: pin `image: ghcr.io/dharmeshgurnani/codeotter:0.5` (patch releases only) or `:0.5.0` (frozen). Roll back the same way.
 - Update by hand instead: delete the `watchtower` service, then `docker compose pull && docker compose up -d`.
 - Admins see **vX.Y.Z available** in the sidebar when a newer release exists (checked against GitHub Releases every 6 hours). `CODEOTTER_UPDATE_CHECK=0` turns the check off.
 
