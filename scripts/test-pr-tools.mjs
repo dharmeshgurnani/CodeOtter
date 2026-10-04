@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 const src = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
 const block = (name) => src.slice(src.indexOf(`// <${name}>`), src.indexOf(`// </${name}>`));
 
-export function loadTools({ answer, body = "Author text." }) {
+export function loadTools({ answer, body = "Author text.", reflectMin = 0 }) {
   const calls = { prompts: [], comments: [], bodies: [] };
   const pr = { url: "https://github.com/acme/shop/pull/7", number: 7, title: "fix totals", body, author: { login: "dev" }, baseRefName: "main", headRefName: "fix", headRefOid: "abc1234", changedFiles: 1, additions: 2, deletions: 1 };
   const diff = "diff --git a/src/cart.js b/src/cart.js\n--- a/src/cart.js\n+++ b/src/cart.js\n@@ -1,2 +1,3 @@\n export function total(items) {\n-  return sum(items);\n+  const t = sum(items);\n+  return t * 1.15;";
@@ -16,7 +16,7 @@ export function loadTools({ answer, body = "Author text." }) {
     resolvePr: async (url) => ({ urlGuess: url, spec: [url] }),
     readPr: async (_u, _s, isDiff) => (isDiff ? diff : JSON.stringify(pr)),
     llmConfig: async () => ({ provider: "test", model: "stub" }),
-    reviewConfig: async () => ({ contextLines: 0, diffChars: 90000 }),
+    reviewConfig: async () => ({ contextLines: 0, diffChars: 90000, maxFindings: 8, reflectMin }),
     headFileTexts: async () => new Map(),
     guideFor: async () => ({ file: "AGENTS.md", text: "Titles use the imperative mood." }),
     repoOf: (p) => (p.url.match(/github\.com\/([^/]+\/[^/]+)\/pull/) || [])[1] || "",
@@ -25,9 +25,12 @@ export function loadTools({ answer, body = "Author text." }) {
     forgeApi: async () => { throw new Error("forge not expected"); },
     ghAsync: async (...args) => { calls.bodies.push(args.at(-1).replace(/^body=/, "")); return "{}"; },
     syncPrComments: async (_r, repo, { extra }) => { calls.comments.push({ repo, extra }); return extra.map((e) => e[2]); },
+    deriveSuggestionFromDetail: (f) => ({ ...f, ...(f.startLine < f.line ? {} : { startLine: undefined }) }),
+    postInlineSuggestionsOnPr: async (r, repo) => { calls.inline.push({ r, repo }); return { posted: r.review.findings.length, mode: "inline_review" }; },
   };
+  calls.inline = [];
   const names = Object.keys(stubs);
-  const run = new Function(...names, `${block("dynamic-context")}\n${block("diff-compression")}\n${block("pr-tools")}; return { PR_TOOLS, runPrTool };`);
+  const run = new Function(...names, `${block("dynamic-context")}\n${block("diff-compression")}\n${block("reflect")}\n${block("pr-tools")}; return { PR_TOOLS, runPrTool };`);
   return { ...run(...names.map((n) => stubs[n])), calls, pr };
 }
 
@@ -79,6 +82,31 @@ if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, "/")}` || proc
   assert(!ar.markdown.includes("<!--") && ar.markdown.includes("@​octocat") && ar.markdown.includes("a@b.c"), ar.markdown);
   await assert.rejects(loadTools({ answer: '{"answer":""}' }).runPrTool(url, "ask", { question: "q" }), /no answer/);
   console.log("✓ ask");
+
+  // Improve: suggestions normalised, scored by the self-check, rendered with safe fences, posted inline on apply.
+  const sug = { suggestions: [
+    { file: "src/cart.js", start_line: 2, end_line: 3, label: "possible issue", title: "Tax rate is hard-coded", why: "Use the configured rate. cc @octocat", improved: "  const t = sum(items);\n  return t * (1 + TAX_RATE);" },
+    { file: "src/cart.js", start_line: 3, end_line: 3, label: "nonsense", title: "Name it", why: "style", improved: "  return total * 1.15; // ```" },
+    { file: "src/cart.js", end_line: 0, improved: "dropped: no line" },
+  ] };
+  const im = loadTools({ reflectMin: 5, answer: (p) => (p.startsWith("You are checking") ? '{"scores":[{"index":0,"score":8},{"index":1,"score":2}]}' : JSON.stringify(sug)) });
+  const ir = await im.runPrTool(url, "improve");
+  assert.strictEqual(im.calls.prompts.length, 2, "suggestions, then self-check");
+  assert.deepStrictEqual(ir.data.suggestions.map((s) => [s.title, s.startLine, s.line, s.label, s.severity, s.confidence]), [["Tax rate is hard-coded", 2, 3, "possible issue", "medium", 0.8]]);
+  assert(ir.markdown.includes("**1. Tax rate is hard-coded** · `src/cart.js:L2-3` · possible issue · 8/10"), ir.markdown);
+  assert(ir.markdown.includes("@​octocat"));
+  await im.runPrTool(url, "improve", { action: "apply" });
+  assert.strictEqual(im.calls.inline[0].r.review.findings.length, 1);
+  assert.strictEqual(im.calls.inline[0].repo, "acme/shop");
+  const nofilter = loadTools({ answer: JSON.stringify(sug) });
+  const nr = await nofilter.runPrTool(url, "improve");
+  assert.strictEqual(nr.data.suggestions.length, 2, "no self-check when off; invalid rows dropped");
+  assert.strictEqual(nr.data.suggestions[1].label, "enhancement", "unknown label falls back");
+  assert(nr.markdown.includes("````\n  return total * 1.15; // ```\n````"), "fence longer than any backtick run in the code");
+  const empty = loadTools({ answer: '{"suggestions":[]}' });
+  assert.strictEqual((await empty.runPrTool(url, "improve")).markdown, "No suggestions.");
+  await assert.rejects(empty.runPrTool(url, "improve", { action: "apply" }), /No suggestions to post/);
+  console.log("✓ improve");
 
   console.log("All PR tools tests passed");
 }

@@ -1732,9 +1732,12 @@ function deriveSuggestionFromDetail(f, diff = "") {
     }
   }
 
+  const startLine = Math.round(Number(f?.startLine));
   return {
     file,
     ...(line > 0 ? { line } : {}),
+    // A suggestion that replaces lines startLine..line (multi-line); absent means it replaces `line` only.
+    ...(line > 0 && startLine > 0 && startLine < line && line - startLine < 200 ? { startLine } : {}),
     severity,
     title,
     detail,
@@ -2478,10 +2481,11 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
         `<!-- codeotter:suggestion:${f.file}:${targetLine} -->`,
         `🦦 **CodeOtter [${String(f.severity || "low").toUpperCase()}]** — **${f.title || "Suggested fix"}** (\`${f.file}:L${targetLine}\`)`,
         ...(explanation ? ["", explanation] : []),
+        // Forgejo and Gitea review comments cover one line, so a multi-line fix is shown, not offered for commit.
         ...(f.suggestion
           ? [
               "",
-              "```suggestion",
+              f.startLine && isForgeRepo(repo) ? `Replaces lines ${f.startLine}-${targetLine}:\n\`\`\`` : "```suggestion",
               String(f.suggestion).replace(/\r?\n$/, ""),
               "```",
             ]
@@ -2490,6 +2494,7 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
       return {
         path: f.file,
         line: targetLine,
+        ...(f.startLine && f.startLine < targetLine ? { startLine: f.startLine } : {}),
         side: "RIGHT",
         body: bodyLines.join("\n"),
         finding: f,
@@ -2537,6 +2542,7 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
         `comments[][line]=${c.line}`,
         "-f",
         `comments[][side]=${c.side}`,
+        ...(c.startLine ? ["-F", `comments[][start_line]=${c.startLine}`, "-f", `comments[][start_side]=${c.side}`] : []),
         "-f",
         `comments[][body]=${c.body}`,
       );
@@ -2744,7 +2750,45 @@ ${diff}`, "Ask");
       return { markdown: `**Q:** ${oneLine(question, 500)}\n\n${answer}`, data: { question: oneLine(question, 2000), answer } };
     },
   },
+  improve: {
+    label: "Improve",
+    apply: "Post inline suggestions",
+    // Code suggestions only (no scores): each replaces a line range of the new file, then the self-check scores them.
+    async run({ pr, c, rc, guide, diff }) {
+      const out = await askJson(c, `Suggest concrete code improvements to the lines this pull request adds or changes (lines starting with "+" in the diff): bugs, missing error handling, security, performance, clarity. Each suggestion replaces lines start_line..end_line of the new file with "improved", which must be complete, correctly indented code for exactly those lines. Do not suggest adding comments or docstrings, reformatting, or restating the code. Reply with ONLY a JSON object:
+{"suggestions":[{"file":"path","start_line":10,"end_line":12,"label":"one of: ${IMPROVE_LABELS.join(", ")}","title":"short","why":"one or two sentences","improved":"replacement code"}]}
+At most ${rc.maxFindings} suggestions, most important first. An empty list is a valid answer.
+
+${prBrief(pr, guide)}
+Diff:
+${diff}`, "Improve");
+      const raw = listOf(out.suggestions).filter((s) => s && typeof s.file === "string" && Number(s.end_line) > 0 && typeof s.improved === "string" && s.improved.trim()).slice(0, 20);
+      let items = raw.map((s) => {
+        const label = IMPROVE_LABELS.includes(s.label) ? s.label : "enhancement";
+        const f = deriveSuggestionFromDetail({ file: s.file, line: Number(s.end_line), startLine: Number(s.start_line), severity: ["possible issue", "security"].includes(label) ? "medium" : "low", title: oneLine(s.title, 200), detail: proseOf(s.why, 1000), suggestion: s.improved }, diff);
+        return { ...f, label };
+      });
+      if (rc.reflectMin > 0 && items.length) items = await reflectFindings(pr, diff, c, rc, items);
+      items = items.slice(0, rc.maxFindings);
+      const fence = (code) => "`".repeat(Math.max(3, ...[...String(code).matchAll(/`+/g)].map((m) => m[0].length + 1)));
+      const markdown = items.length
+        ? items.map((f, i) => [
+            `**${i + 1}. ${mdCell(f.title, 200)}** · \`${mdCell(f.file, 300)}:L${f.startLine ? `${f.startLine}-` : ""}${f.line}\` · ${f.label}${typeof f.confidence === "number" ? ` · ${Math.round(f.confidence * 10)}/10` : ""}`,
+            ...(f.detail ? ["", f.detail] : []),
+            "", fence(f.suggestion), f.suggestion, fence(f.suggestion),
+          ].join("\n")).join("\n\n")
+        : "No suggestions.";
+      return { markdown, data: { suggestions: items } };
+    },
+    async apply({ pr }, result) {
+      const findings = result.data?.suggestions || [];
+      if (!findings.length) throw new Error("No suggestions to post");
+      const { posted, mode } = await postInlineSuggestionsOnPr({ pr, review: { findings } }, repoOf(pr));
+      return `Posted ${posted} suggestion(s)${mode === "pr_comment_fallback" ? " as a PR comment (lines outside the diff)" : ""}`;
+    },
+  },
 };
+const IMPROVE_LABELS = ["possible issue", "security", "performance", "error handling", "maintainability", "enhancement"];
 // Model prose posted to a PR: no HTML comments (they could forge CodeOtter's comment markers) and no live @mentions.
 const proseOf = (x, max) => String(x ?? "").replace(/<!--[\s\S]*?(-->|$)/g, "").replace(/(^|[^\w`])@(?=[\w-])/g, "$1@\u200b").trim().slice(0, max);
 const toolResults = new Map();
