@@ -923,7 +923,7 @@ async function askModel(prompt, c) {
   return (await res.json()).choices[0].message.content.replace(/<think>[\s\S]*?<\/think>/g, "");
 }
 
-const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, contextLines: 16, reflectMin: 5, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false };
+const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, contextLines: 16, reflectMin: 5, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false, commands: false };
 const reviewConfig = async () => ({ ...REVIEW_DEFAULTS, ...((await store.getSetting("review")) || {}) });
 
 // Repository review guides: AGENTS.md and/or CLAUDE.md at the repo root (both are used when both exist, since one is
@@ -2858,6 +2858,94 @@ async function runPrTool(prUrl, id, { question = "", action = "run" } = {}) {
 }
 // </pr-tools>
 
+// <pr-commands>
+// PR comment commands: a comment whose first line is /review, /describe, /improve, /docs, /changelog or /ask <question>
+// runs that action and replies on the pull request. Off unless enabled in Settings, and only the repository's owner,
+// members and collaborators can trigger one: anyone can comment on a public repository and spend its model budget.
+const COMMANDS = ["review", "describe", "improve", "ask", "docs", "changelog"];
+function parseCommand(body) {
+  const m = String(body || "").trimStart().split("\n")[0].trim().match(/^\/([a-z]+)(?:\s+(.*))?$/i);
+  if (!m || !COMMANDS.includes(m[1].toLowerCase())) return null;
+  return { cmd: m[1].toLowerCase(), arg: String(m[2] || "").trim().slice(0, 2000) };
+}
+// The pull request a comment belongs to, from its web link (GitHub /pull/7#..., Forgejo and Gitea /pulls/7#...).
+const commentPrNumber = (c) => Number((String(c?.html_url || "").match(/\/pulls?\/([1-9]\d*)(?:#|$)/) || [])[1]) || 0;
+async function commenterTrusted(repo, c) {
+  if (!isForgeRepo(repo)) return ["OWNER", "MEMBER", "COLLABORATOR"].includes(c.author_association);
+  const login = String(c.user?.login || "");
+  if (!/^[\w][\w.-]*$/.test(login)) return false;
+  try {
+    const p = await forgeApi(`repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`);
+    return ["owner", "admin", "write"].includes(String(p?.permission || "").toLowerCase());
+  } catch (e) {
+    if ([403, 404].includes(e.status)) return false;
+    throw e;
+  }
+}
+async function commentsSince(repo, since) {
+  if (isForgeRepo(repo)) return forgeApi(`repos/${repo}/issues/comments?since=${encodeURIComponent(since)}&limit=50`);
+  return JSON.parse(await ghAsync("api", `repos/${repo}/issues/comments?since=${encodeURIComponent(since)}&sort=created&direction=asc&per_page=100`));
+}
+async function runCommand(repo, c, { cmd, arg }) {
+  const number = commentPrNumber(c);
+  const prUrl = prUrlFor(repo, number);
+  const id = Number(c.id);
+  if (Number.isSafeInteger(id) && id > 0) {
+    await (isForgeRepo(repo)
+      ? forgeApi(`repos/${repo}/issues/comments/${id}/reactions`, { method: "POST", body: { content: "eyes" } })
+      : ghAsync("api", "--method", "POST", `repos/${repo}/issues/comments/${id}/reactions`, "-f", "content=eyes")).catch(() => {});
+  }
+  try {
+    if (cmd === "review") {
+      await syncPrComments(await score(prUrl, true, repo), repo, { postScores: true, postReview: true });
+    } else {
+      await runPrTool(prUrl, cmd, { question: arg });
+      await runPrTool(prUrl, cmd, { action: "comment" });
+    }
+  } catch (e) {
+    await createPrComment(prUrl, repo, number, `🦦 CodeOtter \`/${cmd}\` failed: ${oneLine(e.message, 500)}`).catch(() => {});
+    throw e;
+  }
+}
+// </pr-commands>
+// Every minute: each onboarded repository's comments since the last poll, oldest first. The first poll after enabling
+// looks back five minutes, so older comments never fire.
+let commandPolling = false;
+setInterval(async () => {
+  if (commandPolling) return;
+  commandPolling = true;
+  try {
+    if (!(await reviewConfig()).commands) return;
+    const seen = (await store.getSetting("commandsSeen")) || {};
+    for (const repo of await repos()) {
+      const since = seen[repo] || new Date(Date.now() - 5 * 60e3).toISOString();
+      let list;
+      try {
+        list = await commentsSince(repo, since);
+      } catch (e) {
+        console.warn(`[commands] ${repo}: ${e.message}`);
+        continue;
+      }
+      let latest = since;
+      for (const c of Array.isArray(list) ? list : []) {
+        const at = String(c?.created_at || "");
+        if (!at || Date.parse(at) <= Date.parse(since)) continue;
+        if (Date.parse(at) > Date.parse(latest)) latest = new Date(Date.parse(at)).toISOString();
+        const command = parseCommand(c.body);
+        if (!command || !commentPrNumber(c)) continue;
+        if (!(await commenterTrusted(repo, c).catch(() => false))) continue;
+        await runCommand(repo, c, command).catch((e) => console.warn(`[commands] ${repo} /${command.cmd}: ${e.message}`));
+      }
+      seen[repo] = latest;
+      await store.setSetting("commandsSeen", seen);
+    }
+  } catch (e) {
+    console.warn(`[commands] ${e.message}`);
+  } finally {
+    commandPolling = false;
+  }
+}, 60e3).unref();
+
 function formatScoresComment(r) {
   const { pr, blast, review: v, gates = [], linkedIssues = [], headSha, incremental } = r;
   const appLink = `${APP_URL}/review?pr=${encodeURIComponent(pr.url)}`;
@@ -3500,6 +3588,7 @@ const SETTINGS_PAGES = {
             { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a PR comment with all System One scores after review" },
             { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add a PR comment with the review summary and link to the full report" },
             { key: "postInlineSuggestions", label: "Post inline suggestions", type: "checkbox", text: "Post inline committable suggestion comments on PR diff lines" },
+            { key: "commands", label: "PR comment commands", type: "checkbox", text: "Run /review, /describe, /improve, /ask, /docs and /changelog from comments by owners, members and collaborators" },
           ],
           actions: [{ id: "save", label: "Save" }],
         },
@@ -3541,6 +3630,7 @@ const SETTINGS_PAGES = {
           postScores: !!v.postScores,
           postReview: !!v.postReview,
           postInlineSuggestions: !!v.postInlineSuggestions,
+          commands: !!v.commands,
         };
         await store.setSetting("review", nextReview);
         const guides = (await store.getSetting("guides")) || {};

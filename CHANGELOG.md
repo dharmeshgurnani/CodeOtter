@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **PR comment commands**: a pull request comment whose first line is `/review`, `/describe`, `/improve`, `/ask <question>`, `/docs` or `/changelog` runs that action and replies on the PR (`/review` re-reviews and posts scores and review; tools post their result). Only owners, members and collaborators (GitHub `author_association`; Forgejo/Gitea write permission) can trigger one. Polled every minute per onboarded repository; the command gets an 👀 reaction, and failures are replied to. Off by default: Admin → Model provider → Review → PR comment commands.
+
 - **Docs** (Tools card): doc comments (JSDoc, docstrings, Go/Rust doc comments…) for functions and classes the PR adds or changes without one, matching the file's style, as committable inline suggestions.
 - **Changelog** (Tools card): a changelog entry in the format, tense and detail of the repository's `CHANGELOG.md`, `CHANGES.md` or `HISTORY.md` at the PR head, shown as a block to paste or post as a comment. CodeOtter does not commit to the PR branch.
 - Fixed: the Tools card's apply button (Update PR description, Post inline suggestions) never appeared.

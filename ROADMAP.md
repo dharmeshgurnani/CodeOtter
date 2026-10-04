@@ -2,6 +2,8 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | PR comment commands: /review, /describe, /improve, /ask, /docs, /changelog (PR-Agent-inspired) | 2026-10-04 |
+| [ ] | PR comment commands via webhooks (GitHub App, Forgejo/Gitea) instead of polling | |
 | [x] | Docs and Changelog tools (PR-Agent-inspired) | 2026-10-04 |
 | [x] | Improve: ranked, self-checked code suggestions posted as multi-line committable suggestions (PR-Agent-inspired) | 2026-10-04 |
 | [x] | Ask: free-form questions about a PR (PR-Agent-inspired) | 2026-10-04 |
