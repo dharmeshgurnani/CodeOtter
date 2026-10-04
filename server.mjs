@@ -2752,7 +2752,7 @@ ${diff}`, "Ask");
   },
   improve: {
     label: "Improve",
-    apply: "Post inline suggestions",
+    applyLabel: "Post inline suggestions",
     // Code suggestions only (no scores): each replaces a line range of the new file, then the self-check scores them.
     async run({ pr, c, rc, guide, diff }) {
       const out = await askJson(c, `Suggest concrete code improvements to the lines this pull request adds or changes (lines starting with "+" in the diff): bugs, missing error handling, security, performance, clarity. Each suggestion replaces lines start_line..end_line of the new file with "improved", which must be complete, correctly indented code for exactly those lines. Do not suggest adding comments or docstrings, reformatting, or restating the code. Reply with ONLY a JSON object:
