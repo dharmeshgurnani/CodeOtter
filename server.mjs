@@ -1740,6 +1740,7 @@ function deriveSuggestionFromDetail(f, diff = "") {
     detail,
     ...(suggestion ? { suggestion: str(suggestion, 2000) } : {}),
     ...(f?.dismissed ? { dismissed: true } : {}),
+    ...(Number.isFinite(Number(f?.confidence)) && f?.confidence !== null && f?.confidence !== "" ? { confidence: Math.max(0, Math.min(1, Number(f.confidence))) } : {}),
   };
 }
 
