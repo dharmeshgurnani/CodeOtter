@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Forgejo/Gitea integration tests (`scripts/test-forges.mjs`) run again (broken since 0.5.0: missing `package.json` in the fixture, and the fixture model returned no blast radius) and now cover the self-check, accepted fixes, Describe (comment and PR description) and PR comment commands against a real server.
+
+- **Accepted fixes**: on a re-review after new commits, each earlier suggestion whose code is now in the file but was not at the previously reviewed commit (compared line by line, ignoring indentation) is recorded for the repository. The 10 most recent go into language model and hosted System One reviews as fixes this team accepted; the list (up to 30) is editable under Settings → Repositories → ⚙️ → Accepted fixes. The positive counterpart of dismiss-and-remember learnings.
+
+- **PR comment commands**: a pull request comment whose first line is `/review`, `/describe`, `/improve`, `/ask <question>`, `/docs` or `/changelog` runs that action and replies on the PR (`/review` re-reviews and posts scores and review; tools post their result). Only owners, members and collaborators (GitHub `author_association`; Forgejo/Gitea write permission) can trigger one. Polled every minute per onboarded repository; the command gets an 👀 reaction, and failures are replied to. Off by default: Admin → Model provider → Review → PR comment commands.
+
+- **Docs** (Tools card): doc comments (JSDoc, docstrings, Go/Rust doc comments…) for functions and classes the PR adds or changes without one, matching the file's style, as committable inline suggestions.
+- **Changelog** (Tools card): a changelog entry in the format, tense and detail of the repository's `CHANGELOG.md`, `CHANGES.md` or `HISTORY.md` at the PR head, shown as a block to paste or post as a comment. CodeOtter does not commit to the PR branch.
+- Fixed: the Tools card's apply button (Update PR description, Post inline suggestions) never appeared.
+
+- **Improve** (Tools card): code suggestions only, no scores. Each replaces a line range of the new file and carries a label (possible issue, security, performance, error handling, maintainability, enhancement); the self-check scores and filters them; Post inline suggestions publishes them as committable suggestions.
+- Inline suggestions can span several lines: GitHub gets a multi-line suggestion (`start_line`); Forgejo and Gitea, whose review comments cover one line, show the replacement as a code block instead of a committable suggestion.
+
+- **Ask** (Tools card): answers a free-form question about the PR from its diff and guidelines. Answers posted to the PR have HTML comments removed (so they cannot forge CodeOtter's comment markers) and @mentions defused.
+
+- **Tools card** on the review page, driven by `PR_TOOLS` in `server.mjs` (`GET`/`POST /api/tools`): pick a tool, run it, post the result as an upserted PR comment, or apply it. Tools use the language model with the same dynamic context, diff budget and repository guidelines as reviews.
+- **Describe**: title, type (Bug fix, Feature, Refactor…), summary bullets and a per-file change table. Update PR description writes a `<!-- codeotter:describe -->` block into the PR body, keeping the author's text and replacing the block on later runs.
+
 - **Self-check**: language model findings go through a second pass of the same model, which scores each one 0-10 against the diff (wrong or unsupported, plausible, certain defect; a wrong suggested fix lowers it). Findings below the minimum are dropped, the rest ordered by score, and the score shows on each finding. Setting: Admin → Model provider → Review → Self-check (Off, 3, 5 default, 7). A pass that fails or skips a finding fails the review. CodeReviewer keeps its System One check.
 
 - **Large pull requests**: a diff over the budget (Review → Diff sent to the model, or a model's context) is no longer cut at a character count. Files are ranked (main language, other code, docs and config, lockfiles and generated output) and added whole, largest first; a file too big to fit shows its leading hunks up to half the budget; deleted files and hunks that only remove lines are listed instead of shown; every file left out is named with its line counts. Applies to language model reviews and hosted System One models; local System One models keep their change digest.

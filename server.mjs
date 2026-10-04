@@ -923,7 +923,7 @@ async function askModel(prompt, c) {
   return (await res.json()).choices[0].message.content.replace(/<think>[\s\S]*?<\/think>/g, "");
 }
 
-const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, contextLines: 16, reflectMin: 5, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false };
+const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, contextLines: 16, reflectMin: 5, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false, commands: false };
 const reviewConfig = async () => ({ ...REVIEW_DEFAULTS, ...((await store.getSetting("review")) || {}) });
 
 // Repository review guides: AGENTS.md and/or CLAUDE.md at the repo root (both are used when both exist, since one is
@@ -1016,6 +1016,18 @@ async function setRepoLearnings(repo, list) {
   guides[repo] = { ...(guides[repo] || {}), learnings: normalized };
   await Promise.all([store.setSetting("repoSettings", repoSettings), store.setSetting("guides", guides)]);
   return normalized;
+}
+
+// Fixes this repository's authors applied from CodeOtter suggestions ("[file] title"), most recent last, capped at 30.
+async function getRepoAccepted(repo) {
+  return repo ? normalizeLearningList((await store.getSetting("repoSettings"))?.[repo]?.accepted ?? []) : [];
+}
+async function addRepoAccepted(repo, items) {
+  const rs = { ...((await store.getSetting("repoSettings")) || {}) };
+  const accepted = normalizeLearningList([...(rs[repo]?.accepted || []), ...items]).slice(-30);
+  rs[repo] = { ...(rs[repo] || {}), accepted };
+  await store.setSetting("repoSettings", rs);
+  return accepted;
 }
 
 function extractHeadSha(pr, gitHistory = null) {
@@ -1157,7 +1169,7 @@ const S1_GATES = [
   { id: "guidelines", label: "Repository guidelines", q: "The change violates the repository's review guidelines.", risk: true, needsGuide: true },
   { id: "issue_requirements", label: "Issue requirements", q: "Does the pull request diff fulfill the requirements and acceptance criteria described in the linked issue(s)?", risk: false, needsIssues: true },
 ];
-function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
+function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null, accepted = []) {
   if (c.local) return { pull_request: changeDigest(pr, diff, c.contextChars || 12000) };
   return {
     pull_request: {
@@ -1199,6 +1211,7 @@ function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = []
           repository_team_learnings: `Repository Team Learnings (Never flag these dismissed patterns):\n${learnings.map((l, i) => `${i + 1}. ${l}`).join("\n")}`,
         }
       : {}),
+    ...(accepted?.length ? { fixes_this_team_accepted_before: accepted.slice(-10) } : {}),
     ...(gitHistory?.formatted ? { git_change_history: gitHistory.formatted.slice(0, 4000) } : {}),
     diff: compressDiff(diff, c.contextChars || 80000).diff,
   };
@@ -1310,8 +1323,8 @@ async function triagePr(ref, repoHint = "") {
   return run;
 }
 
-async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
-  const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact);
+async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null, accepted = []) {
+  const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact, accepted);
   const questions = {};
   for (const [k, levels] of Object.entries(S1_SCORES)) questions[`score_${k}`] = { type: "score", instructions: `Rate the pull request's ${k.replace("_", " ")}.`, criteria: levels };
   for (const g of S1_GATES) if ((!g.needsGuide || (guide && !c.local)) && (!g.needsIssues || (linkedIssues?.length && !c.local))) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
@@ -1485,10 +1498,25 @@ function compressDiff(diff, maxChars) {
 }
 // </diff-compression>
 
+// <accepted>
+// A suggestion counts as accepted when its code (compared line by line, ignoring indentation and blank lines) is in the
+// file at the new head and was not at the previously reviewed commit. Both file versions are required.
+const codeKey = (s) => String(s || "").replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter(Boolean).join("\n");
+function acceptedSuggestions(findings, before, after) {
+  return (findings || [])
+    .filter((f) => f?.file && !f.dismissed && codeKey(f.suggestion).length >= 12)
+    .filter((f) => {
+      const a = after.get(f.file);
+      const b = before.get(f.file);
+      return typeof a === "string" && typeof b === "string" && codeKey(a).includes(codeKey(f.suggestion)) && !codeKey(b).includes(codeKey(f.suggestion));
+    })
+    .map((f) => `[${f.file}] ${String(f.title || "").trim()}`.slice(0, 300));
+}
+// </accepted>
+
 // Head-revision text of changed files, for dynamic context. Capped in count and size; a file that fails is skipped.
-async function headFileTexts(pr, paths, max = 25, maxChars = 400000) {
+async function headFileTexts(pr, paths, max = 25, maxChars = 400000, ref = pr.headRefOid || pr.headRefName) {
   const repo = pr.headRepo || repoOf(pr);
-  const ref = pr.headRefOid || pr.headRefName;
   const texts = new Map();
   if (!ref || !REPO_RE.test(repo)) return texts;
   const enc = (p) => p.split("/").map(encodeURIComponent).join("/");
@@ -1732,9 +1760,12 @@ function deriveSuggestionFromDetail(f, diff = "") {
     }
   }
 
+  const startLine = Math.round(Number(f?.startLine));
   return {
     file,
     ...(line > 0 ? { line } : {}),
+    // A suggestion that replaces lines startLine..line (multi-line); absent means it replaces `line` only.
+    ...(line > 0 && startLine > 0 && startLine < line && line - startLine < 200 ? { startLine } : {}),
     severity,
     title,
     detail,
@@ -1744,7 +1775,7 @@ function deriveSuggestionFromDetail(f, diff = "") {
   };
 }
 
-function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
+function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null, accepted = []) {
   const outsideBlock = outsideImpact?.formatted ? `\n${outsideImpact.formatted}\n` : "";
   const issueBlock = linkedIssues?.length
     ? `\nLinked Issues & Requirements (MANDATORY: explicitly verify whether the pull request diff fulfills all requirements and acceptance criteria described in these linked issues, and flag any unfulfilled or partially met requirement in findings):\n${linkedIssues
@@ -1755,6 +1786,9 @@ function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = tru
     ? `\nRepository Team Learnings (Never flag these dismissed patterns):\n${learnings.map((l) => `- ${l}`).join("\n")}\n`
     : "";
   const incrementalBlock = incrementalCtx?.promptBlock ? `\n${incrementalCtx.promptBlock}\n` : "";
+  const acceptedBlock = accepted?.length
+    ? `\nFixes this team accepted from earlier reviews (look for the same kinds of problems):\n${accepted.slice(-10).map((a) => `- ${a}`).join("\n")}\n`
+    : "";
   return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the repository team learnings, the linked issues and acceptance criteria, the git commit history, the outside-diff call graph context, and the code diff. Reply with ONLY a JSON object:
 {"summary":"3-5 sentence architectural walkthrough covering what changed, commit progression, fulfillment of linked issue requirements, adherence to repository guidelines, and outside caller safety","verdict":"approve|comment|request_changes",
 ${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus),"blast_radius":0-100 (100 = system-wide or critical-path impact)},\n` : ""} "findings":[{"severity":"blocker|major|minor|nit|high|medium|low","file":"path","line":42,"title":"short","detail":"specific line/behaviour and fix (cite AGENTS.md/CLAUDE.md rule, linked issue #number requirement, or commit if relevant)","suggestion":"optional exact replacement code"}],
@@ -1765,7 +1799,7 @@ PR #${pr.number}: ${pr.title}
 Author: ${pr.author.login}  Base: ${pr.baseRefName} <- Head: ${pr.headRefName}${pr.headSha ? ` (${pr.headSha.slice(0, 7)})` : ""}  Files: ${pr.changedFiles}  +${pr.additions} -${pr.deletions}
 Description:
 ${(pr.body || "(none)").slice(0, c.contextChars ? Math.min(3000, Math.floor(c.contextChars / 10)) : 3000)}
-${outsideBlock}${incrementalBlock}${issueBlock}${learningsBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
+${outsideBlock}${incrementalBlock}${issueBlock}${learningsBlock}${acceptedBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
 Diff${diff.length > Math.min(r.diffChars, c.contextChars || Infinity) ? " (over budget: highest-priority files first, the rest named at the end)" : ""}:
 ${compressDiff(diff, Math.min(r.diffChars, c.contextChars || Infinity)).diff}`;
 }
@@ -1797,9 +1831,9 @@ ${compressDiff(diff, Math.min(r.diffChars, c.contextChars || Infinity)).diff}`, 
 }
 // </reflect>
 
-async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
+async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null, accepted = []) {
   if (c.api === "codereviewer") return reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress, linkedIssues, learnings, incrementalCtx);
-  const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact), { ...c, temperature: r.temperature });
+  const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact, accepted), { ...c, temperature: r.temperature });
   let out;
   try {
     out = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
@@ -2314,7 +2348,23 @@ async function startOrPollReview(ref, force, repo, part = "") {
           newCommits: incrementalCtx.newCommits,
           resolvedFindings: prevSaved?.incremental?.resolvedFindings || [],
         };
+        // Learn from suggestions the author applied since the last review. A failed lookup only skips the learning.
+        const withFix = prevFindings.filter((f) => f.suggestion && f.file);
+        if (hasNewSha && withFix.length) {
+          try {
+            const paths = [...new Set(withFix.map((f) => f.file))];
+            const [before, after] = await Promise.all([headFileTexts(live.pr, paths, 25, 400000, prevSha), headFileTexts(live.pr, paths)]);
+            const accepted = acceptedSuggestions(withFix, before, after);
+            if (accepted.length) {
+              await addRepoAccepted(repoOf(live.pr), accepted);
+              live.acceptedFixes = accepted;
+            }
+          } catch (e) {
+            console.warn(`[accepted] ${e.message}`);
+          }
+        }
       }
+      const acceptedFixes = await getRepoAccepted(repoOf(live.pr));
 
       const s1Task = runScores && s1.enabled
         ? scoreWithSystemOne(live.pr, diff, s1, guide, ({ readyScores, gates, done }) => {
@@ -2329,7 +2379,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
               live.pending.scores = false;
               live.pending.gates = false;
             }
-          }, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact)
+          }, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact, acceptedFixes)
         : Promise.resolve(null);
 
       const needLlmForScores = runScores && !s1.enabled;
@@ -2338,7 +2388,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
             if (runLlm) {
               live.review = { ...live.review, ...partial, scores: live.review.scores };
             }
-          }, linkedIssues, learnings, incrementalCtx, outsideImpact).then(({ blastRadius: llmBlast, ...nav }) => {
+          }, linkedIssues, learnings, incrementalCtx, outsideImpact, acceptedFixes).then(({ blastRadius: llmBlast, ...nav }) => {
             const scores = (!runScores || s1.enabled)
               ? (hasValidScores(live.review.scores) ? live.review.scores : initialScores)
               : nav.scores;
@@ -2412,6 +2462,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
         pr: live.pr,
         ...(currentHeadSha ? { headSha: currentHeadSha } : {}),
         ...(finalIncremental ? { incremental: finalIncremental } : {}),
+        ...(live.acceptedFixes ? { acceptedFixes: live.acceptedFixes } : {}),
         blast: live.blast,
         outsideDiffImpact: live.outsideDiffImpact,
         review,
@@ -2478,10 +2529,11 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
         `<!-- codeotter:suggestion:${f.file}:${targetLine} -->`,
         `🦦 **CodeOtter [${String(f.severity || "low").toUpperCase()}]** — **${f.title || "Suggested fix"}** (\`${f.file}:L${targetLine}\`)`,
         ...(explanation ? ["", explanation] : []),
+        // Forgejo and Gitea review comments cover one line, so a multi-line fix is shown, not offered for commit.
         ...(f.suggestion
           ? [
               "",
-              "```suggestion",
+              f.startLine && isForgeRepo(repo) ? `Replaces lines ${f.startLine}-${targetLine}:\n\`\`\`` : "```suggestion",
               String(f.suggestion).replace(/\r?\n$/, ""),
               "```",
             ]
@@ -2490,6 +2542,7 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
       return {
         path: f.file,
         line: targetLine,
+        ...(f.startLine && f.startLine < targetLine ? { startLine: f.startLine } : {}),
         side: "RIGHT",
         body: bodyLines.join("\n"),
         finding: f,
@@ -2537,6 +2590,7 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
         `comments[][line]=${c.line}`,
         "-f",
         `comments[][side]=${c.side}`,
+        ...(c.startLine ? ["-F", `comments[][start_line]=${c.startLine}`, "-f", `comments[][start_side]=${c.side}`] : []),
         "-f",
         `comments[][body]=${c.body}`,
       );
@@ -2592,8 +2646,8 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
   }
 }
 
-async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, postReview = false, postInlineSuggestions = false, triage = null } = {}) {
-  if (!postScores && !postReview && !postInlineSuggestions && !triage) return [];
+async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, postReview = false, postInlineSuggestions = false, triage = null, extra = [] } = {}) {
+  if (!postScores && !postReview && !postInlineSuggestions && !triage && !extra.length) return [];
   const commentAuthor = isForgeRepo(repo) ? await forgeApi("user", { source: forgeId(repo) }) : null;
   let existingComments = [];
   try {
@@ -2623,6 +2677,7 @@ async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, post
 
   const posted = [];
   if (triage) posted.push(await upsert("<!-- codeotter:triage -->", formatTriageComment(triage), "triage"));
+  for (const [marker, body, label] of extra) posted.push(await upsert(marker, body, label));
   if (postScores) {
     try {
       posted.push(await upsert("<!-- codeotter:scores -->", formatScoresComment(r), "scores"));
@@ -2655,6 +2710,289 @@ async function score(ref, force, repo) {
   const entry = activeReviews.get(initial.pr.url);
   return entry?.promise ? await entry.promise : initial;
 }
+
+// <pr-tools>
+// PR tools: one language model call each over the pull request and its diff (dynamic context, compressed to the review
+// budget). The model answers JSON; the server renders markdown from normalised fields only. The review page runs them
+// from one generic card, and PR comment commands run them by id. Results are kept in memory per pull request.
+const oneLine = (x, max) => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+const mdCell = (x, max) => oneLine(x, max).replace(/[|`]/g, (ch) => (ch === "|" ? "\\|" : "'"));
+const listOf = (x) => (Array.isArray(x) ? x : x == null ? [] : [x]);
+async function askJson(c, text, what) {
+  const out = await askModel(text, { ...c, temperature: 0.2 });
+  try {
+    return JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1));
+  } catch {
+    throw new Error(`${c.provider}/${c.model} did not return valid JSON for ${what}`);
+  }
+}
+const prBrief = (pr, guide) => `PR #${pr.number}: ${pr.title}
+Author: ${pr.author?.login || "unknown"}  Base: ${pr.baseRefName} <- Head: ${pr.headRefName}  Files: ${pr.changedFiles}  +${pr.additions} -${pr.deletions}
+Description:
+${String(pr.body || "(none)").replace(/<!-- codeotter:describe -->[\s\S]*?<!-- \/codeotter:describe -->/, "").trim().slice(0, 3000) || "(none)"}
+${guide ? `\nRepository guidelines from ${guide.file}:\n${guide.text.slice(0, 8000)}\n` : ""}`;
+async function prToolContext(prUrl) {
+  const { urlGuess, spec } = await resolvePr(prUrl, repoOf({ url: prUrl }));
+  const [pr, rawDiff, c, rc] = await Promise.all([readPr(urlGuess, spec).then(JSON.parse), readPr(urlGuess, spec, true), llmConfig(), reviewConfig()]);
+  if (!c.model) throw new Error("PR tools need a language model: open Admin / Model provider");
+  if (c.api === "codereviewer") throw new Error("CodeReviewer only writes per-hunk comments: pick a language model in Admin / Model provider for PR tools");
+  let diff = rawDiff;
+  if (rc.contextLines > 0) diff = extendDiffContext(rawDiff, await headFileTexts(pr, dynamicContextFiles(parseDiff(rawDiff))), { before: rc.contextLines, after: 1 }).diff;
+  const repo = repoOf(pr);
+  const guide = await guideFor(repo, isForgeRepo(repo) ? pr.headRefOid : pr.headRefName, pr.headRepo || repo).catch(() => null);
+  return { pr, repo, c, rc, guide, diff: compressDiff(diff, Math.min(rc.diffChars, c.contextChars || Infinity)).diff };
+}
+
+const DESCRIBE_TYPES = ["Bug fix", "Feature", "Refactor", "Performance", "Security", "Tests", "Docs", "Config", "Dependencies", "Chore"];
+const DESCRIBE_RE = /<!-- codeotter:describe -->[\s\S]*?<!-- \/codeotter:describe -->/;
+async function updatePrBody(pr, body) {
+  const { repo, number } = parsePrUrl(pr.url);
+  if (isForgeRepo(repo)) return forgeApi(`repos/${repo}/pulls/${number}`, { method: "PATCH", body: { body } });
+  return ghAsync("api", "--method", "PATCH", `repos/${repo}/pulls/${number}`, "-f", `body=${body}`);
+}
+const PR_TOOLS = {
+  describe: {
+    label: "Describe",
+    applyLabel: "Update PR description",
+    async run({ pr, c, guide, diff }) {
+      const out = await askJson(c, `Write the description of this pull request for its reviewers, from the diff. Follow the title conventions of the repository guidelines if they set any. Reply with ONLY a JSON object:
+{"title":"imperative title under 72 characters","type":["one or more of: ${DESCRIBE_TYPES.join(", ")}"],"summary":["2-5 bullets: what changed and why"],"files":[{"file":"path","change":"one line"}]}
+
+${prBrief(pr, guide)}
+Diff:
+${diff}`, "Describe");
+      const title = oneLine(out.title, 120) || pr.title;
+      const types = listOf(out.type).filter((t) => DESCRIBE_TYPES.includes(t));
+      const summary = listOf(out.summary).map((s) => oneLine(s, 400)).filter(Boolean).slice(0, 8);
+      const files = listOf(out.files).filter((f) => f && typeof f.file === "string").slice(0, 80).map((f) => ({ file: mdCell(f.file, 300), change: mdCell(f.change, 300) }));
+      if (!summary.length) throw new Error(`${c.provider}/${c.model} returned no summary for Describe`);
+      const markdown = [
+        `**Title:** ${title}`,
+        ...(types.length ? ["", `**Type:** ${types.join(", ")}`] : []),
+        "", "**Summary**", ...summary.map((s) => `- ${s}`),
+        ...(files.length ? ["", "**Changes**", "| File | Change |", "| :--- | :--- |", ...files.map((f) => `| \`${f.file}\` | ${f.change} |`)] : []),
+      ].join("\n");
+      return { markdown, data: { title, types, summary, files } };
+    },
+    // Writes the generated block into the PR body, keeping the author's own text; a later run replaces the block.
+    async apply({ pr }, result) {
+      const block = `<!-- codeotter:describe -->\n### 🦦 CodeOtter description\n\n${result.markdown}\n<!-- /codeotter:describe -->`;
+      const body = String(pr.body || "");
+      await updatePrBody(pr, DESCRIBE_RE.test(body) ? body.replace(DESCRIBE_RE, () => block) : `${body.trimEnd()}${body.trim() ? "\n\n" : ""}${block}`);
+      return "PR description updated";
+    },
+  },
+  ask: {
+    label: "Ask",
+    input: "Question",
+    async run({ pr, c, guide, diff }, question) {
+      const out = await askJson(c, `Answer a question about this pull request from its diff. Be specific: name files, functions and lines. If the diff does not show enough to answer, say what is missing instead of guessing. Reply with ONLY a JSON object: {"answer":"markdown"}
+
+Question: ${question}
+
+${prBrief(pr, guide)}
+Diff:
+${diff}`, "Ask");
+      const answer = proseOf(out.answer, 6000);
+      if (!answer) throw new Error(`${c.provider}/${c.model} returned no answer`);
+      return { markdown: `**Q:** ${oneLine(question, 500)}\n\n${answer}`, data: { question: oneLine(question, 2000), answer } };
+    },
+  },
+  improve: {
+    label: "Improve",
+    applyLabel: "Post inline suggestions",
+    // Code suggestions only (no scores): each replaces a line range of the new file, then the self-check scores them.
+    async run({ pr, c, rc, guide, diff }) {
+      const out = await askJson(c, `Suggest concrete code improvements to the lines this pull request adds or changes (lines starting with "+" in the diff): bugs, missing error handling, security, performance, clarity. Each suggestion replaces lines start_line..end_line of the new file with "improved", which must be complete, correctly indented code for exactly those lines. Do not suggest adding comments or docstrings, reformatting, or restating the code. Reply with ONLY a JSON object:
+{"suggestions":[{"file":"path","start_line":10,"end_line":12,"label":"one of: ${IMPROVE_LABELS.join(", ")}","title":"short","why":"one or two sentences","improved":"replacement code"}]}
+At most ${rc.maxFindings} suggestions, most important first. An empty list is a valid answer.
+
+${prBrief(pr, guide)}
+Diff:
+${diff}`, "Improve");
+      let items = suggestionItems(out, diff, IMPROVE_LABELS, "enhancement");
+      if (rc.reflectMin > 0 && items.length) items = await reflectFindings(pr, diff, c, rc, items);
+      items = items.slice(0, rc.maxFindings);
+      return { markdown: suggestionsMarkdown(items), data: { suggestions: items } };
+    },
+    apply: postSuggestions,
+  },
+  docs: {
+    label: "Docs",
+    applyLabel: "Post inline suggestions",
+    // Docstrings for functions and classes this PR adds or changes that have none, in the language's own convention.
+    async run({ pr, c, rc, guide, diff }) {
+      const out = await askJson(c, `Write documentation for functions, methods and classes that this pull request adds or changes (lines starting with "+" in the diff) and that have no doc comment. Use the language's convention (JSDoc, Python docstring, Go doc comment, Rust ///, and so on) and the style already used in the file. Say what it does, its parameters, what it returns and what it throws; nothing the name already says. Each suggestion replaces lines start_line..end_line of the new file (the declaration line, or the lines the docstring goes into) with "improved": the documentation plus those same lines, unchanged and correctly indented. Reply with ONLY a JSON object:
+{"suggestions":[{"file":"path","start_line":10,"end_line":10,"title":"Document functionName","improved":"documentation and the original lines"}]}
+At most ${rc.maxFindings} suggestions. An empty list is a valid answer.
+
+${prBrief(pr, guide)}
+Diff:
+${diff}`, "Docs");
+      const items = suggestionItems(out, diff, ["documentation"], "documentation").slice(0, rc.maxFindings);
+      return { markdown: suggestionsMarkdown(items), data: { suggestions: items } };
+    },
+    apply: postSuggestions,
+  },
+  changelog: {
+    label: "Changelog",
+    // An entry in the style of the repository's own changelog (read from the PR head), for the author to paste.
+    async run({ pr, c, guide, diff }) {
+      const files = await headFileTexts(pr, CHANGELOG_FILES);
+      const [file, text] = [...files].find(([, t]) => t.trim()) || [];
+      const out = await askJson(c, `Write the changelog entry for this pull request${file ? `, matching the format, tense and level of detail of the existing ${file} below` : " as Keep a Changelog bullets"}. Describe user-visible behaviour, not implementation. Reply with ONLY a JSON object: {"entry":"markdown lines to add under the unreleased section"}
+${file ? `\nExisting ${file} (start):\n${text.slice(0, 3000)}\n` : ""}
+${prBrief(pr, guide)}
+Diff:
+${diff}`, "Changelog");
+      const entry = proseOf(out.entry, 3000);
+      if (!entry) throw new Error(`${c.provider}/${c.model} returned no changelog entry`);
+      return { markdown: `${file ? `For \`${file}\`:` : "No changelog file found at the repository root."}\n\n\`\`\`markdown\n${entry.replace(/```/g, "'''")}\n\`\`\``, data: { file: file || null, entry } };
+    },
+  },
+};
+const IMPROVE_LABELS = ["possible issue", "security", "performance", "error handling", "maintainability", "enhancement"];
+const CHANGELOG_FILES = ["CHANGELOG.md", "CHANGES.md", "HISTORY.md"];
+// Model suggestions -> findings with a line range, a label from `labels`, and cleaned prose.
+const suggestionItems = (out, diff, labels, fallback) => listOf(out.suggestions)
+  .filter((s) => s && typeof s.file === "string" && Number(s.end_line) > 0 && typeof s.improved === "string" && s.improved.trim())
+  .slice(0, 20)
+  .map((s) => {
+    const label = labels.includes(s.label) ? s.label : fallback;
+    const f = deriveSuggestionFromDetail({ file: s.file, line: Number(s.end_line), startLine: Number(s.start_line), severity: ["possible issue", "security"].includes(label) ? "medium" : "low", title: oneLine(s.title, 200), detail: proseOf(s.why, 1000), suggestion: s.improved }, diff);
+    return { ...f, label };
+  });
+const fenceFor = (code) => "`".repeat(Math.max(3, ...[...String(code).matchAll(/`+/g)].map((m) => m[0].length + 1)));
+const suggestionsMarkdown = (items) => items.length
+  ? items.map((f, i) => [
+      `**${i + 1}. ${mdCell(f.title, 200)}** · \`${mdCell(f.file, 300)}:L${f.startLine ? `${f.startLine}-` : ""}${f.line}\` · ${f.label}${typeof f.confidence === "number" ? ` · ${Math.round(f.confidence * 10)}/10` : ""}`,
+      ...(f.detail ? ["", f.detail] : []),
+      "", fenceFor(f.suggestion), f.suggestion, fenceFor(f.suggestion),
+    ].join("\n")).join("\n\n")
+  : "No suggestions.";
+async function postSuggestions({ pr }, result) {
+  const findings = result.data?.suggestions || [];
+  if (!findings.length) throw new Error("No suggestions to post");
+  const { posted, mode } = await postInlineSuggestionsOnPr({ pr, review: { findings } }, repoOf(pr));
+  return `Posted ${posted} suggestion(s)${mode === "pr_comment_fallback" ? " as a PR comment (lines outside the diff)" : ""}`;
+}
+// Model prose posted to a PR: no HTML comments (they could forge CodeOtter's comment markers) and no live @mentions.
+const proseOf = (x, max) => String(x ?? "").replace(/<!--[\s\S]*?(-->|$)/g, "").replace(/(^|[^\w`])@(?=[\w-])/g, "$1@\u200b").trim().slice(0, max);
+const toolResults = new Map();
+async function runPrTool(prUrl, id, { question = "", action = "run" } = {}) {
+  const tool = PR_TOOLS[id];
+  if (!tool) throw new Error(`Unknown tool ${id}`);
+  const key = `${prUrl}#${id}`;
+  if (action === "run") {
+    if (tool.input && !oneLine(question, 2000)) throw new Error(`${tool.label} needs ${tool.input.toLowerCase()}`);
+    const ctx = await prToolContext(prUrl);
+    const result = { tool: id, label: tool.label, ...(await tool.run(ctx, oneLine(question, 2000))), headSha: ctx.pr.headRefOid || "", at: new Date().toISOString() };
+    toolResults.set(key, result);
+    return result;
+  }
+  const result = toolResults.get(key);
+  if (!result) throw new Error(`Run ${tool.label} first`);
+  if (action === "comment") {
+    const pr = { url: prUrl, number: parsePrUrl(prUrl).number };
+    const body = `<!-- codeotter:tool:${id} -->\n### 🦦 CodeOtter · ${tool.label}\n\n${result.markdown}\n\n---\n🔗 **[Open on CodeOtter →](${APP_URL}/review?pr=${encodeURIComponent(prUrl)})**`;
+    await syncPrComments({ pr }, repoOf(pr), { extra: [[`<!-- codeotter:tool:${id} -->`, body, tool.label]] });
+    return { ...result, message: "Posted as a PR comment" };
+  }
+  if (action === "apply" && tool.apply) {
+    const { urlGuess, spec } = await resolvePr(prUrl, repoOf({ url: prUrl }));
+    return { ...result, message: await tool.apply({ pr: JSON.parse(await readPr(urlGuess, spec)) }, result) };
+  }
+  throw new Error("Unknown action");
+}
+// </pr-tools>
+
+// <pr-commands>
+// PR comment commands: a comment whose first line is /review, /describe, /improve, /docs, /changelog or /ask <question>
+// runs that action and replies on the pull request. Off unless enabled in Settings, and only the repository's owner,
+// members and collaborators can trigger one: anyone can comment on a public repository and spend its model budget.
+const COMMANDS = ["review", "describe", "improve", "ask", "docs", "changelog"];
+function parseCommand(body) {
+  const m = String(body || "").trimStart().split("\n")[0].trim().match(/^\/([a-z]+)(?:\s+(.*))?$/i);
+  if (!m || !COMMANDS.includes(m[1].toLowerCase())) return null;
+  return { cmd: m[1].toLowerCase(), arg: String(m[2] || "").trim().slice(0, 2000) };
+}
+// The pull request a comment belongs to, from its web link (GitHub /pull/7#..., Forgejo and Gitea /pulls/7#...).
+const commentPrNumber = (c) => Number((String(c?.html_url || "").match(/\/pulls?\/([1-9]\d*)(?:#|$)/) || [])[1]) || 0;
+async function commenterTrusted(repo, c) {
+  if (!isForgeRepo(repo)) return ["OWNER", "MEMBER", "COLLABORATOR"].includes(c.author_association);
+  const login = String(c.user?.login || "");
+  if (!/^[\w][\w.-]*$/.test(login)) return false;
+  try {
+    const p = await forgeApi(`repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`);
+    return ["owner", "admin", "write"].includes(String(p?.permission || "").toLowerCase());
+  } catch (e) {
+    if ([403, 404].includes(e.status)) return false;
+    throw e;
+  }
+}
+async function commentsSince(repo, since) {
+  if (isForgeRepo(repo)) return forgeApi(`repos/${repo}/issues/comments?since=${encodeURIComponent(since)}&limit=50`);
+  return JSON.parse(await ghAsync("api", `repos/${repo}/issues/comments?since=${encodeURIComponent(since)}&sort=created&direction=asc&per_page=100`));
+}
+async function runCommand(repo, c, { cmd, arg }) {
+  const number = commentPrNumber(c);
+  const prUrl = prUrlFor(repo, number);
+  const id = Number(c.id);
+  if (Number.isSafeInteger(id) && id > 0) {
+    await (isForgeRepo(repo)
+      ? forgeApi(`repos/${repo}/issues/comments/${id}/reactions`, { method: "POST", body: { content: "eyes" } })
+      : ghAsync("api", "--method", "POST", `repos/${repo}/issues/comments/${id}/reactions`, "-f", "content=eyes")).catch(() => {});
+  }
+  try {
+    if (cmd === "review") {
+      await syncPrComments(await score(prUrl, true, repo), repo, { postScores: true, postReview: true });
+    } else {
+      await runPrTool(prUrl, cmd, { question: arg });
+      await runPrTool(prUrl, cmd, { action: "comment" });
+    }
+  } catch (e) {
+    await createPrComment(prUrl, repo, number, `🦦 CodeOtter \`/${cmd}\` failed: ${oneLine(e.message, 500)}`).catch(() => {});
+    throw e;
+  }
+}
+// </pr-commands>
+// Every minute: each onboarded repository's comments since the last poll, oldest first. The first poll after enabling
+// looks back five minutes, so older comments never fire.
+let commandPolling = false;
+setInterval(async () => {
+  if (commandPolling) return;
+  commandPolling = true;
+  try {
+    if (!(await reviewConfig()).commands) return;
+    const seen = (await store.getSetting("commandsSeen")) || {};
+    for (const repo of await repos()) {
+      const since = seen[repo] || new Date(Date.now() - 5 * 60e3).toISOString();
+      let list;
+      try {
+        list = await commentsSince(repo, since);
+      } catch (e) {
+        console.warn(`[commands] ${repo}: ${e.message}`);
+        continue;
+      }
+      let latest = since;
+      for (const c of Array.isArray(list) ? list : []) {
+        const at = String(c?.created_at || "");
+        if (!at || Date.parse(at) <= Date.parse(since)) continue;
+        if (Date.parse(at) > Date.parse(latest)) latest = new Date(Date.parse(at)).toISOString();
+        const command = parseCommand(c.body);
+        if (!command || !commentPrNumber(c)) continue;
+        if (!(await commenterTrusted(repo, c).catch(() => false))) continue;
+        await runCommand(repo, c, command).catch((e) => console.warn(`[commands] ${repo} /${command.cmd}: ${e.message}`));
+      }
+      seen[repo] = latest;
+      await store.setSetting("commandsSeen", seen);
+    }
+  } catch (e) {
+    console.warn(`[commands] ${e.message}`);
+  } finally {
+    commandPolling = false;
+  }
+}, 60e3).unref();
 
 function formatScoresComment(r) {
   const { pr, blast, review: v, gates = [], linkedIssues = [], headSha, incremental } = r;
@@ -3142,6 +3480,7 @@ const SETTINGS_PAGES = {
         const postReview = g.postReview ?? rc.postReview;
         const postInlineSuggestions = g.postInlineSuggestions ?? rs.postInlineSuggestions ?? rc.postInlineSuggestions;
         const learnings = normalizeLearningList(rs.learnings ?? g.learnings ?? []);
+        const accepted = normalizeLearningList(rs.accepted ?? []);
         const settings = {
           title: r,
           fields: [
@@ -3150,6 +3489,7 @@ const SETTINGS_PAGES = {
             { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add the review summary and a link to the full report" },
             { key: "postInlineSuggestions", label: "Post inline suggestions", type: "checkbox", text: "Post inline committable suggestion comments on PR diff lines" },
             { key: "learnings", label: "Team learnings", type: "list", removable: true, hint: "Dismissed review findings remembered as persistent team rules for this repository." },
+            { key: "accepted", label: "Accepted fixes", type: "list", removable: true },
           ],
           values: {
             ...(files.length ? { useGuides: g.use ?? true } : { none: "none" }),
@@ -3157,6 +3497,7 @@ const SETTINGS_PAGES = {
             postReview: !!postReview,
             postInlineSuggestions: !!postInlineSuggestions,
             learnings,
+            accepted,
           },
         };
         const meta = [
@@ -3165,6 +3506,7 @@ const SETTINGS_PAGES = {
           postReview ? "Post review" : "",
           postInlineSuggestions ? "Inline suggestions" : "",
           learnings.length ? `${learnings.length} learning${learnings.length === 1 ? "" : "s"}` : "",
+          accepted.length ? `${accepted.length} accepted fix${accepted.length === 1 ? "" : "es"}` : "",
         ]
           .filter(Boolean)
           .join(" · ");
@@ -3214,6 +3556,7 @@ const SETTINGS_PAGES = {
         if (!sv) continue;
         const id = clean(it.id);
         const nextLearnings = "learnings" in sv ? normalizeLearningList(sv.learnings) : undefined;
+        const nextAccepted = "accepted" in sv ? normalizeLearningList(sv.accepted) : undefined;
         guides[id] = {
           ...(guides[id] || {}),
           ...("useGuides" in sv ? { use: !!sv.useGuides } : {}),
@@ -3226,6 +3569,7 @@ const SETTINGS_PAGES = {
           ...(repoSettings[id] || {}),
           ...("postInlineSuggestions" in sv ? { postInlineSuggestions: !!sv.postInlineSuggestions } : {}),
           ...(nextLearnings !== undefined ? { learnings: nextLearnings } : {}),
+          ...(nextAccepted !== undefined ? { accepted: nextAccepted } : {}),
         };
       }
       for (const k of Object.keys(guides)) if (!next.includes(k)) delete guides[k];
@@ -3298,6 +3642,7 @@ const SETTINGS_PAGES = {
             { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a PR comment with all System One scores after review" },
             { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add a PR comment with the review summary and link to the full report" },
             { key: "postInlineSuggestions", label: "Post inline suggestions", type: "checkbox", text: "Post inline committable suggestion comments on PR diff lines" },
+            { key: "commands", label: "PR comment commands", type: "checkbox", text: "Run /review, /describe, /improve, /ask, /docs and /changelog from comments by owners, members and collaborators" },
           ],
           actions: [{ id: "save", label: "Save" }],
         },
@@ -3339,6 +3684,7 @@ const SETTINGS_PAGES = {
           postScores: !!v.postScores,
           postReview: !!v.postReview,
           postInlineSuggestions: !!v.postInlineSuggestions,
+          commands: !!v.commands,
         };
         await store.setSetting("review", nextReview);
         const guides = (await store.getSetting("guides")) || {};
@@ -4026,6 +4372,16 @@ http
           }
         }
         return json({ ok: true, learnings, review: updatedReview });
+      }
+      if (url.pathname === "/api/tools") {
+        const g = await gate(req, res, "admin");
+        if (!g.ok) return;
+        if (req.method !== "POST") return json(Object.entries(PR_TOOLS).map(([id, t]) => ({ id, label: t.label, input: t.input || null, apply: t.applyLabel || null })));
+        const body = await readJson(req);
+        const prUrl = String(body.prUrl || "").trim();
+        if (!validPrUrl(prUrl)) throw new Error("Invalid pull request URL");
+        checkRepoScope(repoOf({ url: prUrl }), requestOrg(url));
+        return json(await runPrTool(prUrl, String(body.tool || ""), { question: body.question, action: String(body.action || "run") }));
       }
       if (url.pathname === "/api/review-suggestions" && req.method === "POST") {
         const g = await gate(req, res, "admin");
