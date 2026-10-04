@@ -2705,7 +2705,7 @@ async function updatePrBody(pr, body) {
 const PR_TOOLS = {
   describe: {
     label: "Describe",
-    apply: "Update PR description",
+    applyLabel: "Update PR description",
     async run({ pr, c, guide, diff }) {
       const out = await askJson(c, `Write the description of this pull request for its reviewers, from the diff. Follow the title conventions of the repository guidelines if they set any. Reply with ONLY a JSON object:
 {"title":"imperative title under 72 characters","type":["one or more of: ${DESCRIBE_TYPES.join(", ")}"],"summary":["2-5 bullets: what changed and why"],"files":[{"file":"path","change":"one line"}]}
@@ -4193,7 +4193,7 @@ http
       if (url.pathname === "/api/tools") {
         const g = await gate(req, res, "admin");
         if (!g.ok) return;
-        if (req.method !== "POST") return json(Object.entries(PR_TOOLS).map(([id, t]) => ({ id, label: t.label, input: t.input || null, apply: t.apply || null })));
+        if (req.method !== "POST") return json(Object.entries(PR_TOOLS).map(([id, t]) => ({ id, label: t.label, input: t.input || null, apply: t.applyLabel || null })));
         const body = await readJson(req);
         const prUrl = String(body.prUrl || "").trim();
         if (!validPrUrl(prUrl)) throw new Error("Invalid pull request URL");
