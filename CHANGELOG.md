@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Improve** (Tools card): code suggestions only, no scores. Each replaces a line range of the new file and carries a label (possible issue, security, performance, error handling, maintainability, enhancement); the self-check scores and filters them; Post inline suggestions publishes them as committable suggestions.
+- Inline suggestions can span several lines: GitHub gets a multi-line suggestion (`start_line`); Forgejo and Gitea, whose review comments cover one line, show the replacement as a code block instead of a committable suggestion.
+
 - **Ask** (Tools card): answers a free-form question about the PR from its diff and guidelines. Answers posted to the PR have HTML comments removed (so they cannot forge CodeOtter's comment markers) and @mentions defused.
 
 - **Tools card** on the review page, driven by `PR_TOOLS` in `server.mjs` (`GET`/`POST /api/tools`): pick a tool, run it, post the result as an upserted PR comment, or apply it. Tools use the language model with the same dynamic context, diff budget and repository guidelines as reviews.
