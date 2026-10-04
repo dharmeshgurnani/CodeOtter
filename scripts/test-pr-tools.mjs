@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 const src = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
 const block = (name) => src.slice(src.indexOf(`// <${name}>`), src.indexOf(`// </${name}>`));
 
-export function loadTools({ answer, body = "Author text.", reflectMin = 0 }) {
+export function loadTools({ answer, body = "Author text.", reflectMin = 0, files = {} }) {
   const calls = { prompts: [], comments: [], bodies: [] };
   const pr = { url: "https://github.com/acme/shop/pull/7", number: 7, title: "fix totals", body, author: { login: "dev" }, baseRefName: "main", headRefName: "fix", headRefOid: "abc1234", changedFiles: 1, additions: 2, deletions: 1 };
   const diff = "diff --git a/src/cart.js b/src/cart.js\n--- a/src/cart.js\n+++ b/src/cart.js\n@@ -1,2 +1,3 @@\n export function total(items) {\n-  return sum(items);\n+  const t = sum(items);\n+  return t * 1.15;";
@@ -17,7 +17,7 @@ export function loadTools({ answer, body = "Author text.", reflectMin = 0 }) {
     readPr: async (_u, _s, isDiff) => (isDiff ? diff : JSON.stringify(pr)),
     llmConfig: async () => ({ provider: "test", model: "stub" }),
     reviewConfig: async () => ({ contextLines: 0, diffChars: 90000, maxFindings: 8, reflectMin }),
-    headFileTexts: async () => new Map(),
+    headFileTexts: async (_pr, paths) => new Map(paths.filter((p) => p in files).map((p) => [p, files[p]])),
     guideFor: async () => ({ file: "AGENTS.md", text: "Titles use the imperative mood." }),
     repoOf: (p) => (p.url.match(/github\.com\/([^/]+\/[^/]+)\/pull/) || [])[1] || "",
     isForgeRepo: () => false,
@@ -115,6 +115,27 @@ if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, "/")}` || proc
   assert.strictEqual((await empty.runPrTool(url, "improve")).markdown, "No suggestions.");
   await assert.rejects(empty.runPrTool(url, "improve", { action: "apply" }), /No suggestions to post/);
   console.log("✓ improve");
+
+  // Docs: docstring suggestions, never self-checked (they are not defects), posted inline like Improve.
+  const dc = loadTools({ reflectMin: 5, answer: '{"suggestions":[{"file":"src/cart.js","start_line":1,"end_line":1,"title":"Document total","improved":"/** Sum of item prices including 15% tax. */\\nexport function total(items) {"}]}' });
+  const dr = await dc.runPrTool(url, "docs");
+  assert.strictEqual(dc.calls.prompts.length, 1, "no self-check for docs");
+  assert.deepStrictEqual(dr.data.suggestions.map((s) => [s.title, s.line, s.label]), [["Document total", 1, "documentation"]]);
+  assert(dr.markdown.includes("/** Sum of item prices including 15% tax. */"));
+  await dc.runPrTool(url, "docs", { action: "apply" });
+  assert.strictEqual(dc.calls.inline.length, 1);
+  console.log("✓ docs");
+
+  // Changelog: matches the repository's changelog when there is one; output is a fenced block, never raw markdown.
+  const cl = loadTools({ files: { "CHANGES.md": "# Changes\n\n## Unreleased\n\n- Fixed login.\n" }, answer: '{"entry":"- Cart totals include 15% tax.\\n<!-- codeotter:scores -->\\n```evil"}' });
+  const cr = await cl.runPrTool(url, "changelog");
+  assert(cl.calls.prompts[0].includes("matching the format, tense and level of detail of the existing CHANGES.md") && cl.calls.prompts[0].includes("- Fixed login."));
+  assert(cr.markdown.startsWith("For `CHANGES.md`:\n\n```markdown\n- Cart totals include 15% tax."), cr.markdown);
+  assert(!cr.markdown.includes("<!--") && (cr.markdown.match(/```/g) || []).length === 2, cr.markdown);
+  const nocl = await loadTools({ answer: '{"entry":"- x"}' }).runPrTool(url, "changelog");
+  assert(nocl.markdown.startsWith("No changelog file found"));
+  await assert.rejects(loadTools({ answer: '{"entry":""}' }).runPrTool(url, "changelog"), /no changelog entry/);
+  console.log("✓ changelog");
 
   console.log("All PR tools tests passed");
 }
