@@ -2762,33 +2762,72 @@ At most ${rc.maxFindings} suggestions, most important first. An empty list is a 
 ${prBrief(pr, guide)}
 Diff:
 ${diff}`, "Improve");
-      const raw = listOf(out.suggestions).filter((s) => s && typeof s.file === "string" && Number(s.end_line) > 0 && typeof s.improved === "string" && s.improved.trim()).slice(0, 20);
-      let items = raw.map((s) => {
-        const label = IMPROVE_LABELS.includes(s.label) ? s.label : "enhancement";
-        const f = deriveSuggestionFromDetail({ file: s.file, line: Number(s.end_line), startLine: Number(s.start_line), severity: ["possible issue", "security"].includes(label) ? "medium" : "low", title: oneLine(s.title, 200), detail: proseOf(s.why, 1000), suggestion: s.improved }, diff);
-        return { ...f, label };
-      });
+      let items = suggestionItems(out, diff, IMPROVE_LABELS, "enhancement");
       if (rc.reflectMin > 0 && items.length) items = await reflectFindings(pr, diff, c, rc, items);
       items = items.slice(0, rc.maxFindings);
-      const fence = (code) => "`".repeat(Math.max(3, ...[...String(code).matchAll(/`+/g)].map((m) => m[0].length + 1)));
-      const markdown = items.length
-        ? items.map((f, i) => [
-            `**${i + 1}. ${mdCell(f.title, 200)}** · \`${mdCell(f.file, 300)}:L${f.startLine ? `${f.startLine}-` : ""}${f.line}\` · ${f.label}${typeof f.confidence === "number" ? ` · ${Math.round(f.confidence * 10)}/10` : ""}`,
-            ...(f.detail ? ["", f.detail] : []),
-            "", fence(f.suggestion), f.suggestion, fence(f.suggestion),
-          ].join("\n")).join("\n\n")
-        : "No suggestions.";
-      return { markdown, data: { suggestions: items } };
+      return { markdown: suggestionsMarkdown(items), data: { suggestions: items } };
     },
-    async apply({ pr }, result) {
-      const findings = result.data?.suggestions || [];
-      if (!findings.length) throw new Error("No suggestions to post");
-      const { posted, mode } = await postInlineSuggestionsOnPr({ pr, review: { findings } }, repoOf(pr));
-      return `Posted ${posted} suggestion(s)${mode === "pr_comment_fallback" ? " as a PR comment (lines outside the diff)" : ""}`;
+    apply: postSuggestions,
+  },
+  docs: {
+    label: "Docs",
+    applyLabel: "Post inline suggestions",
+    // Docstrings for functions and classes this PR adds or changes that have none, in the language's own convention.
+    async run({ pr, c, rc, guide, diff }) {
+      const out = await askJson(c, `Write documentation for functions, methods and classes that this pull request adds or changes (lines starting with "+" in the diff) and that have no doc comment. Use the language's convention (JSDoc, Python docstring, Go doc comment, Rust ///, and so on) and the style already used in the file. Say what it does, its parameters, what it returns and what it throws; nothing the name already says. Each suggestion replaces lines start_line..end_line of the new file (the declaration line, or the lines the docstring goes into) with "improved": the documentation plus those same lines, unchanged and correctly indented. Reply with ONLY a JSON object:
+{"suggestions":[{"file":"path","start_line":10,"end_line":10,"title":"Document functionName","improved":"documentation and the original lines"}]}
+At most ${rc.maxFindings} suggestions. An empty list is a valid answer.
+
+${prBrief(pr, guide)}
+Diff:
+${diff}`, "Docs");
+      const items = suggestionItems(out, diff, ["documentation"], "documentation").slice(0, rc.maxFindings);
+      return { markdown: suggestionsMarkdown(items), data: { suggestions: items } };
+    },
+    apply: postSuggestions,
+  },
+  changelog: {
+    label: "Changelog",
+    // An entry in the style of the repository's own changelog (read from the PR head), for the author to paste.
+    async run({ pr, c, guide, diff }) {
+      const files = await headFileTexts(pr, CHANGELOG_FILES);
+      const [file, text] = [...files].find(([, t]) => t.trim()) || [];
+      const out = await askJson(c, `Write the changelog entry for this pull request${file ? `, matching the format, tense and level of detail of the existing ${file} below` : " as Keep a Changelog bullets"}. Describe user-visible behaviour, not implementation. Reply with ONLY a JSON object: {"entry":"markdown lines to add under the unreleased section"}
+${file ? `\nExisting ${file} (start):\n${text.slice(0, 3000)}\n` : ""}
+${prBrief(pr, guide)}
+Diff:
+${diff}`, "Changelog");
+      const entry = proseOf(out.entry, 3000);
+      if (!entry) throw new Error(`${c.provider}/${c.model} returned no changelog entry`);
+      return { markdown: `${file ? `For \`${file}\`:` : "No changelog file found at the repository root."}\n\n\`\`\`markdown\n${entry.replace(/```/g, "'''")}\n\`\`\``, data: { file: file || null, entry } };
     },
   },
 };
 const IMPROVE_LABELS = ["possible issue", "security", "performance", "error handling", "maintainability", "enhancement"];
+const CHANGELOG_FILES = ["CHANGELOG.md", "CHANGES.md", "HISTORY.md"];
+// Model suggestions -> findings with a line range, a label from `labels`, and cleaned prose.
+const suggestionItems = (out, diff, labels, fallback) => listOf(out.suggestions)
+  .filter((s) => s && typeof s.file === "string" && Number(s.end_line) > 0 && typeof s.improved === "string" && s.improved.trim())
+  .slice(0, 20)
+  .map((s) => {
+    const label = labels.includes(s.label) ? s.label : fallback;
+    const f = deriveSuggestionFromDetail({ file: s.file, line: Number(s.end_line), startLine: Number(s.start_line), severity: ["possible issue", "security"].includes(label) ? "medium" : "low", title: oneLine(s.title, 200), detail: proseOf(s.why, 1000), suggestion: s.improved }, diff);
+    return { ...f, label };
+  });
+const fenceFor = (code) => "`".repeat(Math.max(3, ...[...String(code).matchAll(/`+/g)].map((m) => m[0].length + 1)));
+const suggestionsMarkdown = (items) => items.length
+  ? items.map((f, i) => [
+      `**${i + 1}. ${mdCell(f.title, 200)}** · \`${mdCell(f.file, 300)}:L${f.startLine ? `${f.startLine}-` : ""}${f.line}\` · ${f.label}${typeof f.confidence === "number" ? ` · ${Math.round(f.confidence * 10)}/10` : ""}`,
+      ...(f.detail ? ["", f.detail] : []),
+      "", fenceFor(f.suggestion), f.suggestion, fenceFor(f.suggestion),
+    ].join("\n")).join("\n\n")
+  : "No suggestions.";
+async function postSuggestions({ pr }, result) {
+  const findings = result.data?.suggestions || [];
+  if (!findings.length) throw new Error("No suggestions to post");
+  const { posted, mode } = await postInlineSuggestionsOnPr({ pr, review: { findings } }, repoOf(pr));
+  return `Posted ${posted} suggestion(s)${mode === "pr_comment_fallback" ? " as a PR comment (lines outside the diff)" : ""}`;
+}
 // Model prose posted to a PR: no HTML comments (they could forge CodeOtter's comment markers) and no live @mentions.
 const proseOf = (x, max) => String(x ?? "").replace(/<!--[\s\S]*?(-->|$)/g, "").replace(/(^|[^\w`])@(?=[\w-])/g, "$1@\u200b").trim().slice(0, max);
 const toolResults = new Map();

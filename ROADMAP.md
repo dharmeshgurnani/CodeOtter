@@ -2,6 +2,7 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | Docs and Changelog tools (PR-Agent-inspired) | 2026-10-04 |
 | [x] | Improve: ranked, self-checked code suggestions posted as multi-line committable suggestions (PR-Agent-inspired) | 2026-10-04 |
 | [x] | Ask: free-form questions about a PR (PR-Agent-inspired) | 2026-10-04 |
 | [x] | Tools card + Describe (title, type, summary, file changes; apply to PR description) (PR-Agent-inspired) | 2026-10-04 |

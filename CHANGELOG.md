@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Docs** (Tools card): doc comments (JSDoc, docstrings, Go/Rust doc comments…) for functions and classes the PR adds or changes without one, matching the file's style, as committable inline suggestions.
+- **Changelog** (Tools card): a changelog entry in the format, tense and detail of the repository's `CHANGELOG.md`, `CHANGES.md` or `HISTORY.md` at the PR head, shown as a block to paste or post as a comment. CodeOtter does not commit to the PR branch.
+- Fixed: the Tools card's apply button (Update PR description, Post inline suggestions) never appeared.
+
 - **Improve** (Tools card): code suggestions only, no scores. Each replaces a line range of the new file and carries a label (possible issue, security, performance, error handling, maintainability, enhancement); the self-check scores and filters them; Post inline suggestions publishes them as committable suggestions.
 - Inline suggestions can span several lines: GitHub gets a multi-line suggestion (`start_line`); Forgejo and Gitea, whose review comments cover one line, show the replacement as a code block instead of a committable suggestion.
 
