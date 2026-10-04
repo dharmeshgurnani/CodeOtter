@@ -43,6 +43,14 @@ if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, "/")}` || proc
   assert(t.calls.prompts[0].includes("Titles use the imperative mood.") && t.calls.prompts[0].includes("+  return t * 1.15;"));
   console.log("✓ describe renders normalised fields");
 
+  // The card lists tools as JSON: labels must be strings, and an apply label always has an apply method.
+  for (const [id, tool] of Object.entries(t.PR_TOOLS)) {
+    assert.strictEqual(typeof tool.label, "string", `${id} label`);
+    assert.strictEqual(typeof tool.applyLabel === "string", typeof tool.apply === "function", `${id}: applyLabel and apply() come together`);
+    assert(tool.input === undefined || typeof tool.input === "string", `${id} input`);
+  }
+  console.log("✓ tool registry is consistent");
+
   // Apply keeps the author's text and replaces its own block on a second run.
   await t.runPrTool(url, "describe", { action: "apply" });
   const first = t.calls.bodies.at(-1);
