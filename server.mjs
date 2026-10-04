@@ -2592,8 +2592,8 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
   }
 }
 
-async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, postReview = false, postInlineSuggestions = false, triage = null } = {}) {
-  if (!postScores && !postReview && !postInlineSuggestions && !triage) return [];
+async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, postReview = false, postInlineSuggestions = false, triage = null, extra = [] } = {}) {
+  if (!postScores && !postReview && !postInlineSuggestions && !triage && !extra.length) return [];
   const commentAuthor = isForgeRepo(repo) ? await forgeApi("user", { source: forgeId(repo) }) : null;
   let existingComments = [];
   try {
@@ -2623,6 +2623,7 @@ async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, post
 
   const posted = [];
   if (triage) posted.push(await upsert("<!-- codeotter:triage -->", formatTriageComment(triage), "triage"));
+  for (const [marker, body, label] of extra) posted.push(await upsert(marker, body, label));
   if (postScores) {
     try {
       posted.push(await upsert("<!-- codeotter:scores -->", formatScoresComment(r), "scores"));
@@ -2655,6 +2656,106 @@ async function score(ref, force, repo) {
   const entry = activeReviews.get(initial.pr.url);
   return entry?.promise ? await entry.promise : initial;
 }
+
+// <pr-tools>
+// PR tools: one language model call each over the pull request and its diff (dynamic context, compressed to the review
+// budget). The model answers JSON; the server renders markdown from normalised fields only. The review page runs them
+// from one generic card, and PR comment commands run them by id. Results are kept in memory per pull request.
+const oneLine = (x, max) => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+const mdCell = (x, max) => oneLine(x, max).replace(/[|`]/g, (ch) => (ch === "|" ? "\\|" : "'"));
+const listOf = (x) => (Array.isArray(x) ? x : x == null ? [] : [x]);
+async function askJson(c, text, what) {
+  const out = await askModel(text, { ...c, temperature: 0.2 });
+  try {
+    return JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1));
+  } catch {
+    throw new Error(`${c.provider}/${c.model} did not return valid JSON for ${what}`);
+  }
+}
+const prBrief = (pr, guide) => `PR #${pr.number}: ${pr.title}
+Author: ${pr.author?.login || "unknown"}  Base: ${pr.baseRefName} <- Head: ${pr.headRefName}  Files: ${pr.changedFiles}  +${pr.additions} -${pr.deletions}
+Description:
+${String(pr.body || "(none)").replace(/<!-- codeotter:describe -->[\s\S]*?<!-- \/codeotter:describe -->/, "").trim().slice(0, 3000) || "(none)"}
+${guide ? `\nRepository guidelines from ${guide.file}:\n${guide.text.slice(0, 8000)}\n` : ""}`;
+async function prToolContext(prUrl) {
+  const { urlGuess, spec } = await resolvePr(prUrl, repoOf({ url: prUrl }));
+  const [pr, rawDiff, c, rc] = await Promise.all([readPr(urlGuess, spec).then(JSON.parse), readPr(urlGuess, spec, true), llmConfig(), reviewConfig()]);
+  if (!c.model) throw new Error("PR tools need a language model: open Admin / Model provider");
+  if (c.api === "codereviewer") throw new Error("CodeReviewer only writes per-hunk comments: pick a language model in Admin / Model provider for PR tools");
+  let diff = rawDiff;
+  if (rc.contextLines > 0) diff = extendDiffContext(rawDiff, await headFileTexts(pr, dynamicContextFiles(parseDiff(rawDiff))), { before: rc.contextLines, after: 1 }).diff;
+  const repo = repoOf(pr);
+  const guide = await guideFor(repo, isForgeRepo(repo) ? pr.headRefOid : pr.headRefName, pr.headRepo || repo).catch(() => null);
+  return { pr, repo, c, rc, guide, diff: compressDiff(diff, Math.min(rc.diffChars, c.contextChars || Infinity)).diff };
+}
+
+const DESCRIBE_TYPES = ["Bug fix", "Feature", "Refactor", "Performance", "Security", "Tests", "Docs", "Config", "Dependencies", "Chore"];
+const DESCRIBE_RE = /<!-- codeotter:describe -->[\s\S]*?<!-- \/codeotter:describe -->/;
+async function updatePrBody(pr, body) {
+  const { repo, number } = parsePrUrl(pr.url);
+  if (isForgeRepo(repo)) return forgeApi(`repos/${repo}/pulls/${number}`, { method: "PATCH", body: { body } });
+  return ghAsync("api", "--method", "PATCH", `repos/${repo}/pulls/${number}`, "-f", `body=${body}`);
+}
+const PR_TOOLS = {
+  describe: {
+    label: "Describe",
+    applyLabel: "Update PR description",
+    async run({ pr, c, guide, diff }) {
+      const out = await askJson(c, `Write the description of this pull request for its reviewers, from the diff. Follow the title conventions of the repository guidelines if they set any. Reply with ONLY a JSON object:
+{"title":"imperative title under 72 characters","type":["one or more of: ${DESCRIBE_TYPES.join(", ")}"],"summary":["2-5 bullets: what changed and why"],"files":[{"file":"path","change":"one line"}]}
+
+${prBrief(pr, guide)}
+Diff:
+${diff}`, "Describe");
+      const title = oneLine(out.title, 120) || pr.title;
+      const types = listOf(out.type).filter((t) => DESCRIBE_TYPES.includes(t));
+      const summary = listOf(out.summary).map((s) => oneLine(s, 400)).filter(Boolean).slice(0, 8);
+      const files = listOf(out.files).filter((f) => f && typeof f.file === "string").slice(0, 80).map((f) => ({ file: mdCell(f.file, 300), change: mdCell(f.change, 300) }));
+      if (!summary.length) throw new Error(`${c.provider}/${c.model} returned no summary for Describe`);
+      const markdown = [
+        `**Title:** ${title}`,
+        ...(types.length ? ["", `**Type:** ${types.join(", ")}`] : []),
+        "", "**Summary**", ...summary.map((s) => `- ${s}`),
+        ...(files.length ? ["", "**Changes**", "| File | Change |", "| :--- | :--- |", ...files.map((f) => `| \`${f.file}\` | ${f.change} |`)] : []),
+      ].join("\n");
+      return { markdown, data: { title, types, summary, files } };
+    },
+    // Writes the generated block into the PR body, keeping the author's own text; a later run replaces the block.
+    async apply({ pr }, result) {
+      const block = `<!-- codeotter:describe -->\n### 🦦 CodeOtter description\n\n${result.markdown}\n<!-- /codeotter:describe -->`;
+      const body = String(pr.body || "");
+      await updatePrBody(pr, DESCRIBE_RE.test(body) ? body.replace(DESCRIBE_RE, () => block) : `${body.trimEnd()}${body.trim() ? "\n\n" : ""}${block}`);
+      return "PR description updated";
+    },
+  },
+};
+const toolResults = new Map();
+async function runPrTool(prUrl, id, { question = "", action = "run" } = {}) {
+  const tool = PR_TOOLS[id];
+  if (!tool) throw new Error(`Unknown tool ${id}`);
+  const key = `${prUrl}#${id}`;
+  if (action === "run") {
+    if (tool.input && !oneLine(question, 2000)) throw new Error(`${tool.label} needs ${tool.input.toLowerCase()}`);
+    const ctx = await prToolContext(prUrl);
+    const result = { tool: id, label: tool.label, ...(await tool.run(ctx, oneLine(question, 2000))), headSha: ctx.pr.headRefOid || "", at: new Date().toISOString() };
+    toolResults.set(key, result);
+    return result;
+  }
+  const result = toolResults.get(key);
+  if (!result) throw new Error(`Run ${tool.label} first`);
+  if (action === "comment") {
+    const pr = { url: prUrl, number: parsePrUrl(prUrl).number };
+    const body = `<!-- codeotter:tool:${id} -->\n### 🦦 CodeOtter · ${tool.label}\n\n${result.markdown}\n\n---\n🔗 **[Open on CodeOtter →](${APP_URL}/review?pr=${encodeURIComponent(prUrl)})**`;
+    await syncPrComments({ pr }, repoOf(pr), { extra: [[`<!-- codeotter:tool:${id} -->`, body, tool.label]] });
+    return { ...result, message: "Posted as a PR comment" };
+  }
+  if (action === "apply" && tool.apply) {
+    const { urlGuess, spec } = await resolvePr(prUrl, repoOf({ url: prUrl }));
+    return { ...result, message: await tool.apply({ pr: JSON.parse(await readPr(urlGuess, spec)) }, result) };
+  }
+  throw new Error("Unknown action");
+}
+// </pr-tools>
 
 function formatScoresComment(r) {
   const { pr, blast, review: v, gates = [], linkedIssues = [], headSha, incremental } = r;
@@ -4026,6 +4127,16 @@ http
           }
         }
         return json({ ok: true, learnings, review: updatedReview });
+      }
+      if (url.pathname === "/api/tools") {
+        const g = await gate(req, res, "admin");
+        if (!g.ok) return;
+        if (req.method !== "POST") return json(Object.entries(PR_TOOLS).map(([id, t]) => ({ id, label: t.label, input: t.input || null, apply: t.applyLabel || null })));
+        const body = await readJson(req);
+        const prUrl = String(body.prUrl || "").trim();
+        if (!validPrUrl(prUrl)) throw new Error("Invalid pull request URL");
+        checkRepoScope(repoOf({ url: prUrl }), requestOrg(url));
+        return json(await runPrTool(prUrl, String(body.tool || ""), { question: body.question, action: String(body.action || "run") }));
       }
       if (url.pathname === "/api/review-suggestions" && req.method === "POST") {
         const g = await gate(req, res, "admin");

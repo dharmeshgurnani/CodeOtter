@@ -13,6 +13,7 @@ import {
   CodeHeader,
 } from "@/components/animate-ui/components/animate/code";
 import { MarkdownView } from "@/components/markdown";
+import { PrTools } from "@/components/pr-tools";
 import { updateSeo } from "@/lib/seo";
 import { Pill } from "./App";
 import { type Finding, type Review, repoFromUrl, repoLabel, VERDICT, effort, tone } from "./types";
@@ -1028,6 +1029,8 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
           )}
         </AnimateCode>
       </div>
+
+      <PrTools org={org} prUrl={p.url} />
     </div>
   );
 }
