@@ -2,6 +2,7 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | Large-PR diff compression: ranked files, partial hunks, deletions and left-out files named (PR-Agent-inspired) | 2026-10-04 |
 | [x] | Dynamic context: hunks extend to the enclosing declaration, trailing context cut to one line (first PR-Agent-inspired step) | 2026-10-04 |
 | [x] | Website and docs at codeotter.io | 2026-10-04 |
 | [x] | Kev 4B local System One model in the catalog; llama.cpp b11388 | 2026-10-04 |

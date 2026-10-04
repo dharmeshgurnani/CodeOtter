@@ -1200,7 +1200,7 @@ function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = []
         }
       : {}),
     ...(gitHistory?.formatted ? { git_change_history: gitHistory.formatted.slice(0, 4000) } : {}),
-    diff: diff.slice(0, c.contextChars || 80000),
+    diff: compressDiff(diff, c.contextChars || 80000).diff,
   };
 }
 // What a small-context System One model reads instead of the head of the raw diff: the whole change in outline (every file
@@ -1423,6 +1423,67 @@ function extendDiffContext(diff, sources = new Map(), { before = 16, after = 1 }
   return { diff: out.join("\n"), stats };
 }
 // </dynamic-context>
+
+// <diff-compression>
+// A diff over budget is not cut at a character count. Files are ranked (main language first, then other code, then
+// docs and config, then lockfiles and generated output), largest first within a rank, and added whole until the budget
+// runs out; a file too big to fit shows its leading hunks, and files that do not fit at all are still named. Only when over budget, hunks that only delete lines are dropped and
+// deleted files are listed by name.
+const GENERATED_RE = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|go\.sum|poetry\.lock|composer\.lock|Gemfile\.lock)$|\.(lock|min\.js|min\.css|map|snap)$|(^|\/)(dist|build|vendor|node_modules)\//i;
+const extOf = (p) => (p.match(/\.([\w]+)$/) || [])[1]?.toLowerCase() || "";
+function compressDiff(diff, maxChars) {
+  diff = String(diff || "");
+  if (diff.length <= maxChars) return { diff, compressed: false, omitted: [], deleted: [], deletionHunks: 0 };
+  const files = parseDiff(diff).filter((f) => f.parts.length);
+  let deletionHunks = 0;
+  const deleted = [];
+  const entries = [];
+  for (const f of files) {
+    const name = f.file || (f.parts.find((p) => typeof p === "string" && p.startsWith("--- a/")) || "").slice(6);
+    const hunks = f.parts.filter((p) => typeof p === "object");
+    if (f.parts.some((p) => typeof p === "string" && (p.startsWith("deleted file mode") || p === "+++ /dev/null"))) { deleted.push(name); continue; }
+    const kept = hunks.filter((h) => h.lines.some((l) => l[0] === "+"));
+    deletionHunks += hunks.length - kept.length;
+    const head = f.parts.filter((p) => typeof p === "string");
+    if (hunks.length && !kept.length) { deleted.push(`${name} (lines removed only)`); continue; }
+    const blocks = kept.map((h) => [`@@ -${h.old},${h.oldN} +${h.new},${h.newN} @@${h.heading}`, ...h.lines].join("\n").trimEnd());
+    const text = [...head, ...blocks].join("\n").trimEnd();
+    const added = kept.reduce((n, h) => n + h.lines.filter((l) => l[0] === "+").length, 0);
+    entries.push({ name, head: head.join("\n"), blocks, text, added, removed: kept.reduce((n, h) => n + h.lines.filter((l) => l[0] === "-").length, 0) });
+  }
+  const weight = new Map();
+  for (const e of entries) if (!NON_CODE_RE.test(e.name) && !GENERATED_RE.test(e.name)) weight.set(extOf(e.name), (weight.get(extOf(e.name)) || 0) + e.added);
+  const main = [...weight].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const rank = (e) => GENERATED_RE.test(e.name) ? 3 : NON_CODE_RE.test(e.name) ? 2 : extOf(e.name) === main ? 0 : 1;
+  entries.sort((a, b) => rank(a) - rank(b) || b.text.length - a.text.length);
+  // Room for the trailing file lists, bounded so they never crowd out the code.
+  const listRoom = Math.min(Math.floor(maxChars * 0.15), 120 + 60 * (entries.length + deleted.length));
+  const budget = maxChars - listRoom;
+  const shown = [];
+  const omitted = [];
+  let used = 0;
+  const partial = [];
+  for (const e of entries) {
+    if (used + e.text.length + 1 <= budget) { shown.push(e.text); used += e.text.length + 1; continue; }
+    // Too big to fit whole: its leading hunks, up to half the budget, so one file cannot take all of it.
+    const room = Math.min(budget - used, Math.floor(budget / 2)) - e.head.length - 80;
+    let part = "";
+    let n = 0;
+    while (n < e.blocks.length && part.length + e.blocks[n].length + 1 <= room) part += `\n${e.blocks[n++]}`;
+    if (!n) { omitted.push(e); continue; }
+    const text = `${e.head}${part}\n(${e.blocks.length - n} more hunk(s) in ${e.name} not shown)`;
+    shown.push(text); used += text.length + 1; partial.push(e.name);
+  }
+  // A single hunk larger than the whole budget still shows its start rather than nothing.
+  if (!shown.length && omitted.length) { const e = omitted.shift(); shown.push(`${e.text.slice(0, budget)}\n(${e.name} cut at the diff budget)`); }
+  let tail = "";
+  if (deleted.length) tail += `\n\nDeleted files:\n${deleted.join("\n")}`;
+  if (omitted.length) tail += `\n\nAlso changed, not shown (over the diff budget):\n${omitted.map((e) => `${e.name} +${e.added} -${e.removed}`).join("\n")}`;
+  if (deletionHunks) tail += `\n\n${deletionHunks} hunk(s) that only remove lines are not shown.`;
+  const out = `${shown.join("\n")}${tail.length > listRoom ? `${tail.slice(0, listRoom - 20)}\n(list cut)` : tail}`;
+  return { diff: out.slice(0, maxChars), compressed: true, omitted: omitted.map((e) => e.name), partial, deleted, deletionHunks };
+}
+// </diff-compression>
 
 // Head-revision text of changed files, for dynamic context. Capped in count and size; a file that fails is skipped.
 async function headFileTexts(pr, paths, max = 25, maxChars = 400000) {
@@ -1704,8 +1765,8 @@ Author: ${pr.author.login}  Base: ${pr.baseRefName} <- Head: ${pr.headRefName}${
 Description:
 ${(pr.body || "(none)").slice(0, c.contextChars ? Math.min(3000, Math.floor(c.contextChars / 10)) : 3000)}
 ${outsideBlock}${incrementalBlock}${issueBlock}${learningsBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
-Diff (may be truncated):
-${diff.slice(0, Math.min(r.diffChars, c.contextChars || Infinity))}`;
+Diff${diff.length > Math.min(r.diffChars, c.contextChars || Infinity) ? " (over budget: highest-priority files first, the rest named at the end)" : ""}:
+${compressDiff(diff, Math.min(r.diffChars, c.contextChars || Infinity)).diff}`;
 }
 
 async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
