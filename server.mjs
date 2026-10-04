@@ -923,7 +923,7 @@ async function askModel(prompt, c) {
   return (await res.json()).choices[0].message.content.replace(/<think>[\s\S]*?<\/think>/g, "");
 }
 
-const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false };
+const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, contextLines: 16, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false };
 const reviewConfig = async () => ({ ...REVIEW_DEFAULTS, ...((await store.getSetting("review")) || {}) });
 
 // Repository review guides: AGENTS.md and/or CLAUDE.md at the repo root (both are used when both exist, since one is
@@ -1337,6 +1337,115 @@ async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, lin
   const gates = S1_GATES.filter((g) => a[`gate_${g.id}`]).map((g) => { const yes = Number(a[`gate_${g.id}`].noul) || 0; return { id: g.id, label: g.label, yes: Math.round(yes * 100) / 100, pass: g.risk ? yes < 0.5 : yes >= 0.5 }; });
   onPartial?.({ readyScores: scores, gates, done: true });
   return { scores, gates };
+}
+
+// <dynamic-context>
+// Git gives every hunk 3 fixed context lines on each side. A reviewer needs the enclosing declaration above a change and
+// little below it, so code hunks are extended upward to the nearest declaration (at most `before` lines, read from the
+// head file) and trailing context is cut to `after` lines. Lines already shown by the previous hunk are never repeated.
+const DECL_RES = [
+  /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\b\s*\*?\s*([\w$]*)\s*\(/,
+  /^\s*(?:export\s+)?(?:const|let|var)\s+([\w$]+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*(?::[^=]+)?=>|[\w$]+\s*=>)/,
+  /^\s*(?:(?:export|default|public|private|protected|internal|static|abstract|final|sealed|partial|open|data|pub(?:\([^)]*\))?)\s+)*(?:class|interface|trait|struct|enum|impl|module|namespace|object|type)\s+([\w$:]+)/,
+  /^\s*(?:(?:pub(?:\([^)]*\))?|async|unsafe|const|extern|private|public|internal|override|suspend|static|inline)\s+)*(?:fn|func|fun|def)\s+(?:\([^)]*\)\s*)?([\w$!?.]+)/,
+  /^\s*(?:(?:public|private|protected|internal|static|async|override|virtual|abstract|final|readonly|get|set)\s+)*(?:[\w$<>[\],.?*&]+\s+)?([\w$]+)\s*\([^;]*\)\s*(?:[:-]>?\s*[^;{]+|throws\s+[\w., ]+)?\s*\{\s*$/,
+];
+const NOT_DECL = new Set(["if", "for", "while", "switch", "catch", "with", "return", "else", "do", "try", "new", "throw", "await", "elif", "unless", "until"]);
+const NON_CODE_RE = /\.(md|markdown|txt|rst|json|lock|svg|png|jpe?g|gif|ico|pdf|csv|tsv|ya?ml|toml|ini|map|snap)$|\.min\.(js|css)$/i;
+function declName(line) {
+  for (const re of DECL_RES) {
+    const m = String(line ?? "").match(re);
+    if (m && !NOT_DECL.has(m[1])) return m[1] || "function";
+  }
+  return null;
+}
+// Unified diff -> [{ file, parts: [line | { old, oldN, new, newN, heading, lines }] }], CRLF normalised.
+function parseDiff(diff) {
+  const files = [];
+  let f = null;
+  let h = null;
+  for (const line of String(diff || "").replace(/\r\n?/g, "\n").split("\n")) {
+    if (line.startsWith("diff --git ")) { h = null; f = { file: (line.match(/ b\/(.+)$/) || [])[1] || "", parts: [line] }; files.push(f); continue; }
+    if (!f) { f = { file: "", parts: [] }; files.push(f); }
+    const m = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
+    if (m) { h = { old: +m[1], oldN: +(m[2] ?? 1), new: +m[3], newN: +(m[4] ?? 1), heading: m[5], lines: [] }; f.parts.push(h); continue; }
+    if (h && /^[ +\-\\]/.test(line)) { h.lines.push(line); continue; }
+    h = null;
+    if (line.startsWith("+++ ") && !line.endsWith("/dev/null")) f.file = line.slice(4).replace(/^b\//, "").trim();
+    f.parts.push(line);
+  }
+  return files;
+}
+const leadHasDecl = (h) => {
+  const first = h.lines.findIndex((l) => l[0] === "+" || l[0] === "-");
+  return h.lines.slice(0, first < 0 ? h.lines.length : first).some((l) => declName(l.slice(1)));
+};
+// Files whose hunks would gain from upward extension: code, not new, and no declaration in the leading context.
+const dynamicContextFiles = (parsed) => [...new Set(parsed
+  .filter((f) => f.file && !NON_CODE_RE.test(f.file) && f.parts.some((p) => typeof p === "object" && p.new > 1 && p.oldN > 0 && !leadHasDecl(p)))
+  .map((f) => f.file))];
+// `sources` maps path -> head file text. Returns the rewritten diff and counts.
+function extendDiffContext(diff, sources = new Map(), { before = 16, after = 1 } = {}) {
+  const parsed = parseDiff(diff);
+  const stats = { extended: 0, added: 0, trimmed: 0 };
+  const out = [];
+  for (const f of parsed) {
+    const code = f.file && !NON_CODE_RE.test(f.file);
+    const text = code && typeof sources.get(f.file) === "string" ? sources.get(f.file).replace(/\r\n?/g, "\n").split("\n") : null;
+    let lastShown = 0;
+    for (const p of f.parts) {
+      if (typeof p === "string") { out.push(p); continue; }
+      let { lines, old, oldN, new: start, newN } = p;
+      if (code && lines.some((l) => l[0] === "+" || l[0] === "-")) {
+        let tail = 0;
+        while (tail < lines.length && lines[lines.length - 1 - tail][0] === " ") tail++;
+        if (tail > after) {
+          const cut = tail - after;
+          lines = lines.slice(0, lines.length - cut);
+          oldN -= cut; newN -= cut; stats.trimmed += cut;
+        }
+        // Only extend when the hunk's first context line matches the fetched file, so a stale ref never invents lines.
+        if (text && before > 0 && start > 1 && oldN > 0 && !leadHasDecl(p) && (lines[0]?.[0] !== " " || lines[0].slice(1) === text[start - 1])) {
+          for (let j = start - 2; j >= Math.max(lastShown, start - 1 - before); j--) {
+            if (!declName(text[j])) continue;
+            const extra = text.slice(j, start - 1).map((l) => ` ${l}`);
+            lines = [...extra, ...lines];
+            old -= extra.length; oldN += extra.length; start -= extra.length; newN += extra.length;
+            stats.extended++; stats.added += extra.length;
+            break;
+          }
+        }
+      }
+      out.push(`@@ -${old},${oldN} +${start},${newN} @@${p.heading}`, ...lines);
+      lastShown = start + newN - 1;
+    }
+  }
+  return { diff: out.join("\n"), stats };
+}
+// </dynamic-context>
+
+// Head-revision text of changed files, for dynamic context. Capped in count and size; a file that fails is skipped.
+async function headFileTexts(pr, paths, max = 25, maxChars = 400000) {
+  const repo = pr.headRepo || repoOf(pr);
+  const ref = pr.headRefOid || pr.headRefName;
+  const texts = new Map();
+  if (!ref || !REPO_RE.test(repo)) return texts;
+  const enc = (p) => p.split("/").map(encodeURIComponent).join("/");
+  await Promise.all(paths.slice(0, max).map(async (p) => {
+    if (p.split("/").some((s) => !s || s === "." || s === "..")) return;
+    try {
+      let text;
+      if (isForgeRepo(repo)) {
+        const data = await forgeApi(`repos/${repo}/contents/${enc(p)}?ref=${encodeURIComponent(ref)}`);
+        if (data?.encoding !== "base64" || typeof data.content !== "string") return;
+        text = Buffer.from(data.content, "base64").toString("utf8");
+      } else {
+        text = await ghAsync("api", `repos/${repoOf(pr)}/contents/${enc(p)}?ref=${encodeURIComponent(ref)}`, "-H", "Accept: application/vnd.github.raw");
+      }
+      if (text.length <= maxChars) texts.set(p, text);
+    } catch {}
+  }));
+  return texts;
 }
 
 // Unified diff -> [{ file, header, diff }] hunks, largest first, capped. CodeReviewer reads one hunk at a time (512 tokens).
@@ -2007,13 +2116,21 @@ async function startOrPollReview(ref, force, repo, part = "") {
     try {
       // Refresh PR metadata in background if we started from cached.pr
       if (cached?.pr) live.pr = JSON.parse(await readPr(urlGuess, spec));
-      const [diff, guide, learnings] = await Promise.all([
+      const [rawDiff, guide, learnings] = await Promise.all([
         readPr(urlGuess, spec, true),
         Promise.resolve().then(() => guideFor(repoOf(live.pr), isForgeRepo(repoOf(live.pr)) ? live.pr.headRefOid : live.pr.headRefName, live.pr.headRepo || repoOf(live.pr))),
         getRepoLearnings(repoOf(pr)),
       ]);
       live.guide = guide?.file || null;
       live.learnings = learnings;
+      let diff = rawDiff;
+      if (rc.contextLines > 0) {
+        const parsed = parseDiff(rawDiff);
+        const sources = await headFileTexts(live.pr, dynamicContextFiles(parsed));
+        const ext = extendDiffContext(rawDiff, sources, { before: rc.contextLines, after: 1 });
+        diff = ext.diff;
+        live.dynamicContext = ext.stats;
+      }
 
       const outsideImpact = await sliceOutsideDiffImpact(repoOf(live.pr), diff, (live.pr.files || []).map((f) => f.path));
       live.outsideDiffImpact = outsideImpact;
@@ -3078,6 +3195,7 @@ const SETTINGS_PAGES = {
           fields: [
             { key: "maxFindings", label: "Max findings", type: "range", min: 3, max: 12, step: 1 },
             { key: "diffChars", label: "Diff sent to the model", type: "select", options: [30000, 60000, 90000, 150000, 300000].map((v) => ({ value: v, label: `${v / 1000}k characters` })), hint: "Larger diffs cost more and may exceed the model's context." },
+            { key: "contextLines", label: "Context above a change", type: "select", options: [0, 8, 16, 32].map((v) => ({ value: v, label: v ? `Up to ${v} lines, to the enclosing declaration` : "Off: git's 3 lines" })) },
             { key: "temperature", label: "Temperature", type: "range", min: 0, max: 1, step: 0.1, hint: "Ignored by Anthropic models, which do not take sampling parameters." },
             { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a PR comment with all System One scores after review" },
             { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add a PR comment with the review summary and link to the full report" },
@@ -3117,6 +3235,7 @@ const SETTINGS_PAGES = {
         const nextReview = {
           maxFindings: Math.min(12, Math.max(3, Number(v.maxFindings) || 8)),
           diffChars: Number(v.diffChars) || 90000,
+          contextLines: [0, 8, 16, 32].includes(Number(v.contextLines)) ? Number(v.contextLines) : REVIEW_DEFAULTS.contextLines,
           temperature: Math.min(1, Math.max(0, Number(v.temperature) || 0)),
           postScores: !!v.postScores,
           postReview: !!v.postReview,
