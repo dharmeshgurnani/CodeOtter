@@ -2,6 +2,7 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | Dynamic context: hunks extend to the enclosing declaration, trailing context cut to one line (first PR-Agent-inspired step) | 2026-10-04 |
 | [x] | Website and docs at codeotter.io | 2026-10-04 |
 | [x] | Kev 4B local System One model in the catalog; llama.cpp b11388 | 2026-10-04 |
 | [x] | One-click deploy: `install.sh` for any VPS (Caddy HTTPS with a domain), Deploy to Azure and Render buttons, Linode StackScript | 2026-10-02 |

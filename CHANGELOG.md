@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Dynamic context**: review diffs extend each code hunk upward to its enclosing declaration (function, method, class; JS/TS, Python, Go, Rust, Java/C#, Kotlin, Swift, Ruby, PHP), read from the head revision, and cut trailing context to one line. Hunks never repeat lines shown by the previous hunk, and a file whose content does not match the diff is left as git produced it. Setting: Admin → Model provider → Review → Context above a change (Off, 8, 16 default, 32 lines). Fast triage is unchanged.
+
 ## 0.5.0 (2026-10-04)
 
 - **Website**: [codeotter.io](https://codeotter.io) with docs at [codeotter.io/docs](https://codeotter.io/docs/); linked from the README and set as the repository homepage.
