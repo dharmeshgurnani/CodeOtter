@@ -1018,6 +1018,18 @@ async function setRepoLearnings(repo, list) {
   return normalized;
 }
 
+// Fixes this repository's authors applied from CodeOtter suggestions ("[file] title"), most recent last, capped at 30.
+async function getRepoAccepted(repo) {
+  return repo ? normalizeLearningList((await store.getSetting("repoSettings"))?.[repo]?.accepted ?? []) : [];
+}
+async function addRepoAccepted(repo, items) {
+  const rs = { ...((await store.getSetting("repoSettings")) || {}) };
+  const accepted = normalizeLearningList([...(rs[repo]?.accepted || []), ...items]).slice(-30);
+  rs[repo] = { ...(rs[repo] || {}), accepted };
+  await store.setSetting("repoSettings", rs);
+  return accepted;
+}
+
 function extractHeadSha(pr, gitHistory = null) {
   return String(
     pr?.headRefOid ||
@@ -1157,7 +1169,7 @@ const S1_GATES = [
   { id: "guidelines", label: "Repository guidelines", q: "The change violates the repository's review guidelines.", risk: true, needsGuide: true },
   { id: "issue_requirements", label: "Issue requirements", q: "Does the pull request diff fulfill the requirements and acceptance criteria described in the linked issue(s)?", risk: false, needsIssues: true },
 ];
-function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
+function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null, accepted = []) {
   if (c.local) return { pull_request: changeDigest(pr, diff, c.contextChars || 12000) };
   return {
     pull_request: {
@@ -1199,6 +1211,7 @@ function s1State(pr, diff, c, guide = null, gitHistory = null, linkedIssues = []
           repository_team_learnings: `Repository Team Learnings (Never flag these dismissed patterns):\n${learnings.map((l, i) => `${i + 1}. ${l}`).join("\n")}`,
         }
       : {}),
+    ...(accepted?.length ? { fixes_this_team_accepted_before: accepted.slice(-10) } : {}),
     ...(gitHistory?.formatted ? { git_change_history: gitHistory.formatted.slice(0, 4000) } : {}),
     diff: compressDiff(diff, c.contextChars || 80000).diff,
   };
@@ -1310,8 +1323,8 @@ async function triagePr(ref, repoHint = "") {
   return run;
 }
 
-async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
-  const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact);
+async function scoreWithSystemOne(pr, diff, c, guide, onPartial, gitHistory, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null, accepted = []) {
+  const state = s1State(pr, diff, c, guide, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact, accepted);
   const questions = {};
   for (const [k, levels] of Object.entries(S1_SCORES)) questions[`score_${k}`] = { type: "score", instructions: `Rate the pull request's ${k.replace("_", " ")}.`, criteria: levels };
   for (const g of S1_GATES) if ((!g.needsGuide || (guide && !c.local)) && (!g.needsIssues || (linkedIssues?.length && !c.local))) questions[`gate_${g.id}`] = { type: "noul", instructions: g.q };
@@ -1485,10 +1498,25 @@ function compressDiff(diff, maxChars) {
 }
 // </diff-compression>
 
+// <accepted>
+// A suggestion counts as accepted when its code (compared line by line, ignoring indentation and blank lines) is in the
+// file at the new head and was not at the previously reviewed commit. Both file versions are required.
+const codeKey = (s) => String(s || "").replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter(Boolean).join("\n");
+function acceptedSuggestions(findings, before, after) {
+  return (findings || [])
+    .filter((f) => f?.file && !f.dismissed && codeKey(f.suggestion).length >= 12)
+    .filter((f) => {
+      const a = after.get(f.file);
+      const b = before.get(f.file);
+      return typeof a === "string" && typeof b === "string" && codeKey(a).includes(codeKey(f.suggestion)) && !codeKey(b).includes(codeKey(f.suggestion));
+    })
+    .map((f) => `[${f.file}] ${String(f.title || "").trim()}`.slice(0, 300));
+}
+// </accepted>
+
 // Head-revision text of changed files, for dynamic context. Capped in count and size; a file that fails is skipped.
-async function headFileTexts(pr, paths, max = 25, maxChars = 400000) {
+async function headFileTexts(pr, paths, max = 25, maxChars = 400000, ref = pr.headRefOid || pr.headRefName) {
   const repo = pr.headRepo || repoOf(pr);
-  const ref = pr.headRefOid || pr.headRefName;
   const texts = new Map();
   if (!ref || !REPO_RE.test(repo)) return texts;
   const enc = (p) => p.split("/").map(encodeURIComponent).join("/");
@@ -1747,7 +1775,7 @@ function deriveSuggestionFromDetail(f, diff = "") {
   };
 }
 
-function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
+function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null, accepted = []) {
   const outsideBlock = outsideImpact?.formatted ? `\n${outsideImpact.formatted}\n` : "";
   const issueBlock = linkedIssues?.length
     ? `\nLinked Issues & Requirements (MANDATORY: explicitly verify whether the pull request diff fulfills all requirements and acceptance criteria described in these linked issues, and flag any unfulfilled or partially met requirement in findings):\n${linkedIssues
@@ -1758,6 +1786,9 @@ function prompt(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = tru
     ? `\nRepository Team Learnings (Never flag these dismissed patterns):\n${learnings.map((l) => `- ${l}`).join("\n")}\n`
     : "";
   const incrementalBlock = incrementalCtx?.promptBlock ? `\n${incrementalCtx.promptBlock}\n` : "";
+  const acceptedBlock = accepted?.length
+    ? `\nFixes this team accepted from earlier reviews (look for the same kinds of problems):\n${accepted.slice(-10).map((a) => `- ${a}`).join("\n")}\n`
+    : "";
   return `You are CodeOtter, a strict senior staff code reviewer. Review this pull request using the repository's review guidelines (AGENTS.md / CLAUDE.md), the repository team learnings, the linked issues and acceptance criteria, the git commit history, the outside-diff call graph context, and the code diff. Reply with ONLY a JSON object:
 {"summary":"3-5 sentence architectural walkthrough covering what changed, commit progression, fulfillment of linked issue requirements, adherence to repository guidelines, and outside caller safety","verdict":"approve|comment|request_changes",
 ${wantScores ? ` "scores":{"quality":0-100,"correctness_risk":0-100 (100 = very risky),"test_coverage":0-100,"readability":0-100,"pr_hygiene":0-100 (title, description, scope, commit focus),"blast_radius":0-100 (100 = system-wide or critical-path impact)},\n` : ""} "findings":[{"severity":"blocker|major|minor|nit|high|medium|low","file":"path","line":42,"title":"short","detail":"specific line/behaviour and fix (cite AGENTS.md/CLAUDE.md rule, linked issue #number requirement, or commit if relevant)","suggestion":"optional exact replacement code"}],
@@ -1768,7 +1799,7 @@ PR #${pr.number}: ${pr.title}
 Author: ${pr.author.login}  Base: ${pr.baseRefName} <- Head: ${pr.headRefName}${pr.headSha ? ` (${pr.headSha.slice(0, 7)})` : ""}  Files: ${pr.changedFiles}  +${pr.additions} -${pr.deletions}
 Description:
 ${(pr.body || "(none)").slice(0, c.contextChars ? Math.min(3000, Math.floor(c.contextChars / 10)) : 3000)}
-${outsideBlock}${incrementalBlock}${issueBlock}${learningsBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
+${outsideBlock}${incrementalBlock}${issueBlock}${learningsBlock}${acceptedBlock}${gitHistory?.formatted ? `\nGit Change History (commits in this PR and recent target branch history):\n${gitHistory.formatted.slice(0, 4000)}\n` : ""}${guide ? `\nRepository Review Guidelines from ${guide.file} (MANDATORY: verify all code changes and commits against these rules and flag any violation in findings):\n${guide.text}\n` : ""}
 Diff${diff.length > Math.min(r.diffChars, c.contextChars || Infinity) ? " (over budget: highest-priority files first, the rest named at the end)" : ""}:
 ${compressDiff(diff, Math.min(r.diffChars, c.contextChars || Infinity)).diff}`;
 }
@@ -1800,9 +1831,9 @@ ${compressDiff(diff, Math.min(r.diffChars, c.contextChars || Infinity)).diff}`, 
 }
 // </reflect>
 
-async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
+async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null, accepted = []) {
   if (c.api === "codereviewer") return reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress, linkedIssues, learnings, incrementalCtx);
-  const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact), { ...c, temperature: r.temperature });
+  const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact, accepted), { ...c, temperature: r.temperature });
   let out;
   try {
     out = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
@@ -2317,7 +2348,23 @@ async function startOrPollReview(ref, force, repo, part = "") {
           newCommits: incrementalCtx.newCommits,
           resolvedFindings: prevSaved?.incremental?.resolvedFindings || [],
         };
+        // Learn from suggestions the author applied since the last review. A failed lookup only skips the learning.
+        const withFix = prevFindings.filter((f) => f.suggestion && f.file);
+        if (hasNewSha && withFix.length) {
+          try {
+            const paths = [...new Set(withFix.map((f) => f.file))];
+            const [before, after] = await Promise.all([headFileTexts(live.pr, paths, 25, 400000, prevSha), headFileTexts(live.pr, paths)]);
+            const accepted = acceptedSuggestions(withFix, before, after);
+            if (accepted.length) {
+              await addRepoAccepted(repoOf(live.pr), accepted);
+              live.acceptedFixes = accepted;
+            }
+          } catch (e) {
+            console.warn(`[accepted] ${e.message}`);
+          }
+        }
       }
+      const acceptedFixes = await getRepoAccepted(repoOf(live.pr));
 
       const s1Task = runScores && s1.enabled
         ? scoreWithSystemOne(live.pr, diff, s1, guide, ({ readyScores, gates, done }) => {
@@ -2332,7 +2379,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
               live.pending.scores = false;
               live.pending.gates = false;
             }
-          }, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact)
+          }, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact, acceptedFixes)
         : Promise.resolve(null);
 
       const needLlmForScores = runScores && !s1.enabled;
@@ -2341,7 +2388,7 @@ async function startOrPollReview(ref, force, repo, part = "") {
             if (runLlm) {
               live.review = { ...live.review, ...partial, scores: live.review.scores };
             }
-          }, linkedIssues, learnings, incrementalCtx, outsideImpact).then(({ blastRadius: llmBlast, ...nav }) => {
+          }, linkedIssues, learnings, incrementalCtx, outsideImpact, acceptedFixes).then(({ blastRadius: llmBlast, ...nav }) => {
             const scores = (!runScores || s1.enabled)
               ? (hasValidScores(live.review.scores) ? live.review.scores : initialScores)
               : nav.scores;
@@ -3432,6 +3479,7 @@ const SETTINGS_PAGES = {
         const postReview = g.postReview ?? rc.postReview;
         const postInlineSuggestions = g.postInlineSuggestions ?? rs.postInlineSuggestions ?? rc.postInlineSuggestions;
         const learnings = normalizeLearningList(rs.learnings ?? g.learnings ?? []);
+        const accepted = normalizeLearningList(rs.accepted ?? []);
         const settings = {
           title: r,
           fields: [
@@ -3440,6 +3488,7 @@ const SETTINGS_PAGES = {
             { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add the review summary and a link to the full report" },
             { key: "postInlineSuggestions", label: "Post inline suggestions", type: "checkbox", text: "Post inline committable suggestion comments on PR diff lines" },
             { key: "learnings", label: "Team learnings", type: "list", removable: true, hint: "Dismissed review findings remembered as persistent team rules for this repository." },
+            { key: "accepted", label: "Accepted fixes", type: "list", removable: true },
           ],
           values: {
             ...(files.length ? { useGuides: g.use ?? true } : { none: "none" }),
@@ -3447,6 +3496,7 @@ const SETTINGS_PAGES = {
             postReview: !!postReview,
             postInlineSuggestions: !!postInlineSuggestions,
             learnings,
+            accepted,
           },
         };
         const meta = [
@@ -3455,6 +3505,7 @@ const SETTINGS_PAGES = {
           postReview ? "Post review" : "",
           postInlineSuggestions ? "Inline suggestions" : "",
           learnings.length ? `${learnings.length} learning${learnings.length === 1 ? "" : "s"}` : "",
+          accepted.length ? `${accepted.length} accepted fix${accepted.length === 1 ? "" : "es"}` : "",
         ]
           .filter(Boolean)
           .join(" · ");
@@ -3504,6 +3555,7 @@ const SETTINGS_PAGES = {
         if (!sv) continue;
         const id = clean(it.id);
         const nextLearnings = "learnings" in sv ? normalizeLearningList(sv.learnings) : undefined;
+        const nextAccepted = "accepted" in sv ? normalizeLearningList(sv.accepted) : undefined;
         guides[id] = {
           ...(guides[id] || {}),
           ...("useGuides" in sv ? { use: !!sv.useGuides } : {}),
@@ -3516,6 +3568,7 @@ const SETTINGS_PAGES = {
           ...(repoSettings[id] || {}),
           ...("postInlineSuggestions" in sv ? { postInlineSuggestions: !!sv.postInlineSuggestions } : {}),
           ...(nextLearnings !== undefined ? { learnings: nextLearnings } : {}),
+          ...(nextAccepted !== undefined ? { accepted: nextAccepted } : {}),
         };
       }
       for (const k of Object.keys(guides)) if (!next.includes(k)) delete guides[k];
