@@ -18,30 +18,31 @@
       }
     },
     "llama": {
-      "version": "b11215",
-      "source": "https://github.com/ggml-org/llama.cpp/releases/download/b11215/",
+      "version": "b11388",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/download/b11388/",
       "license": "MIT",
       "bin": "llama-server",
       "assets": {
         "win32-x64": [
-          "llama-b11215-bin-win-vulkan-x64.zip",
-          "llama-b11215-bin-win-cpu-x64.zip"
+          "llama-b11388-bin-win-vulkan-x64.zip",
+          "llama-b11388-bin-win-cpu-x64.zip"
         ],
         "win32-arm64": [
-          "llama-b11215-bin-win-cpu-arm64.zip"
+          "llama-b11388-bin-win-cpu-arm64.zip"
         ],
         "darwin-arm64": [
-          "llama-b11215-bin-macos-arm64.tar.gz"
+          "llama-b11388-bin-macos-arm64.tar.gz"
         ],
         "darwin-x64": [
-          "llama-b11215-bin-macos-x64.tar.gz"
+          "llama-b11388-bin-macos-x64.tar.gz"
         ],
         "linux-x64": [
-          "llama-b11215-bin-ubuntu-vulkan-x64.tar.gz",
-          "llama-b11215-bin-ubuntu-x64.tar.gz"
+          "llama-b11388-bin-ubuntu-vulkan-x64.tar.gz",
+          "llama-b11388-bin-ubuntu-x64.tar.gz"
         ],
         "linux-arm64": [
-          "llama-b11215-bin-ubuntu-arm64.tar.gz"
+          "llama-b11388-bin-ubuntu-vulkan-arm64.tar.gz",
+          "llama-b11388-bin-ubuntu-arm64.tar.gz"
         ]
       }
     },
@@ -94,6 +95,23 @@
       "maxQuestions": 8,
       "license": "Apache-2.0",
       "notes": "Qwen3.5-0.8B decision model. Slower; twice the context."
+    },
+    {
+      "id": "kev-4b",
+      "kind": "s1",
+      "runtime": "laya",
+      "label": "Kev 4B",
+      "maker": "Jared Palmer",
+      "repo": "mys/kev-4b-GGUF",
+      "icon": "https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg",
+      "file": "kev_4b_q8_0.gguf",
+      "sizeMB": 4498,
+      "modelId": "kev-4b",
+      "contextTokens": 2048,
+      "contextChars": 5500,
+      "maxQuestions": 8,
+      "license": "Apache-2.0",
+      "notes": "Qwen3.5-4B decision model. Most accurate Kev; about five times slower than 0.8B on CPU, best with a GPU."
     },
     {
       "id": "qwen-coder-1.5b",

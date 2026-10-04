@@ -1,10 +1,11 @@
 {
   "name": "codeotter",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "license": "ELv2",
   "repository": "dharmeshgurnani/CodeOtter",
+  "homepage": "https://codeotter.io",
   "description": "CodeOtter — Dual-engine AI code review scores, blast radius analysis, and merge gates from any open model, self-hosted.",
   "bin": {
     "codeotter": "./bin/codeotter.mjs"
