@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Tools card** on the review page, driven by `PR_TOOLS` in `server.mjs` (`GET`/`POST /api/tools`): pick a tool, run it, post the result as an upserted PR comment, or apply it. Tools use the language model with the same dynamic context, diff budget and repository guidelines as reviews.
+- **Describe**: title, type (Bug fix, Feature, Refactor…), summary bullets and a per-file change table. Update PR description writes a `<!-- codeotter:describe -->` block into the PR body, keeping the author's text and replacing the block on later runs.
+
 - **Self-check**: language model findings go through a second pass of the same model, which scores each one 0-10 against the diff (wrong or unsupported, plausible, certain defect; a wrong suggested fix lowers it). Findings below the minimum are dropped, the rest ordered by score, and the score shows on each finding. Setting: Admin → Model provider → Review → Self-check (Off, 3, 5 default, 7). A pass that fails or skips a finding fails the review. CodeReviewer keeps its System One check.
 
 - **Large pull requests**: a diff over the budget (Review → Diff sent to the model, or a model's context) is no longer cut at a character count. Files are ranked (main language, other code, docs and config, lockfiles and generated output) and added whole, largest first; a file too big to fit shows its leading hunks up to half the budget; deleted files and hunks that only remove lines are listed instead of shown; every file left out is named with its line counts. Applies to language model reviews and hosted System One models; local System One models keep their change digest.
