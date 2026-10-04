@@ -923,7 +923,7 @@ async function askModel(prompt, c) {
   return (await res.json()).choices[0].message.content.replace(/<think>[\s\S]*?<\/think>/g, "");
 }
 
-const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, contextLines: 16, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false };
+const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, contextLines: 16, reflectMin: 5, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false };
 const reviewConfig = async () => ({ ...REVIEW_DEFAULTS, ...((await store.getSetting("review")) || {}) });
 
 // Repository review guides: AGENTS.md and/or CLAUDE.md at the repo root (both are used when both exist, since one is
@@ -1769,6 +1769,33 @@ Diff${diff.length > Math.min(r.diffChars, c.contextChars || Infinity) ? " (over 
 ${compressDiff(diff, Math.min(r.diffChars, c.contextChars || Infinity)).diff}`;
 }
 
+// <reflect>
+// Self-reflection: a second pass of the same model scores each finding 0-10 against the diff, as a skeptical reviewer.
+// Findings below the configured minimum are dropped; the rest are ordered by that score. A failed pass fails the review.
+async function reflectFindings(pr, diff, c, r, findings) {
+  const list = findings.map((f, i) => `${i}. [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ""}: ${f.title}\n${String(f.detail || "").slice(0, 800)}${f.suggestion ? `\nSuggested code:\n${f.suggestion.slice(0, 600)}` : ""}`).join("\n\n");
+  const text = await askModel(`You are checking another reviewer's findings on pull request #${pr.number} (${pr.title}). For each finding, score 0-10 how sure you are that it names a real, concrete problem that this diff introduces or leaves broken and that the author should fix: 0 = wrong, not supported by the diff, or a question or style preference; 5 = plausible but unproven; 10 = certain defect. A suggested fix that is wrong lowers the score. Reply with ONLY a JSON object: {"scores":[{"index":0,"score":0-10,"why":"one sentence"}]}
+
+Findings:
+${list}
+
+Diff:
+${compressDiff(diff, Math.min(r.diffChars, c.contextChars || Infinity)).diff}`, { ...c, temperature: 0 });
+  let out;
+  try {
+    out = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+  } catch {
+    throw new Error(`${c.provider}/${c.model} did not return valid JSON when checking its findings`);
+  }
+  const scores = new Map((Array.isArray(out.scores) ? out.scores : []).map((x) => [Number(x?.index), Number(x?.score)]).filter(([i, v]) => Number.isInteger(i) && Number.isFinite(v)));
+  if (findings.some((_, i) => !scores.has(i))) throw new Error(`${c.provider}/${c.model} did not score every finding when checking them`);
+  return findings
+    .map((f, i) => ({ ...f, confidence: Math.max(0, Math.min(10, Math.round(scores.get(i)))) / 10 }))
+    .filter((f) => f.confidence * 10 >= r.reflectMin)
+    .sort((a, b) => b.confidence - a.confidence);
+}
+// </reflect>
+
 async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores = true, gitHistory = null, onProgress = null, linkedIssues = [], learnings = [], incrementalCtx = null, outsideImpact = null) {
   if (c.api === "codereviewer") return reviewWithCodeReviewer(pr, diff, c, guide, gitHistory, onProgress, linkedIssues, learnings, incrementalCtx);
   const text = await askModel(prompt(pr, diff, c, r, guide, wantScores, gitHistory, linkedIssues, learnings, incrementalCtx, outsideImpact), { ...c, temperature: r.temperature });
@@ -1785,12 +1812,20 @@ async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores 
     const missing = scoreKeys.filter((k) => out.scores?.[k] === null || out.scores?.[k] === "" || !Number.isFinite(Number(out.scores?.[k])));
     if (missing.length) throw new Error(`${c.provider}/${c.model} returned no usable scores for: ${missing.join(", ")}`);
   }
+  let findings = (Array.isArray(out.findings) ? out.findings : []).slice(0, 20).map((f) => deriveSuggestionFromDetail(f, diff));
+  let reflected = "";
+  if (r.reflectMin > 0 && findings.length) {
+    onProgress?.({ summary: `Checking ${findings.length} finding(s) against the diff…` });
+    const before = findings.length;
+    findings = await reflectFindings(pr, diff, c, r, findings);
+    reflected = ` Self-check kept ${findings.length} of ${before} finding(s).`;
+  }
   return {
-    summary: str(out.summary, 2500),
+    summary: str(out.summary, 2500 - reflected.length) + reflected,
     verdict: ["approve", "comment", "request_changes"].includes(out.verdict) ? out.verdict : "comment",
     scores: Object.fromEntries(scoreKeys.slice(0, 5).map((k) => [k, n(out.scores?.[k])])),
     ...(wantScores ? { blastRadius: n(out.scores.blast_radius) } : {}),
-    findings: (Array.isArray(out.findings) ? out.findings : []).slice(0, 20).map((f) => deriveSuggestionFromDetail(f, diff)),
+    findings,
     walkthrough: (Array.isArray(out.walkthrough) ? out.walkthrough : []).slice(0, 100).filter((w) => w && typeof w.file === "string").map((w) => ({ file: str(w.file, 300), change: str(w.change, 500) })),
     rawOutput: str(text, 20000),
   };
@@ -3257,6 +3292,7 @@ const SETTINGS_PAGES = {
             { key: "maxFindings", label: "Max findings", type: "range", min: 3, max: 12, step: 1 },
             { key: "diffChars", label: "Diff sent to the model", type: "select", options: [30000, 60000, 90000, 150000, 300000].map((v) => ({ value: v, label: `${v / 1000}k characters` })), hint: "Larger diffs cost more and may exceed the model's context." },
             { key: "contextLines", label: "Context above a change", type: "select", options: [0, 8, 16, 32].map((v) => ({ value: v, label: v ? `Up to ${v} lines, to the enclosing declaration` : "Off: git's 3 lines" })) },
+            { key: "reflectMin", label: "Self-check", type: "select", options: [0, 3, 5, 7].map((v) => ({ value: v, label: v ? `Second pass drops findings scored below ${v}/10` : "Off" })) },
             { key: "temperature", label: "Temperature", type: "range", min: 0, max: 1, step: 0.1, hint: "Ignored by Anthropic models, which do not take sampling parameters." },
             { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a PR comment with all System One scores after review" },
             { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add a PR comment with the review summary and link to the full report" },
@@ -3296,6 +3332,7 @@ const SETTINGS_PAGES = {
         const nextReview = {
           maxFindings: Math.min(12, Math.max(3, Number(v.maxFindings) || 8)),
           diffChars: Number(v.diffChars) || 90000,
+          reflectMin: [0, 3, 5, 7].includes(Number(v.reflectMin)) ? Number(v.reflectMin) : REVIEW_DEFAULTS.reflectMin,
           contextLines: [0, 8, 16, 32].includes(Number(v.contextLines)) ? Number(v.contextLines) : REVIEW_DEFAULTS.contextLines,
           temperature: Math.min(1, Math.max(0, Number(v.temperature) || 0)),
           postScores: !!v.postScores,

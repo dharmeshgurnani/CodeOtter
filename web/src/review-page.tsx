@@ -816,6 +816,11 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
                             L{f.line}
                           </span>
                         ) : null}
+                        {typeof f.confidence === "number" ? (
+                          <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[11px] text-neutral-700" title="Self-check score">
+                            {Math.round(f.confidence * 10)}/10
+                          </span>
+                        ) : null}
                         <span className="font-medium text-neutral-900">{f.title}</span>
                       </div>
                       {f.detail && (

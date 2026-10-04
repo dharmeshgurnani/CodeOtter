@@ -22,6 +22,7 @@ export type Finding = {
   detail: string;
   suggestion?: string;
   dismissed?: boolean;
+  confidence?: number;
 };
 export type Review = {
   pr: Pr;
