@@ -347,7 +347,7 @@ docker compose up -d       # Dashboard available on http://localhost:4747
 
 **Updates are automatic.** Every release tag publishes `ghcr.io/dharmeshgurnani/codeotter` as `:latest`, `:X.Y.Z` and `:X.Y` (amd64 and arm64). The Compose file runs [Watchtower](https://github.com/nicholas-fedor/watchtower) next to CodeOtter: it checks hourly, pulls a newer image and restarts only the CodeOtter container. `pb_data` stays on its volume and PocketBase applies new migrations on start.
 
-- Hold back: pin `image: ghcr.io/dharmeshgurnani/codeotter:0.5` (patch releases only) or `:0.5.0` (frozen). Roll back the same way.
+- Hold back: pin `image: ghcr.io/dharmeshgurnani/codeotter:0.6` (patch releases only) or `:0.6.0` (frozen). Roll back the same way.
 - Update by hand instead: delete the `watchtower` service, then `docker compose pull && docker compose up -d`.
 - Admins see **vX.Y.Z available** in the sidebar when a newer release exists (checked against GitHub Releases every 6 hours). `CODEOTTER_UPDATE_CHECK=0` turns the check off.
 

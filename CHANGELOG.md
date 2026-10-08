@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.0 (2026-10-08)
+
 - **Cloudflare Clef** as a hosted System One provider (`cloudflare/clef`, `cloudflare/clef-flash`) through OpenRouter, on the same typed endpoint as Jev. OpenRouter System One model lists now come from its decision models.
 
 - Forgejo/Gitea integration tests (`scripts/test-forges.mjs`) run again (broken since 0.5.0: missing `package.json` in the fixture, and the fixture model returned no blast radius) and now cover the self-check, accepted fixes, Describe (comment and PR description) and PR comment commands against a real server.

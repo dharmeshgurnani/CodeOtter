@@ -1,7 +1,7 @@
 services:
   codeotter:
     container_name: codeotter
-    # :latest follows every release; pin :0.5 (or :0.5.0) to hold back.
+    # :latest follows every release; pin :0.6 (or :0.6.0) to hold back.
     image: ghcr.io/dharmeshgurnani/codeotter:latest
     ports:
       - "4747:4747"   # app
