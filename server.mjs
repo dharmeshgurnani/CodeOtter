@@ -91,6 +91,7 @@ const HF_AVATARS = {
   ollama: "https://cdn-avatars.huggingface.co/v1/production/uploads/noauth/MMgt1jNfE_ML3JWg3hz41.png",
   huggingface: "https://cdn-avatars.huggingface.co/v1/production/uploads/1583856921041-5dd96eb166059660ed1ee413.png",
 };
+const CLOUDFLARE_ICON = "https://www.cloudflare.com/favicon.ico";
 function modelIcon(id = "", provider = "") {
   const s = String(id).toLowerCase();
   const p = String(provider).toLowerCase();
@@ -108,6 +109,7 @@ function modelIcon(id = "", provider = "") {
   if (/command|cohere/.test(s)) return HF_AVATARS.cohere;
   if (/glm|thudm/.test(s)) return HF_AVATARS.thudm;
   if (/laya|typed-decisions|jev|typesafe/.test(s)) return HF_AVATARS.mys;
+  if (/clef|cloudflare/.test(s)) return CLOUDFLARE_ICON;
   if (s.includes("/")) {
     const owner = String(id).split("/")[0];
     return HF_AVATARS[owner.toLowerCase()] || `/api/hf-avatar?owner=${encodeURIComponent(owner)}`;
@@ -119,6 +121,7 @@ function providerIcon(key) {
   const k = String(key).replace(/^local_/, "");
   if (LOCAL[k]) return LOCAL[k].icon || modelIcon(LOCAL[k].repo, k);
   if (k === "jev" || k === "jev_openrouter") return HF_AVATARS.mys;
+  if (k === "clef") return CLOUDFLARE_ICON;
   if (k === "openrouter" || k === "custom") return HF_LOGO;
   return HF_AVATARS[k] || HF_LOGO;
 }
@@ -160,8 +163,10 @@ async function listModels(kind, c) {
       const r = await fetch(`${base}/v1/models`, opt({ authorization: `Bearer ${c.apiKey}`, accept: "application/json" }));
       if (r.ok) list = ((await r.json()).models || []).map((m) => ({ value: m.id || m, label: m.id || m, icon: modelIcon(m.id || m, c.provider) }));
     } else if (kind === "s1-openrouter") {
-      const r = await fetch(`${base}/v1/models`, opt({}));
-      if (r.ok) list = ((await r.json()).data || []).filter((m) => /^typesafe\/jev-\d/.test(m.id)).map((m) => ({ value: m.id, label: m.id, icon: modelIcon(m.id, c.provider) }));
+      // decision models are listed only when every output modality is asked for
+      const prefix = S1_PROVIDERS[c.provider]?.listPrefix || "";
+      const r = await fetch(`${base}/v1/models?output_modalities=all`, opt({}));
+      if (r.ok) list = ((await r.json()).data || []).filter((m) => m.architecture?.output_modalities?.includes("decisions") && m.id.startsWith(prefix)).map((m) => ({ value: m.id, label: m.id, icon: modelIcon(m.id, c.provider) }));
     }
   } catch {}
   modelCache.set(key, { list, at: Date.now() });
@@ -185,7 +190,9 @@ const LOCAL_LLM = CATALOG.models.filter((m) => m.kind === "llm");
 const S1_PROVIDERS = {
   jev: { label: "TypeSafe Jev", baseUrl: "https://api.typesafe.ai", models: ["jev-latest", "jev-1.13.0"], keyEnv: "TYPESAFE_API_KEY", keyUrl: "https://console.typesafe.ai/settings/keys" },
   // OpenRouter serves the same typed endpoint (POST /api/v1/systemone) with an OpenRouter key
-  jev_openrouter: { label: "TypeSafe Jev via OpenRouter", baseUrl: "https://openrouter.ai/api", models: ["typesafe/jev-1.13"], keyEnv: "OPENROUTER_API_KEY", keyUrl: "https://openrouter.ai/keys" },
+  jev_openrouter: { label: "TypeSafe Jev via OpenRouter", baseUrl: "https://openrouter.ai/api", models: ["typesafe/jev-1.13"], listPrefix: "typesafe/jev-", keyEnv: "OPENROUTER_API_KEY", keyUrl: "https://openrouter.ai/keys" },
+  // Cloudflare's Clef speaks the same typed contract; OpenRouter serves it on the same endpoint
+  clef: { label: "Cloudflare Clef via OpenRouter", baseUrl: "https://openrouter.ai/api", models: ["cloudflare/clef", "cloudflare/clef-flash"], listPrefix: "cloudflare/clef", keyEnv: "OPENROUTER_API_KEY", keyUrl: "https://openrouter.ai/keys" },
   ...Object.fromEntries(LOCAL_S1.map((m) => [m.id, { get label() { return modelReady(m) ? `${m.label} (local)` : `${m.label} (local), not downloaded`; }, local: true, baseUrl: "", models: [m.modelId], keyEnv: "" }])),
   custom: { label: "Custom System One endpoint", baseUrl: "", models: [], keyEnv: "", keyUrl: "" },
 };
@@ -3590,7 +3597,7 @@ const SETTINGS_PAGES = {
       const llmCanList = !c.local && c.baseUrl && (c.apiKey || p.noKey || c.provider === "openrouter" || /localhost|127\.0\.0\.1/.test(c.baseUrl));
       const [llmLive, s1Live] = await Promise.all([
         llmCanList ? listModels(p.api === "anthropic" ? "anthropic" : "openai", c) : [],
-        s1.provider === "jev" && s1.apiKey ? listModels("s1-typesafe", s1) : s1.provider === "jev_openrouter" ? listModels("s1-openrouter", s1) : [],
+        s1.provider === "jev" && s1.apiKey ? listModels("s1-typesafe", s1) : S1_PROVIDERS[s1.provider]?.listPrefix ? listModels("s1-openrouter", s1) : [],
       ]);
       const sections = [
         {
@@ -3615,7 +3622,7 @@ const SETTINGS_PAGES = {
             { key: "model", label: "Model", type: "select", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1Live.length ? `${s1Live.length} models listed by ${S1_PROVIDERS[s1.provider].label}.` : "", optionsBy: { field: "provider", map: { none: [], ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.models.map((value) => ({ value, label: value, icon: modelIcon(value, k) }))])), ...(s1Live.length ? { [s1.provider]: s1Live } : {}) } } },
             { key: "apiKey", label: "API key", type: "password", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1.apiKey ? `Saved key ${mask(s1.apiKey)}. Leave blank to keep it.` : s1.provider === "custom" ? "Optional." : "No key saved yet.", placeholder: mask(s1.apiKey) || "paste key", linkBy: { field: "provider", map: Object.fromEntries(Object.entries(S1_PROVIDERS).filter(([, x]) => x.keyUrl).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
             { key: "baseUrl", label: "Base URL", type: "text", hideWhen: { field: "provider", in: ["none", ...localIds] }, placeholder: "http://host:port", defaultBy: { field: "provider", map: { none: "", ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.baseUrl])) } } },
-            { key: "status", label: "Status", type: "readonly", hideWhen: { field: "provider", in: ["none", "jev", "jev_openrouter", "custom"] }, hint: s1.local ? "Download, switch or delete local models under Settings / Local models." : "" },
+            { key: "status", label: "Status", type: "readonly", hideWhen: { field: "provider", in: ["none", ...Object.keys(S1_PROVIDERS).filter((k) => !S1_PROVIDERS[k].local)] }, hint: s1.local ? "Download, switch or delete local models under Settings / Local models." : "" },
           ],
           actions: [{ id: "save", label: "Save" }, { id: "probe", label: "Test connection", variant: "outline", needsSaved: true }],
         },
