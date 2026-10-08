@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Cloudflare Clef** as a hosted System One provider (`cloudflare/clef`, `cloudflare/clef-flash`) through OpenRouter, on the same typed endpoint as Jev. OpenRouter System One model lists now come from its decision models.
+
 - Forgejo/Gitea integration tests (`scripts/test-forges.mjs`) run again (broken since 0.5.0: missing `package.json` in the fixture, and the fixture model returned no blast radius) and now cover the self-check, accepted fixes, Describe (comment and PR description) and PR comment commands against a real server.
 
 - **Accepted fixes**: on a re-review after new commits, each earlier suggestion whose code is now in the file but was not at the previously reviewed commit (compared line by line, ignoring indentation) is recorded for the repository. The 10 most recent go into language model and hosted System One reviews as fixes this team accepted; the list (up to 30) is editable under Settings → Repositories → ⚙️ → Accepted fixes. The positive counterpart of dismiss-and-remember learnings.

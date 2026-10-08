@@ -913,6 +913,7 @@ export function OnboardingPage({
                         >
                           <option value="jev">TypeSafe Jev (Cloud)</option>
                           <option value="jev_openrouter">OpenRouter (TypeSafe Jev)</option>
+                          <option value="clef">OpenRouter (Cloudflare Clef)</option>
                           <option value="custom">Custom System 1 Endpoint</option>
                         </select>
                       </div>
@@ -957,6 +958,7 @@ export function OnboardingPage({
                         >
                           <option value="jev">TypeSafe Jev (Cloud)</option>
                           <option value="jev_openrouter">OpenRouter (TypeSafe Jev)</option>
+                          <option value="clef">OpenRouter (Cloudflare Clef)</option>
                           <option value="custom">Custom System 1 Endpoint</option>
                         </select>
                       </div>

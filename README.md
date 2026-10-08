@@ -124,6 +124,7 @@ Works with **any local open-weight model or hosted API** — mix and match Syste
   <a href="https://huggingface.co/mys/laya-typed-decisions-GGUF"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/1596903074565-noauth.jpeg" alt="Laya" width="16" valign="middle" /> Laya Typed-Decisions</kbd></a> &nbsp;
   <a href="https://huggingface.co/mys/kev-0.8b-GGUF"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg" alt="Kev" width="16" valign="middle" /> Kev 0.8B (S1)</kbd></a> &nbsp;
   <a href="https://console.typesafe.ai"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/1596903074565-noauth.jpeg" alt="TypeSafe Jev" width="16" valign="middle" /> TypeSafe Jev</kbd></a> &nbsp;
+  <a href="https://openrouter.ai/cloudflare/clef"><kbd><img src="https://www.cloudflare.com/favicon.ico" alt="Cloudflare Clef" width="16" valign="middle" /> Cloudflare Clef</kbd></a> &nbsp;
   <a href="https://ollama.com"><kbd><img src="https://cdn-avatars.huggingface.co/v1/production/uploads/noauth/MMgt1jNfE_ML3JWg3hz41.png" alt="Ollama" width="16" valign="middle" /> Ollama</kbd></a> &nbsp;
   <a href="https://openrouter.ai"><kbd><img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" alt="OpenRouter" width="16" valign="middle" /> OpenRouter</kbd></a> &nbsp;
   <kbd>+ any OpenAI-compatible or local GGUF endpoint</kbd>
