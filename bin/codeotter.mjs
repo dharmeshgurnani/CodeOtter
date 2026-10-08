@@ -15,7 +15,7 @@ for (const envFile of envFiles) {
   }
 }
 
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 
 // --- ANSI Colors & Formatting Helpers ---
 const isTTY = process.stdout.isTTY && !process.env.NO_COLOR;

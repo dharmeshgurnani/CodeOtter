@@ -2,6 +2,7 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | Cloudflare Clef (`cloudflare/clef`, `cloudflare/clef-flash`) as a hosted System One provider via OpenRouter | 2026-10-08 |
 | [x] | Accepted fixes: suggestions authors applied are remembered per repository and guide later reviews (PR-Agent-inspired) | 2026-10-04 |
 | [x] | PR comment commands: /review, /describe, /improve, /ask, /docs, /changelog (PR-Agent-inspired) | 2026-10-04 |
 | [ ] | PR comment commands via webhooks (GitHub App, Forgejo/Gitea) instead of polling | |
