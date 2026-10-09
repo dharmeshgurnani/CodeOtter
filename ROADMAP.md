@@ -22,7 +22,7 @@
 | [x] | Website and docs at codeotter.io | 2026-10-04 |
 | [x] | Kev 4B local System One model in the catalog; llama.cpp b11388 | 2026-10-04 |
 | [x] | One-click deploy: `install.sh` for any VPS (Caddy HTTPS with a domain), Deploy to Azure and Render buttons, Linode StackScript | 2026-10-02 |
-| [ ] | Linode: publish `deploy/linode-stackscript.sh` as a public StackScript (cloud.linode.com/stackscripts/create) and add its button | |
+| [ ] | Linode: publish `bin/deploy/linode-stackscript.sh` as a public StackScript (cloud.linode.com/stackscripts/create) and add its button | |
 | [ ] | Railway: template from `ghcr.io/dharmeshgurnani/codeotter` with a volume at `/app/pb_data` and a generated `PB_ADMIN_PASSWORD`; add the `railway.com/deploy/...` button | |
 | [ ] | AWS: CloudFormation template (EC2 + `install.sh` user data) hosted in S3 for a Launch Stack button | |
 | [ ] | DigitalOcean and Vultr: apply as marketplace vendors for 1-Click apps | |
