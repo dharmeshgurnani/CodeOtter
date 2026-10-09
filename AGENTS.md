@@ -25,7 +25,7 @@ Rules for anyone (human or agent) changing this codebase. Keep them; they encode
 
 ## Engineering rules
 
-- **Layout.** `core/` is the backend (`server.mjs`, `models.json`, `showcase.json`, `pb_migrations/`, `runtimes/`); it will be split into modules inside `core/`, never back into the root. `tui/` is the CLI and terminal UI. `web/` is the browser UI. `scripts/` holds the dev launcher and tests. `bin/` holds the two deploy shell scripts (`install.sh` for a VPS, `start.sh` as the container entrypoint). The root holds only docs, deploy files and package manifests.
+- **Layout.** `core/` is the backend (`server.mjs`, `models.json`, `showcase.json`, `pb_migrations/`, `runtimes/`); it will be split into modules inside `core/`, never back into the root. `tui/` is the CLI and terminal UI. `web/` is the browser UI. `scripts/` holds the dev launcher and tests. `bin/` holds deployment: `install.sh` for a VPS, `start.sh` as the container entrypoint, and `deploy/` with the Azure, Caddy and Linode templates. The root holds only docs, deploy files and package manifests.
 - **Dependency-free backend.** `core/server.mjs` uses only the standard library and `fetch`. Provider calls are raw HTTP, including Anthropic's Messages API.
 - **Storage** is PocketBase when `PB_URL` is set (Docker sets it), else JSON files. Schema lives in `core/pb_migrations/`.
 - **Never run write-then-clear tests against a live instance.** A save/clear test once wiped real GitHub OAuth credentials. Read-only checks only; for write paths use a throwaway PocketBase data dir.

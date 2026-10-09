@@ -27,7 +27,7 @@ if ! docker compose version >/dev/null 2>&1; then echo "Docker Compose v2 plugin
 mkdir -p "$DIR"
 cd "$DIR"
 curl -fsSL "$RAW/docker-compose.yml" -o docker-compose.yml
-curl -fsSL "$RAW/deploy/caddy.yml" -o caddy.yml
+curl -fsSL "$RAW/bin/deploy/caddy.yml" -o caddy.yml
 
 if [ ! -f .env ]; then
   if [ -n "$DOMAIN" ]; then
