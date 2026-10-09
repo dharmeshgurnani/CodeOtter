@@ -23,7 +23,7 @@
 <p align="center">
   <a href="https://github.com/dharmeshgurnani/CodeOtter/actions/workflows/ci.yml"><img src="https://github.com/dharmeshgurnani/CodeOtter/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://codeotter.io"><img src="https://img.shields.io/badge/Website-codeotter.io-b45309.svg" alt="Website" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-ELv2-c2410c.svg" alt="Elastic License 2.0" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-c2410c.svg" alt="AGPL-3.0" /></a>
   <a href="package.json"><img src="https://img.shields.io/badge/Node-%3E%3D22-111111.svg" alt="Node Version" /></a>
   <a href="#-security--privacy"><img src="https://img.shields.io/badge/Privacy-Zero_Telemetry-15803d.svg" alt="Zero Telemetry" /></a>
   <a href="#what-is-codeotter"><img src="https://img.shields.io/badge/Deployment-100%25_Self--Hosted-15803d.svg" alt="100% Self Hosted" /></a>
@@ -430,5 +430,5 @@ docker run -d -p 4747:4747 -p 8090:8090 --env-file .env -v codeotter-data:/app/p
 
 ## 📄 License & Community
 
-- **License**: Distributed under the [Elastic License 2.0 (ELv2)](LICENSE) — free to self-host and customize.
+- **License**: Open source under the [GNU AGPL-3.0](LICENSE). Free to self-host, modify and redistribute; anyone who runs a modified version as a network service must publish their changes.
 - **Contributing**: Contributions and feedback are welcome! Please check out [`CONTRIBUTING.md`](CONTRIBUTING.md) to get started.
