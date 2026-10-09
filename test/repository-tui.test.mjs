@@ -13,6 +13,9 @@ import { createRepositoryClient, repositoryRows, reviewComplete, formatRepositor
 import { startRepositoryTui } from '../tui/repository-tui.mjs';
 import { scoreColor, colorScores } from '../tui/tui-theme.mjs';
 import { formatDetailText } from '../tui/tui-details.mjs';
+import { test } from 'node:test';
+
+test('repository TUI', async (ctx) => {
 
 assert.match(formatDetailText('#1 PR\nhttps://github.com/one/repo/pull/1'), /\{130-fg\}\{underline\}https:/);
 
@@ -220,10 +223,11 @@ try {
   assert(copyButton.left >= changesButton.left + changesButton.width, 'Compact copy action does not overlap tabs');
   assert(reviewPane.top < screen.height - 1, 'Compact layout keeps details visible');
   press('q'); await running; screen = null;
-  console.log('Repository TUI tests passed: shared code, no web server, scope, cache, queue and cancellation.');
+  ctx.diagnostic('Repository TUI tests passed: shared code, no web server, scope, cache, queue and cancellation.');
 } finally {
   if (backend && backend.exitCode === null) { const stopped = once(backend, 'exit'); backend.kill(); await stopped; }
   screen?.destroy();
   assert.equal(dirname(temp), resolve(tmpdir()));
   rmSync(temp, { recursive: true, force: true });
 }
+});

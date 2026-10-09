@@ -1,11 +1,12 @@
 // Diff compression: an over-budget diff keeps whole high-priority files and names the rest.
 // Runs the <dynamic-context> and <diff-compression> blocks of server.mjs itself.
 import assert from "node:assert";
-import { readFileSync } from "node:fs";
+import { serverBlocks } from "./helpers/server-blocks.mjs";
+import { test } from "node:test";
 
-const src = readFileSync(new URL("../core/server.mjs", import.meta.url), "utf8");
-const block = (name) => src.slice(src.indexOf(`// <${name}>`), src.indexOf(`// </${name}>`));
-const { compressDiff, parseDiff } = new Function(`${block("dynamic-context")}\n${block("diff-compression")}; return { compressDiff, parseDiff };`)();
+test("diff compression", async (ctx) => {
+
+const { compressDiff, parseDiff } = new Function(`${serverBlocks("dynamic-context", "diff-compression")}; return { compressDiff, parseDiff };`)();
 
 const file = (path, added, removed = 0, extra = "") => {
   const lines = [...Array(removed)].map((_, i) => `-old ${i}`).concat([...Array(added)].map((_, i) => `+new line ${i} in ${path}`));
@@ -30,7 +31,7 @@ const diff = [
 const fits = compressDiff(diff, diff.length + 10);
 assert.strictEqual(fits.diff, diff);
 assert.strictEqual(fits.compressed, false);
-console.log("✓ diff within budget is unchanged");
+ctx.diagnostic("diff within budget is unchanged");
 
 // Over budget: TypeScript (main language) first, lockfile never crowds out code.
 const budget = 6000;
@@ -41,7 +42,7 @@ for (const p of ["src/a.ts", "src/b.ts", "src/mix.ts"]) assert(r.diff.includes(`
 assert(r.omitted.includes("package-lock.json"), "lockfile omitted first");
 assert(/Also changed, not shown \(over the diff budget\):\n[\s\S]*package-lock\.json \+400 -0/.test(r.diff), "omitted files are named with counts");
 assert(r.diff.indexOf("src/a.ts") < r.diff.indexOf("scripts/tool.py") || !r.diff.includes("diff --git a/scripts/tool.py"), "main language before other code");
-console.log("✓ main language first, lockfile omitted and named");
+ctx.diagnostic("main language first, lockfile omitted and named");
 
 // Deletions: deleted files and deletion-only files are named; deletion-only hunks inside a kept file are dropped.
 assert(r.deleted.includes("src/legacy.ts"));
@@ -50,14 +51,14 @@ assert(r.diff.includes("Deleted files:\nsrc/old.ts (lines removed only)\nsrc/leg
 assert(!r.diff.includes("-removed only"), "deletion-only hunk in a kept file dropped");
 assert(r.diff.includes("+y"), "mixed hunk kept");
 assert.strictEqual(r.deletionHunks, 2);
-console.log("✓ deletions summarised");
+ctx.diagnostic("deletions summarised");
 
 // Every shown hunk keeps a valid header.
 for (const f of parseDiff(r.diff)) for (const h of f.parts.filter((p) => typeof p === "object")) {
   assert.strictEqual(h.lines.filter((l) => l[0] !== "+").length, h.oldN);
   assert.strictEqual(h.lines.filter((l) => l[0] !== "-").length, h.newN);
 }
-console.log("✓ shown hunks stay valid");
+ctx.diagnostic("shown hunks stay valid");
 
 // One file bigger than the whole budget still shows its start.
 const huge = file("src/huge.ts", 2000);
@@ -65,7 +66,7 @@ const h = compressDiff(huge, 3000);
 assert(h.diff.startsWith("diff --git a/src/huge.ts"));
 assert(h.diff.includes("cut at the diff budget"));
 assert(h.diff.length <= 3000);
-console.log("✓ oversized single file shows its start");
+ctx.diagnostic("oversized single file shows its start");
 
 // A file too big to fit whole shows its leading hunks, at most half the budget, and the rest still get room.
 const hunk = (i) => `@@ -${i * 100},2 +${i * 100},2 @@\n ctx\n-${"o".repeat(300)}\n+${"n".repeat(300)}`;
@@ -75,6 +76,6 @@ assert.deepStrictEqual(p.partial, ["src/big.ts"]);
 assert(/\(\d+ more hunk\(s\) in src\/big\.ts not shown\)/.test(p.diff));
 assert(p.diff.includes("diff --git a/src/small.ts"), "smaller file still shown");
 assert(p.diff.length <= 10000);
-console.log("✓ oversized file shows leading hunks without starving the rest");
+ctx.diagnostic("oversized file shows leading hunks without starving the rest");
 
-console.log("All diff compression tests passed");
+});

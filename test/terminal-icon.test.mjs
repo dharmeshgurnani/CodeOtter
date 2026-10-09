@@ -3,6 +3,9 @@ import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { attachTerminalIcon, faviconSixel } from '../tui/terminal-icon.mjs';
+import { test } from 'node:test';
+
+test('terminal icon', async (ctx) => {
 
 const source = Buffer.from(readFileSync(new URL('../web/public/favicon.svg', import.meta.url), 'utf8').replace(/\r\n/g, '\n'));
 const asset = JSON.parse(readFileSync(new URL('../tui/assets/favicon.json', import.meta.url)));
@@ -41,4 +44,5 @@ try {
   if (previous === undefined) delete process.env.CODEOTTER_IMAGE;
   else process.env.CODEOTTER_IMAGE = previous;
 }
-console.log('Terminal icon tests passed: source, capability negotiation, sizing, fallback and cleanup.');
+ctx.diagnostic('Terminal icon tests passed: source, capability negotiation, sizing, fallback and cleanup.');
+});

@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- **Test framework**: core and TUI tests run on Node's built-in `node:test` (`pnpm test:core`, watch and coverage scripts, JUnit report in CI with per-test annotations); shared stubs live in `test/helpers/`, the Docker-backed forge run in `test/integration/`. The web app gets its first tests: Vitest + Testing Library for the generic form, report and markdown renderers (`pnpm -C web test`), and a Playwright smoke run against the real server (`pnpm test:e2e`). `pnpm test` runs core and web.
 - Tests live in `test/` (was `scripts/`), the dev launcher in `bin/dev.mjs`, the terminal icon builder in `tui/build-icon.mjs`. `scripts/` is gone.
 - `install.sh`, `start.sh` and the `deploy/` templates (Azure, Caddy, Linode) moved to `bin/`; `pnpm co:install` and `pnpm co:start` run them. The installer URL is now `.../main/bin/install.sh` (the Azure button and Linode StackScript follow). `start.sh` now works from any checkout, not only the Docker image.
 - **CLI, TUI and MCP reviews use the server engines** (`reviewDiff` in `core/server.mjs`): a configured System One model owns every score and gate, the language model writes the prose and is asked for scores only when no System One model exists, and findings go through the self-check. The CLI no longer carries its own review prompt, score request or critique pass; `--no-critique` is gone. Gates are not reported without a System One model. Cancelling a TUI review aborts the model calls.

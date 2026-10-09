@@ -14,14 +14,18 @@
     "cli": "node tui/codeotter.mjs",
     "tui": "node tui/codeotter.mjs tui",
     "build:tui-icon": "node tui/build-icon.mjs",
-    "test:cli": "node test/test-cli.mjs && node test/test-tui.mjs && node test/test-repository-tui.mjs && node test/test-terminal-icon.mjs && node test/test-diff-layout.mjs && node test/test-pb-recovery.mjs",
     "dev": "node bin/dev.mjs",
     "start": "node core/server.mjs",
     "co:start": "sh bin/start.sh",
     "co:install": "bash bin/install.sh",
-    "test:forgejo": "node test/test-forgejo.mjs",
-    "test:gitea": "node test/test-forges.mjs --gitea",
-    "build": "pnpm -C web install && pnpm -C web build"
+    "test:forgejo": "node test/integration/forges.test.mjs",
+    "test:gitea": "node test/integration/forges.test.mjs --gitea",
+    "build": "pnpm -C web install && pnpm -C web build",
+    "test": "node --test \"test/*.test.mjs\" && pnpm -C web test",
+    "test:core": "node --test \"test/*.test.mjs\"",
+    "test:watch": "node --test --watch \"test/*.test.mjs\"",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"core/**\" --test-coverage-include=\"tui/**\" \"test/*.test.mjs\"",
+    "test:e2e": "pnpm -C web test:e2e"
   },
   "dependencies": {
     "ansi-regex": "^6.4.0",

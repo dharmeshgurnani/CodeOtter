@@ -5,6 +5,9 @@ import { dirname, join, resolve } from 'node:path';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { EventEmitter } from 'node:events';
+import { test } from 'node:test';
+
+test('PocketBase recovery', async (ctx) => {
 
 // Fully isolated: fake binary and HTTP transport, never connect to live storage.
 const home = mkdtempSync(join(tmpdir(), 'codeotter-pb-recovery-'));
@@ -47,7 +50,7 @@ try {
   await Promise.all([repositoryBoard(), repositoryBoard()]);
   assert.equal(starts, 2, 'Concurrent reads share one database restart');
   assert.equal(detached, 2, 'Database lifecycle is independent of terminal lifetime');
-  console.log('PocketBase recovery tests passed: detached local service and coalesced read recovery, isolated from live data.');
+  ctx.diagnostic('PocketBase recovery tests passed: detached local service and coalesced read recovery, isolated from live data.');
 } finally {
   childProcess.execFileSync = originalExec; childProcess.spawn = originalSpawn; syncBuiltinESMExports();
   globalThis.fetch = originalFetch; globalThis.setInterval = originalInterval;
@@ -55,3 +58,4 @@ try {
   assert.equal(dirname(home), resolve(tmpdir()));
   rmSync(home, { recursive: true, force: true });
 }
+});

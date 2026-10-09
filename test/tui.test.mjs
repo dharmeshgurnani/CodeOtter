@@ -10,6 +10,9 @@ import blessed from 'blessed';
 import { createWorkspace, reviewSections } from '../tui/workspace.mjs';
 import { normalizeReview, text } from '../tui/review-output.mjs';
 import { startTui } from '../tui/tui.mjs';
+import { test } from 'node:test';
+
+test('workspace TUI', async (ctx) => {
 
 const root = process.cwd();
 const temp = mkdtempSync(join(tmpdir(), 'codeotter-tui-'));
@@ -99,10 +102,11 @@ try {
   screen = null;
   const noTty = spawnSync(process.execPath, [resolve(root, 'tui/codeotter.mjs'), 'tui'], { encoding: 'utf8' });
   assert.equal(noTty.status, 1); assert.match(noTty.stderr, /interactive terminal/);
-  console.log('TUI tests passed: git sources, model review/tools, failures, cancellation, export, terminal widgets and resize.');
+  ctx.diagnostic('TUI tests passed: git sources, model review/tools, failures, cancellation, export, terminal widgets and resize.');
 } finally {
   screen?.destroy();
   process.chdir(root);
   server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
   rmSync(temp, { recursive: true, force: true });
 }
+});
