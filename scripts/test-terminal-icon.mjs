@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { attachTerminalIcon, faviconSixel } from '../bin/terminal-icon.mjs';
+import { attachTerminalIcon, faviconSixel } from '../tui/terminal-icon.mjs';
 
 const source = Buffer.from(readFileSync(new URL('../web/public/favicon.svg', import.meta.url), 'utf8').replace(/\r\n/g, '\n'));
-const asset = JSON.parse(readFileSync(new URL('../bin/assets/favicon.json', import.meta.url)));
+const asset = JSON.parse(readFileSync(new URL('../tui/assets/favicon.json', import.meta.url)));
 assert.equal(asset.sha256, createHash('sha256').update(source).digest('hex'), 'Rebuild the icon after changing favicon.svg');
 assert(faviconSixel(48).startsWith('\x1bP0;1;0q"1;1;48;48'));
 assert(faviconSixel(48).endsWith('\x1b\\'));

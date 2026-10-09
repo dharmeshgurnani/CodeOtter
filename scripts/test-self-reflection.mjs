@@ -3,7 +3,7 @@
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
 
-const src = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+const src = readFileSync(new URL("../core/server.mjs", import.meta.url), "utf8");
 const block = (name) => src.slice(src.indexOf(`// <${name}>`), src.indexOf(`// </${name}>`));
 const load = (askModel) => new Function("askModel", `${block("dynamic-context")}\n${block("diff-compression")}\n${block("reflect")}; return reflectFindings;`)(askModel);
 

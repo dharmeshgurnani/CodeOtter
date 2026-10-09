@@ -204,7 +204,7 @@ components:
 
 # PR Scorer
 
-Specification of the visual identity, token system, and component patterns across **PR Scorer** ([`web/src/`](./web/src) and [`server.mjs`](./server.mjs)), structured according to the open [Google Stitch `DESIGN.md`](https://github.com/google-labs-code/design.md) specification.
+Specification of the visual identity, token system, and component patterns across **PR Scorer** ([`web/src/`](./web/src) and [`core/server.mjs`](./core/server.mjs)), structured according to the open [Google Stitch `DESIGN.md`](https://github.com/google-labs-code/design.md) specification.
 
 ## Overview
 
@@ -305,7 +305,7 @@ PR Scorer eschews heavy drop shadows in favor of **structural 1px borders** (`#e
 ### 1. Split Login & Ordered-Dither Shader ([`web/src/login-page.tsx`](./web/src/login-page.tsx), [`web/src/components/dither-canvas.tsx`](./web/src/components/dither-canvas.tsx))
 - **GitHub OAuth Button**: `h-12 w-full rounded-lg bg-neutral-900 px-4 text-[15px] font-medium text-white hover:bg-neutral-800 disabled:opacity-50` with a `size-5` GitHub SVG mark.
 - **`DitherCanvas`**: WebGL fragment shader rendering animated 5-octave `fbm` noise + radial glow quantized through an 8×8 Bayer threshold matrix (`bayer8`) at `pixel={3}`. Respects `prefers-reduced-motion: reduce` by locking `u_time = 40`.
-- **Showcase Content**: Hydrated from [`showcase.json`](./showcase.json) (`/api/login`), rendering the headline, subhead, and 3-column groups (`Sponsors`, `Used by`, `Case studies`).
+- **Showcase Content**: Hydrated from [`core/showcase.json`](./core/showcase.json) (`/api/login`), rendering the headline, subhead, and 3-column groups (`Sponsors`, `Used by`, `Case studies`).
 
 ### 2. App Sidebar & Organization Switcher ([`web/src/app-sidebar.tsx`](./web/src/app-sidebar.tsx))
 - **`OrgSwitcher` (Header)**: Team-switcher dropdown displaying the active GitHub organization's avatar (`https://github.com/<org>.png?size=64`), name, and onboarded repository count (`Organization · N repositories`), plus an `"Add repository"` item.
@@ -334,7 +334,7 @@ PR Scorer eschews heavy drop shadows in favor of **structural 1px borders** (`#e
 ## Do's and Don'ts
 
 ### Do's
-- **Do** route every new dashboard section through [`JsonReport`](./web/src/components/json-report.tsx) and every new settings/admin page through [`SETTINGS_PAGES`](./server.mjs) + [`JsonForm`](./web/src/components/json-form.tsx).
+- **Do** route every new dashboard section through [`JsonReport`](./web/src/components/json-report.tsx) and every new settings/admin page through [`SETTINGS_PAGES`](./core/server.mjs) + [`JsonForm`](./web/src/components/json-form.tsx).
 - **Do** preserve card geometry across every grid: always render the subtitle (`min-h-5`) and button row (`invisible` when unused) in stat cards.
 - **Do** use `@animate-ui` primitives (`pnpx shadcn@latest add @animate-ui/<item> -y` inside `web/`) for any collapsible, dialog, dropdown, tooltip, or sidebar widget.
 - **Do** scope every data request and page view to the active organization (`?org=`) selected in `OrgSwitcher`.

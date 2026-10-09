@@ -97,7 +97,7 @@ console.log(`✓ Blast radius fan-out calculation passed: baseline ${baselineBla
 // Test Case 4: Live git grep outside changed files for symbol 'effort'
 const excludeArgs = [":!web/src/types.ts", ":!web/src/types.ts".replace(/\\/g, "/")];
 const raw = execFileSync("git", ["grep", "-n", "-w", "effort", "--", ".", ...excludeArgs], { encoding: "utf8" });
-assert(raw.includes("server.mjs:"), "Expected git grep to find outside callers in server.mjs");
+assert(raw.includes("core/server.mjs:"), "Expected git grep to find outside callers in core/server.mjs");
 console.log("✓ Outside-diff caller resolution via git grep passed");
 
 console.log("\nALL SMART CONTEXT TESTS PASSED SUCCESSFULLY! 🦦🚀");

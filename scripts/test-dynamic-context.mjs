@@ -3,7 +3,7 @@
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
 
-const src = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+const src = readFileSync(new URL("../core/server.mjs", import.meta.url), "utf8");
 const block = src.slice(src.indexOf("// <dynamic-context>"), src.indexOf("// </dynamic-context>"));
 assert(block.length > 100, "server.mjs is missing the <dynamic-context> block");
 const { declName, parseDiff, dynamicContextFiles, extendDiffContext } =

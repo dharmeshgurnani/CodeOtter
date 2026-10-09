@@ -22,8 +22,8 @@ if (!existsSync(join(root, "web", "node_modules"))) {
   }
 }
 
-// 1. Backend Server (node server.mjs)
-const server = spawn(process.execPath, [join(root, "server.mjs")], {
+// 1. Backend Server (node core/server.mjs)
+const server = spawn(process.execPath, [join(root, "core", "server.mjs")], {
   cwd: root,
   stdio: ["inherit", "pipe", "pipe"],
   env: { ...process.env },

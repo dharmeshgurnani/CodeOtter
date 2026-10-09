@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- **Layout**: the backend lives in `core/` (`server.mjs`, `models.json`, `showcase.json`, `pb_migrations/`, `runtimes/`) and the CLI and TUI in `tui/` (was `bin/`). `pnpm start` runs `node core/server.mjs`; the Docker image and `start.sh` follow. Data folders (`pb_data`, `scores`, `.local`, `.pb`, `.env`) stay at the root, so existing installs keep working.
 - **Auto-review** (Admin → Model provider → Review): every new or updated pull request in an onboarded repository is reviewed and the scores and review are posted, one PR at a time, on the same two-minute poll as triage. Drafts and PRs labelled `codeotter:skip` are left alone; a head commit is reviewed once.
 - Every GitHub CLI call is now asynchronous. A `gh` round trip used to block every other request and poll loop in the process.
 - `GET /healthz` answers without touching storage; the Docker and Render health checks use it instead of `/api/me`.

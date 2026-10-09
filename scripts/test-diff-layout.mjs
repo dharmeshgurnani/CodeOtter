@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { stripVTControlCharacters } from 'node:util';
 import blessed from 'blessed';
-import { fitDiffOutput } from '../bin/diff-viewer.mjs';
+import { fitDiffOutput } from '../tui/diff-viewer.mjs';
 
 const code = '+  ' + 'long_code_'.repeat(20) + '界';
 const input = `\x1b[31m  11   12 │ ${code}\x1b[0m\x1b[0K`;

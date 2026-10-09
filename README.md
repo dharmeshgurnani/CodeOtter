@@ -214,9 +214,9 @@ CodeOtter has one CLI with an interactive Blessed TUI and scriptable review, CI,
 
 The default TUI groups all connected repositories under expandable organizations. Selecting a repository scopes its PRs; moving between PRs immediately updates scores, summary and full details. Saved reviews appear immediately, and missing reviews calculate sequentially using the web app's configured engines. Reviews share the same storage. The TUI does not publish comments or suggestions.
 
-**No running web server is required.** The TUI imports shared services from `server.mjs` without binding a port, building the frontend or starting scheduled automation. Forge APIs and hosted models still require network access. PocketBase is auto-managed where configured; locally started storage survives terminal closure and retries refused reads once, without replaying writes. Web authentication, permissions and organization scoping are unchanged.
+**No running web server is required.** The TUI imports shared services from `core/server.mjs` without binding a port, building the frontend or starting scheduled automation. Forge APIs and hosted models still require network access. PocketBase is auto-managed where configured; locally started storage survives terminal closure and retries refused reads once, without replaying writes. Web authentication, permissions and organization scoping are unchanged.
 
-Configuration defaults to the installation beside `server.mjs`. Set `CODEOTTER_HOME` to an existing installation to use its `.env`, `config.json`, `scores/`, `.pb`, `pb_data` and default `.local` directory. Explicit `PB_URL` and `PR_SCORER_DATA` take precedence.
+Configuration defaults to the repository that holds `core/server.mjs`. Set `CODEOTTER_HOME` to an existing installation to use its `.env`, `config.json`, `scores/`, `.pb`, `pb_data` and default `.local` directory. Explicit `PB_URL` and `PR_SCORER_DATA` take precedence.
 
 Scores use the web app's green/amber/red thresholds, inverted for risk and blast radius. Full details contains gates, findings and a folder-tree walkthrough. The underlined orange PR link opens in your browser; **Copy as prompt** copies plain text without added instructions. Clipboard copying uses OS tools, with OSC 52 forwarding as a sandbox fallback where supported.
 
@@ -239,22 +239,22 @@ Use `codeotter tui --local` for staged/unstaged/base/patch review, Ask, descript
 
 ```bash
 # Browse connected repositories using the shared local backend
-node bin/codeotter.mjs tui
+node tui/codeotter.mjs tui
 
 # Print a one-shot review with color gauges & walkthrough
-node bin/codeotter.mjs review
+node tui/codeotter.mjs review
 
 # Review staged changes before git commit
-node bin/codeotter.mjs --staged
+node tui/codeotter.mjs --staged
 
 # Review PR and post scorecard comment
-node bin/codeotter.mjs pr 42 --post-comment
+node tui/codeotter.mjs pr 42 --post-comment
 
 # Run in CI as a merge blocker (exits with code 1 if gates fail or score < 60)
-node bin/codeotter.mjs ci --fail-on-gate --min-score 60
+node tui/codeotter.mjs ci --fail-on-gate --min-score 60
 
 # Run Model Context Protocol (MCP) server for Cursor / Claude Desktop / IDEs
-node bin/codeotter.mjs mcp
+node tui/codeotter.mjs mcp
 ```
 
 ### Key CLI Features:
