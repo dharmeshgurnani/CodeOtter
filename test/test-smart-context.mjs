@@ -1,4 +1,4 @@
-// scripts/test-smart-context.mjs
+// test/test-smart-context.mjs
 // Verification suite for "Smart Context" Outside-Diff Impact Slicing & Blast Radius Fan-out
 import assert from "node:assert";
 import { execFileSync } from "node:child_process";
