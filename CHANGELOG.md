@@ -6,7 +6,7 @@
 - **Auto-review** (Admin → Model provider → Review): every new or updated pull request in an onboarded repository is reviewed and the scores and review are posted, one PR at a time, on the same two-minute poll as triage. Drafts and PRs labelled `codeotter:skip` are left alone; a head commit is reviewed once.
 - Every GitHub CLI call is now asynchronous. A `gh` round trip used to block every other request and poll loop in the process.
 - `GET /healthz` answers without touching storage; the Docker and Render health checks use it instead of `/api/me`.
-- CI workflow (`.github/workflows/ci.yml`): syntax check, strict web build and the offline test scripts on every push and pull request. SECURITY.md, FUNDING.yml, issue templates and a code of conduct.
+- CI workflow (`.github/workflows/ci.yml`): syntax check, strict web build and the offline test scripts on every push and pull request. SECURITY.md, FUNDING.yml and issue templates.
 - The review and onboarding pages load on demand; the login and home pages no longer download the syntax highlighter.
 - The CLI reads its version from package.json instead of a hard-coded string. Docs say Node 22, which the CLI already required.
 - `pnpm build:tui-icon` output refreshed; `scripts/test-terminal-icon.mjs` passes again.
