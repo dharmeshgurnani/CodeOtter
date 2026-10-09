@@ -1,7 +1,9 @@
-// test/test-smart-context.mjs
 // Verification suite for "Smart Context" Outside-Diff Impact Slicing & Blast Radius Fan-out
 import assert from "node:assert";
 import { execFileSync } from "node:child_process";
+import { test } from "node:test";
+
+test("smart context", async (ctx) => {
 
 // 1. Test symbol extraction from diff
 function extractChangedSymbols(diff) {
@@ -57,7 +59,7 @@ function blastRadius(files, outsideCallers = 0, outsideFiles = 0) {
   return { score: Math.round(score), files: files.length, lines, dirs: dirs.size, hotspots: hot, testFiles: tests, outsideCallers, outsideFiles };
 }
 
-console.log("Running Smart Context verification tests...");
+
 
 // Test Case 1: TS/JS Export Function Detection
 const sampleDiff = `diff --git a/web/src/types.ts b/web/src/types.ts
@@ -70,7 +72,7 @@ const sampleDiff = `diff --git a/web/src/types.ts b/web/src/types.ts
 
 const syms = extractChangedSymbols(sampleDiff);
 assert.deepStrictEqual(syms, ["effort"], "Expected 'effort' symbol to be extracted");
-console.log("✓ Symbol extraction passed for export const function");
+ctx.diagnostic("Symbol extraction passed for export const function");
 
 // Test Case 2: Python / Go syntax extraction
 const pyDiff = `diff --git a/services/pricing.py b/services/pricing.py
@@ -84,7 +86,7 @@ const pyDiff = `diff --git a/services/pricing.py b/services/pricing.py
 `;
 const pySyms = extractChangedSymbols(pyDiff);
 assert.deepStrictEqual(pySyms, ["calculate_discount"], "Expected 'calculate_discount' symbol extracted");
-console.log("✓ Symbol extraction passed for Python def");
+ctx.diagnostic("Symbol extraction passed for Python def");
 
 // Test Case 3: Blast Radius incorporates outside caller fan-out
 const baselineBlast = blastRadius([{ path: "src/utils.ts", additions: 10, deletions: 2 }], 0, 0);
@@ -92,12 +94,12 @@ const highFanoutBlast = blastRadius([{ path: "src/utils.ts", additions: 10, dele
 assert(highFanoutBlast.score > baselineBlast.score, "Blast radius score must increase when outside callers are impacted");
 assert.strictEqual(highFanoutBlast.outsideCallers, 5);
 assert.strictEqual(highFanoutBlast.outsideFiles, 3);
-console.log(`✓ Blast radius fan-out calculation passed: baseline ${baselineBlast.score} -> fanout ${highFanoutBlast.score}`);
+ctx.diagnostic(`Blast radius fan-out calculation passed: baseline ${baselineBlast.score} -> fanout ${highFanoutBlast.score}`);
 
 // Test Case 4: Live git grep outside changed files for symbol 'effort'
 const excludeArgs = [":!web/src/types.ts", ":!web/src/types.ts".replace(/\\/g, "/")];
 const raw = execFileSync("git", ["grep", "-n", "-w", "effort", "--", ".", ...excludeArgs], { encoding: "utf8" });
 assert(raw.includes("core/server.mjs:"), "Expected git grep to find outside callers in core/server.mjs");
-console.log("✓ Outside-diff caller resolution via git grep passed");
+ctx.diagnostic("Outside-diff caller resolution via git grep passed");
 
-console.log("\nALL SMART CONTEXT TESTS PASSED SUCCESSFULLY! 🦦🚀");
+});

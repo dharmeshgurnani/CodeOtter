@@ -19,3 +19,8 @@ codeotter-website/
 
 # Local working notes, never committed
 plans/
+
+# Test output
+test-results.xml
+web/test-results/
+web/playwright-report/

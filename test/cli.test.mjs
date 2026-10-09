@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
+import { test } from 'node:test';
+
+test('CLI: help, version, MCP, installation isolation', async (ctx) => {
 
 const cli = fileURLToPath(new URL('../tui/codeotter.mjs', import.meta.url));
 const run = (args, input) => execFileSync(process.execPath, [cli, ...args], { encoding: 'utf8', input, timeout: 10000 });
@@ -36,4 +39,5 @@ try {
   assert.equal(dirname(temp), resolve(tmpdir()));
   rmSync(temp, { recursive: true, force: true });
 }
-console.log('CLI smoke tests passed: help, version, headless MCP and installation environment isolation.');
+ctx.diagnostic('CLI smoke tests passed: help, version, headless MCP and installation environment isolation.');
+});

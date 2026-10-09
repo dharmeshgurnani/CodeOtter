@@ -1,11 +1,12 @@
 // Self-reflection: a second model pass scores findings 0-10; low scores are dropped, the rest ordered by score.
 // Runs the real blocks from server.mjs with a stubbed model.
 import assert from "node:assert";
-import { readFileSync } from "node:fs";
+import { serverBlocks } from "./helpers/server-blocks.mjs";
+import { test } from "node:test";
 
-const src = readFileSync(new URL("../core/server.mjs", import.meta.url), "utf8");
-const block = (name) => src.slice(src.indexOf(`// <${name}>`), src.indexOf(`// </${name}>`));
-const load = (askModel) => new Function("askModel", `${block("dynamic-context")}\n${block("diff-compression")}\n${block("reflect")}; return reflectFindings;`)(askModel);
+test("self-check", async (ctx) => {
+
+const load = (askModel) => new Function("askModel", `${serverBlocks("dynamic-context", "diff-compression", "reflect")}; return reflectFindings;`)(askModel);
 
 const pr = { number: 7, title: "Fix totals" };
 const diff = "diff --git a/a.js b/a.js\n--- a/a.js\n+++ b/a.js\n@@ -1,2 +1,2 @@\n ctx\n-a\n+b";
@@ -25,14 +26,14 @@ const kept = await load(async (prompt, cfg) => {
 })(pr, diff, c, r, findings);
 assert.deepStrictEqual(kept.map((f) => [f.title, f.confidence]), [["Wrong total", 0.9], ["Maybe race", 0.5]]);
 assert(seen.includes("1. [high] a.js:2: Wrong total") && seen.includes("Suggested code:\nb + tax") && seen.includes("+b"), "prompt lists findings and the diff");
-console.log("✓ drops low scores, orders by score");
+ctx.diagnostic("drops low scores, orders by score");
 
 await assert.rejects(load(async () => '{"scores":[{"index":0,"score":3}]}')(pr, diff, c, r, findings), /did not score every finding/);
 await assert.rejects(load(async () => "no json here")(pr, diff, c, r, findings), /did not return valid JSON/);
-console.log("✓ incomplete or invalid answers fail loudly");
+ctx.diagnostic("incomplete or invalid answers fail loudly");
 
 const clamped = await load(async () => '{"scores":[{"index":0,"score":42},{"index":1,"score":-3},{"index":2,"score":"7"}]}')(pr, diff, c, r, findings);
 assert.deepStrictEqual(clamped.map((f) => f.confidence), [1, 0.7]);
-console.log("✓ scores clamped to 0-10");
+ctx.diagnostic("scores clamped to 0-10");
 
-console.log("All self-reflection tests passed");
+});

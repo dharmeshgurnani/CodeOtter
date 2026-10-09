@@ -10,11 +10,14 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes, createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { test } from "node:test";
+
+test("Forgejo / Gitea end to end", { timeout: 20 * 60e3 }, async (ctx) => {
 
 const provider = process.argv.includes("--gitea") ? "gitea" : "forgejo";
 const envPrefix = provider.toUpperCase();
 const image = provider === "gitea" ? "gitea/gitea:1.24.6" : "codeberg.org/forgejo/forgejo:15";
-const root = resolve(import.meta.dirname, "..");
+const root = resolve(import.meta.dirname, "..", "..");
 const dir = mkdtempSync(join(tmpdir(), `codeotter-${provider}-test-`));
 const container = `codeotter-${provider}-test-${randomBytes(4).toString("hex")}`;
 const processes = [];
@@ -496,9 +499,9 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   }
   assert.equal(backend.exitCode, null, backend.testOutput());
 } catch (e) {
-  console.error(e);
   for (const p of processes) if (p.exitCode !== null) console.error(p.testOutput());
-  process.exitCode = 1;
+  throw e;
 } finally {
   await cleanup();
 }
+});

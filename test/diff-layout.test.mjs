@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { stripVTControlCharacters } from 'node:util';
 import blessed from 'blessed';
 import { fitDiffOutput } from '../tui/diff-viewer.mjs';
+import { test } from 'node:test';
+
+test('diff layout', async (ctx) => {
 
 const code = '+  ' + 'long_code_'.repeat(20) + '界';
 const input = `\x1b[31m  11   12 │ ${code}\x1b[0m\x1b[0K`;
@@ -15,4 +18,5 @@ for (const width of [40, 76, 120]) {
   for (const line of lines) assert(blessed.unicode.strWidth(line) <= width);
   assert.equal(lines.map(line => line.slice(12)).join(''), code, 'Wrapping preserves source whitespace and characters');
 }
-console.log('Diff layout tests passed: preserved gutters, Unicode width, source text and erase-code cleanup.');
+ctx.diagnostic('Diff layout tests passed: preserved gutters, Unicode width, source text and erase-code cleanup.');
+});
