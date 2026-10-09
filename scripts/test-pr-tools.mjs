@@ -3,7 +3,7 @@
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
 
-const src = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+const src = readFileSync(new URL("../core/server.mjs", import.meta.url), "utf8");
 const block = (name) => src.slice(src.indexOf(`// <${name}>`), src.indexOf(`// </${name}>`));
 
 export function loadTools({ answer, body = "Author text.", reflectMin = 0, files = {} }) {

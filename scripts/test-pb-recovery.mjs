@@ -40,7 +40,7 @@ try {
     assert.equal(init.method || 'GET', 'GET', 'No storage writes during recovery');
     return Response.json({ items: [] });
   };
-  const { repositoryBoard } = await import('../server.mjs');
+  const { repositoryBoard } = await import('../core/server.mjs');
   await repositoryBoard();
   assert.equal(starts, 1);
   available = false;

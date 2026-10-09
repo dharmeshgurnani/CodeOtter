@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 
-const cli = fileURLToPath(new URL('../bin/codeotter.mjs', import.meta.url));
+const cli = fileURLToPath(new URL('../tui/codeotter.mjs', import.meta.url));
 const run = (args, input) => execFileSync(process.execPath, [cli, ...args], { encoding: 'utf8', input, timeout: 10000 });
 assert.match(run(['--help']), /CodeOtter CLI/);
 assert.match(run(['--version']), /\d+\.\d+\.\d+/);
@@ -27,7 +27,7 @@ try {
   mkdirSync(installation);
   writeFileSync(join(temp, '.env'), 'CODEOTTER_TEST_INSTALLATION=wrong\n');
   writeFileSync(join(installation, '.env'), 'CODEOTTER_TEST_INSTALLATION=selected\n');
-  const probe = `await import(${JSON.stringify(new URL('../bin/codeotter.mjs', import.meta.url).href)}); console.log(process.env.CODEOTTER_TEST_INSTALLATION)`;
+  const probe = `await import(${JSON.stringify(new URL('../tui/codeotter.mjs', import.meta.url).href)}); console.log(process.env.CODEOTTER_TEST_INSTALLATION)`;
   const env = { ...process.env, CODEOTTER_HOME: installation };
   delete env.CODEOTTER_TEST_INSTALLATION;
   const result = execFileSync(process.execPath, ['--input-type=module', '-e', probe], { cwd: temp, env, encoding: 'utf8', timeout: 10000 });

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // 🦦 CodeOtter CLI — Autonomous Dual-Engine AI Code Review, Scoring Gauges & Pre-Merge Gate Enforcement.
-// Blessed is lazy-loaded only for the interactive TUI; CI and MCP use Node alone.
+// Reviews run through core/server.mjs (same engines and rules as the web app). Blessed is lazy-loaded only for the TUI.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
-import { normalizeReview } from "./review-output.mjs";
+import { text } from "./review-output.mjs";
 
 // An explicit installation must not inherit another checkout's .env credentials.
 const envFiles = process.env.CODEOTTER_HOME
@@ -348,143 +348,26 @@ async function requestLlm(prompt, config, signal) {
   }
 }
 
-// --- Multi-Agent Anti-Hallucination Critique Pass ---
-async function critiqueFindings(findings, diff, guide, config, signal) {
-  if (!findings || !findings.length) return [];
-  const critiquePrompt = `You are the CodeOtter Critique & Anti-Hallucination Filter Agent.
-Your job is to strictly verify candidate code review findings against the git diff and rules to eliminate false positives, hallucinated deprecations, and ungrounded nitpicks.
-
-GIT DIFF:
-\`\`\`diff
-${diff.slice(0, 30000)}
-\`\`\`
-
-${guide ? `REPOSITORY GUIDELINES:\n${guide}\n` : ""}
-
-CANDIDATE FINDINGS TO CRITIQUE:
-${JSON.stringify(findings, null, 2)}
-
-INSTRUCTIONS:
-1. For each finding, verify:
-   - Is the line number and referenced symbol ACTUALLY modified or present in this hunk?
-   - Is the reported issue accurate according to the language/framework, rather than an LLM hallucination?
-   - Is the suggestion valid, syntactically correct, and non-trivial?
-2. Discard any findings that fail verification, cite non-existent code, or are pedantic stylistic noise.
-3. Return ONLY valid JSON matching this exact array:
-[
-  {
-    "file": "path/to/file.ext",
-    "line": 42,
-    "severity": "critical" | "warning" | "suggestion" | "note",
-    "title": "Concise headline",
-    "detail": "Accurate technical explanation",
-    "suggestion": "optional committable replacement code snippet"
-  }
-]`;
-
-  try {
-    const raw = await requestLlm(critiquePrompt, config, signal);
-    const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch (err) {
-    throw new Error(`Self-check failed: ${err.message}`);
-  }
-  throw new Error("Self-check failed to output a JSON array.");
-}
-
-// --- Main Review Engine ---
+// --- Review Engine: the server's engines, so System One owns scores and gates when it is configured ---
+const SEVERITY = { high: "critical", medium: "warning", low: "suggestion", nit: "note" };
 async function runReview(diff, options = {}) {
-  const { files = parseDiff(diff), title = "Local Workspace Review", body = "", guide = getLocalGuidelines(), config = resolveModelConfig(options) } = options;
-
+  const { files = parseDiff(diff), title = "Local Workspace Review", body = "", guide = getLocalGuidelines() } = options;
+  // Explicit flags pick the language model; otherwise the installation's configured engines are used.
+  const explicit = options.provider || options.model || options.baseUrl || options.key;
+  const { reviewDiff } = await import("../core/server.mjs");
+  const r = await reviewDiff({ title, body, diff, files, guide, llm: explicit ? resolveModelConfig(options) : null, signal: options.signal || null });
   const symbols = extractSymbolsFromDiff(diff);
   const outsideImpact = findOutsideImpact(symbols, files);
-  const blast = computeBlastRadius(files, outsideImpact.outsideCallers, outsideImpact.uniqueFiles);
-
-  const reviewPrompt = `You are CodeOtter, an expert staff code reviewer. Analyze the pull request / workspace diff below with high precision.
-
-PR TITLE: ${title}
-PR DESCRIPTION: ${body || "(none provided)"}
-
-DIFF FACTS:
-- Changed files: ${files.length}
-- Total lines changed: ${blast.lines}
-- Sensitive hotspots: ${blast.hotspots.join(", ") || "none"}
-- Outside affected callers: ${outsideImpact.outsideCallers} (${outsideImpact.uniqueFiles} outside files)
-${outsideImpact.callers.length ? `- Outside call sites:\n${outsideImpact.callers.slice(0, 5).map((c) => `  * ${c.file}:${c.line} -> ${c.symbol}`).join("\n")}` : ""}
-
-${guide ? `REPOSITORY GUIDELINES (Enforce strictly):\n${guide}\n` : ""}
-
-GIT DIFF:
-\`\`\`diff
-${diff.slice(0, 35000)}
-\`\`\`
-
-Provide your evaluation as a valid JSON object with the following structure:
-{
-  "scores": {
-    "quality": <0-100>,
-    "correctness_risk": <0-100>,
-    "test_coverage": <0-100>,
-    "readability": <0-100>,
-    "pr_hygiene": <0-100>,
-    "blast_radius": <0-100>
-  },
-  "gates": [
-    { "id": "title", "pass": <true/false>, "explanation": "..." },
-    { "id": "description", "pass": <true/false>, "explanation": "..." },
-    { "id": "security", "pass": <true/false>, "explanation": "..." },
-    { "id": "complexity", "pass": <true/false>, "explanation": "..." },
-    { "id": "tests", "pass": <true/false>, "explanation": "..." },
-    { "id": "docs", "pass": <true/false>, "explanation": "..." },
-    { "id": "scope", "pass": <true/false>, "explanation": "..." },
-    { "id": "guidelines", "pass": <true/false>, "explanation": "..." }
-  ],
-  "summary": "2-3 concise sentences summarizing key intent and technical changes.",
-  "walkthrough": [
-    { "file": "path/to/file", "change": "High level summary of what changed in this file" }
-  ],
-  "findings": [
-    {
-      "file": "path/to/file",
-      "line": <line_number_or_null>,
-      "severity": "critical" | "warning" | "suggestion" | "note",
-      "title": "Brief issue summary",
-      "detail": "Technical reason and impact",
-      "suggestion": "exact replacement code if applicable"
-    }
-  ]
-}
-Return ONLY the raw JSON object.`;
-
-  const raw = await requestLlm(reviewPrompt, config, options.signal);
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("Model failed to output valid JSON review.");
-  const review = normalizeReview(JSON.parse(jsonMatch[0]), S1_GATES);
-
-  // Run Anti-Hallucination Critique Pass if enabled
-  let finalFindings = review.findings || [];
-  if (!options.noCritique && finalFindings.length > 0) {
-    finalFindings = normalizeReview({ ...review, findings: await critiqueFindings(finalFindings, diff, guide, config, options.signal) }, S1_GATES).findings;
-  }
-
   return {
-    title,
-    body,
-    files,
-    blast: { ...blast, score: review.scores.blast_radius },
+    ...r,
+    blast: { ...r.blast, outsideCallers: outsideImpact.outsideCallers, outsideFiles: outsideImpact.uniqueFiles },
     outsideImpact,
-    scores: review.scores,
-    gates: (review.gates || []).map((g) => {
-      const def = S1_GATES.find((d) => d.id === g.id);
-      return { id: g.id, label: def?.label || g.id, pass: !!g.pass, explanation: g.explanation || "" };
-    }),
-    summary: review.summary || "",
-    walkthrough: review.walkthrough || [],
-    findings: finalFindings,
-    model: `${config.provider}/${config.model}`,
+    gates: r.gates.map((g) => ({ id: g.id, label: g.label, pass: !!g.pass, explanation: g.explanation || (typeof g.yes === "number" ? `${Math.round(g.yes * 100)}% yes` : "") })),
+    findings: r.findings.map((f) => ({
+      file: text(f.file), line: Number.isInteger(f.line) && f.line > 0 ? f.line : null,
+      severity: SEVERITY[f.severity] || (["critical", "warning", "suggestion", "note"].includes(f.severity) ? f.severity : "note"),
+      title: text(f.title), detail: text(f.detail), suggestion: text(f.suggestion),
+    })),
   };
 }
 
@@ -640,7 +523,7 @@ function startMcpServer() {
           tools: [
             {
               name: "codeotter_review_diff",
-              description: "Review a git diff or pull request with CodeOtter's dual-engine scorer, gates, and anti-hallucination critique.",
+              description: "Review a git diff or pull request with CodeOtter's engines: System One scores and gates when configured, language-model findings with a self-check.",
               inputSchema: {
                 type: "object",
                 properties: {
@@ -721,7 +604,6 @@ ${c.bold}OPTIONS:${c.reset}
   --fail-on-gate      Exit with code 1 if any pre-merge gate fails (CI mode)
   --min-score <n>     Exit with code 1 if Quality score is less than <n> (default: 60)
   --post-comment      Post / update review scorecard comment on the Pull Request
-  --no-critique       Skip multi-agent anti-hallucination verification pass
   --json              Output raw JSON review payload
   -v, --version       Show version
   -h, --help          Show this help message
@@ -751,7 +633,6 @@ async function main() {
     failOnGate: argv.includes("--fail-on-gate"),
     minScore: argv.includes("--min-score") ? Number(argv[argv.indexOf("--min-score") + 1]) : 60,
     postComment: argv.includes("--post-comment"),
-    noCritique: argv.includes("--no-critique"),
     json: argv.includes("--json"),
     diffFile: argv.includes("--diff") ? argv[argv.indexOf("--diff") + 1] : null,
   };

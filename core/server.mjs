@@ -1,4 +1,4 @@
-// pr-scorer: zero-dependency PR quality + blast-radius scorer. `node server.mjs` then open http://localhost:4747
+// CodeOtter backend. `node core/server.mjs` then open http://localhost:4747. Dependency-free; this folder will grow into modules.
 import http from "node:http";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomBytes, createHash, createSign } from "node:crypto";
@@ -10,7 +10,8 @@ import { pathToFileURL } from "node:url";
 
 // Importing the shared services from the TUI must not start a web server or automation.
 const IS_SERVER = !!process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
-const CODEOTTER_HOME = resolve(process.env.CODEOTTER_HOME || import.meta.dirname);
+const ROOT = resolve(import.meta.dirname, ".."); // repository root: package.json, web/, .env, data folders
+const CODEOTTER_HOME = resolve(process.env.CODEOTTER_HOME || ROOT);
 
 // Auto-load .env if present
 const ENV_FILE = join(CODEOTTER_HOME, ".env");
@@ -37,7 +38,7 @@ const FORGES = {
   gitea: { label: "Gitea", pb: "gitea", url: forgeOrigin(process.env.GITEA_URL || ""), token: process.env.GITEA_TOKEN || "" },
 };
 // Newest published release, refreshed in the background at most every 6 hours. CODEOTTER_UPDATE_CHECK=0 turns it off.
-const VERSION = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8")).version;
+const VERSION = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
 const release = { at: 0, version: "", url: "" };
 const newer = (a, b) => { const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; };
 function availableUpdate() {
@@ -66,7 +67,7 @@ function repoFromCwd() {
     if (m && REPO_RE.test(`${m[1]}/${m[2]}`)) return `${m[1]}/${m[2]}`;
   } catch {}
   try {
-    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
     const repoStr = typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url || "";
     const m = repoStr.match(/(?:github\.com\/|github:|^)([\w.-]+\/[\w.-]+?)(?:\.git)?$/);
     if (m && REPO_RE.test(m[1])) return m[1];
@@ -459,6 +460,8 @@ async function s1Config() {
   const baseUrl = saved.baseUrl || p.baseUrl;
   return { provider, model: saved.model || p.models[0] || "", baseUrl, apiKey, enabled: provider === "custom" ? !!baseUrl : !!apiKey };
 }
+// Model calls carry an optional caller abort signal on the config (c.signal) next to their timeout.
+const withAbort = (signal, ms) => (signal ? AbortSignal.any([signal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms));
 async function askSystemOne(state, questions, c, onChunk) {
   if (!c.enabled) throw new Error(c.local ? `${c.local.label} is not downloaded: open Settings / Local models` : "No System One model configured: open Settings");
   const base = c.local ? `http://127.0.0.1:${await ensureSidecar(c.local)}` : c.baseUrl.replace(/\/+$/, "");
@@ -478,7 +481,7 @@ async function askSystemOne(state, questions, c, onChunk) {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json", ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) },
     body: JSON.stringify({ model: c.model, state, questions }),
-    signal: AbortSignal.timeout(c.local ? 300000 : 60000),
+    signal: withAbort(c.signal, c.local ? 300000 : 60000),
   });
   if (!res.ok) throw new Error(`${S1_PROVIDERS[c.provider]?.label || c.provider} ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const ans = (await res.json()).answers || {};
@@ -942,7 +945,7 @@ async function askModel(prompt, c) {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": c.apiKey, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({ model: c.model, max_tokens: 16000, ...(/^claude-(opus|sonnet|fable)-5/.test(c.model) ? { output_config: { effort: "high" } } : {}), messages: [{ role: "user", content: prompt }] }),
-      signal: AbortSignal.timeout(600000),
+      signal: withAbort(c.signal, 600000),
     });
     if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const msg = await res.json();
@@ -954,7 +957,7 @@ async function askModel(prompt, c) {
     method: "POST",
     headers: { "content-type": "application/json", ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) },
     body: JSON.stringify({ model: c.model, temperature: c.temperature ?? 0.2, messages: [{ role: "user", content: prompt }] }),
-    signal: AbortSignal.timeout(c.local ? 900000 : 180000),
+    signal: withAbort(c.signal, c.local ? 900000 : 180000),
   });
   if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return (await res.json()).choices[0].message.content.replace(/<think>[\s\S]*?<\/think>/g, "");
@@ -988,7 +991,7 @@ async function guideFiles(repo, ref = "") {
   for (const f of GUIDE_FILES) {
     const exists = await ghAsync("api", `repos/${repo}/contents/${f}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`, "--jq", ".name").then(() => true)
       .catch(() => (ref ? ghAsync("api", `repos/${repo}/contents/${f}`, "--jq", ".name").then(() => true) : false))
-      .catch(() => repo === REPO && existsSync(join(import.meta.dirname, f)));
+      .catch(() => repo === REPO && existsSync(join(ROOT, f)));
     if (exists) files.push(f);
   }
   guideCache.set(cacheKey, { files, at: Date.now() });
@@ -1008,7 +1011,7 @@ const guideText = async (repo, file, ref = "") => {
   try {
     return await ghAsync("api", `repos/${repo}/contents/${file}`, "-H", "Accept: application/vnd.github.raw");
   } catch {
-    return repo === REPO && existsSync(join(import.meta.dirname, file)) ? readFileSync(join(import.meta.dirname, file), "utf8") : "";
+    return repo === REPO && existsSync(join(ROOT, file)) ? readFileSync(join(ROOT, file), "utf8") : "";
   }
 };
 async function guideFor(repo, ref = "", contentRepo = repo) {
@@ -3426,13 +3429,13 @@ function renderScore(r) {
   );
 }
 
-const DIST = join(import.meta.dirname, "web", "dist");
+const DIST = join(ROOT, "web", "dist");
 if (IS_SERVER && !existsSync(DIST)) {
   console.log("web/dist not found. Building web frontend...");
   try {
     const isWin = process.platform === "win32";
     const pnpmCmd = isWin ? "pnpm.cmd" : "pnpm";
-    execFileSync(pnpmCmd, ["-C", join(import.meta.dirname, "web"), "build"], { stdio: "inherit" });
+    execFileSync(pnpmCmd, ["-C", join(ROOT, "web"), "build"], { stdio: "inherit" });
   } catch (err) {
     console.warn("Could not auto-build web frontend:", err.message);
   }
@@ -4086,6 +4089,39 @@ export async function repositoryReview(repo, pr, force = false) {
   if (!(await repos()).includes(repo) || parsePrUrl(pr)?.repo !== repo) throw new Error("Pull request is outside the connected repository");
   return startOrPollReview(pr, force, repo, "", false);
 }
+// Local diff review for the CLI, TUI and MCP server: the same engines and rules as a pull request review. A configured
+// System One model owns every score and gate; the language model is asked for scores only when there is none, and no
+// gates are reported without System One. `llm` (provider, model, baseUrl, apiKey) overrides the saved language model.
+export async function reviewDiff({ title = "Local changes", body = "", diff, files, guide = null, llm = null, onProgress = null, signal = null }) {
+  await initializeCore();
+  if (!diff?.trim()) throw new Error("Empty diff");
+  const [saved, s1Saved, rc] = await Promise.all([llmConfig(), s1Config(), reviewConfig()]);
+  const c = { ...(llm?.model
+    ? { provider: llm.provider || "custom", api: llm.provider === "anthropic" ? "anthropic" : "openai", baseUrl: llm.baseUrl || "", model: llm.model, apiKey: llm.apiKey || "" }
+    : saved), signal };
+  const s1 = { ...s1Saved, signal };
+  const llmReady = c.local ? c.enabled : !!c.model && (!!c.apiKey || !!PROVIDERS[c.provider]?.noKey || /localhost|127\.0\.0\.1/.test(c.baseUrl));
+  if (!llmReady && !s1.enabled) throw new Error("No model configured: open Settings / Model provider, or pass --provider and --model");
+  if (llmReady && c.api === "codereviewer" && !s1.enabled) throw new Error(`${c.local.label} writes review comments only. Configure a System One model for scores.`);
+  const sum = (k) => files.reduce((n, f) => n + (Number(f[k]) || 0), 0);
+  const pr = { number: 0, url: "", title, body, author: { login: process.env.USER || process.env.USERNAME || "local" }, baseRefName: "", headRefName: "", files, changedFiles: files.length, additions: sum("additions"), deletions: sum("deletions"), commits: [] };
+  const g = guide ? (typeof guide === "string" ? { file: "AGENTS.md", text: guide } : guide) : null;
+  const [typed, narrative] = await Promise.all([
+    s1.enabled ? scoreWithSystemOne(pr, diff, s1, g, null, null) : null,
+    llmReady ? judge(pr, diff, c, rc, g, !s1.enabled, null, onProgress) : null,
+  ]);
+  const { blast_radius, ...scores } = typed ? typed.scores : { ...narrative.scores, blast_radius: narrative.blastRadius };
+  const gates = typed?.gates || [];
+  const bad = gates.some((x) => x.id === "security" && !x.pass) || scores.quality < 40;
+  const review = narrative || { summary: "Scored by CodeOtter.", verdict: bad ? "request_changes" : scores.quality >= 70 && gates.every((x) => x.pass) ? "approve" : "comment", findings: [], walkthrough: [] };
+  const engines = { llm: llmReady ? `${c.provider}/${c.model}` : null, s1: s1.enabled ? `${s1.provider}/${s1.model}` : null };
+  return {
+    title, body, files, scores, gates,
+    blast: { ...blastRadius(files), score: blast_radius, source: typed ? "s1" : "llm" },
+    summary: review.summary, verdict: review.verdict, findings: review.findings, walkthrough: review.walkthrough,
+    engines, model: [engines.llm, engines.s1].filter(Boolean).join(" + "),
+  };
+}
 export async function repositoryDiff(repo, pr) {
   await initializeCore();
   checkRepoScope(repo, repo.split("/")[0]);
@@ -4551,7 +4587,7 @@ http
         return res.end();
       }
       if (url.pathname === "/favicon.svg") {
-        const file = [join(DIST, "favicon.svg"), join(import.meta.dirname, "web", "public", "favicon.svg")].find(existsSync);
+        const file = [join(DIST, "favicon.svg"), join(ROOT, "web", "public", "favicon.svg")].find(existsSync);
         res.setHeader("content-type", "image/svg+xml; charset=utf-8");
         res.setHeader("cache-control", "public, max-age=86400");
         if (file) return res.end(readFileSync(file));

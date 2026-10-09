@@ -7,12 +7,14 @@ import { promisify } from 'node:util';
 import { createServer } from 'node:http';
 import { PassThrough } from 'node:stream';
 import blessed from 'blessed';
-import { createWorkspace, reviewSections } from '../bin/workspace.mjs';
-import { normalizeReview, text } from '../bin/review-output.mjs';
-import { startTui } from '../bin/tui.mjs';
+import { createWorkspace, reviewSections } from '../tui/workspace.mjs';
+import { normalizeReview, text } from '../tui/review-output.mjs';
+import { startTui } from '../tui/tui.mjs';
 
 const root = process.cwd();
 const temp = mkdtempSync(join(tmpdir(), 'codeotter-tui-'));
+// Reviews import core/server.mjs: keep storage and settings in the throwaway home, never the live installation.
+process.env.CODEOTTER_HOME = temp; process.env.CODEOTTER_UPDATE_CHECK = '0'; process.env.PB_URL = '';
 const gateIds = ['title', 'description', 'security', 'complexity', 'tests', 'docs', 'scope', 'guidelines'];
 const fixture = {
   scores: Object.fromEntries(['quality', 'correctness_risk', 'test_coverage', 'readability', 'pr_hygiene', 'blast_radius'].map(k => [k, 55])),
@@ -27,7 +29,7 @@ const server = createServer(async (req, res) => {
   const prompt = JSON.parse(body).messages[0].content;
   requests.push(prompt);
   if (responseMode === 'slow') return;
-  const content = responseMode === 'invalid' ? '{}' : prompt.includes('CANDIDATE FINDINGS') ? '[]' : prompt.includes('valid JSON object') ? JSON.stringify(fixture) : '# Draft\nFixture answer';
+  const content = responseMode === 'invalid' ? '{}' : prompt.includes('checking another reviewer') ? '{"scores":[{"index":0,"score":0}]}' : prompt.includes('senior staff code reviewer') ? JSON.stringify(fixture) : '# Draft\nFixture answer';
   res.setHeader('content-type', 'application/json');
   res.end(JSON.stringify({ choices: [{ message: { content } }] }));
 });
@@ -48,11 +50,11 @@ try {
   const entry = await workspace.run('review');
   assert.equal(entry.result.blast.score, 55);
   assert.deepEqual(entry.result.findings, [], 'self-check can reject all findings');
-  assert.match(reviewSections(entry).Gates, /PASS/);
+  assert.deepEqual(entry.result.gates, [], 'gates come from System One only; none without it');
   for (const tool of ['ask', 'describe', 'improve', 'docs', 'changelog']) assert.match((await workspace.run(tool, 'Why?')).result, /Draft/);
   assert(requests.some(p => p.includes('QUESTION: Why?')));
   assert.equal(workspace.history.length, 6);
-  const cliArgs = [resolve(root, 'bin/codeotter.mjs'), 'review', '--json', '--provider', 'custom', '--model', 'fixture', '--base-url', workspace.config.baseUrl];
+  const cliArgs = [resolve(root, 'tui/codeotter.mjs'), 'review', '--json', '--provider', 'custom', '--model', 'fixture', '--base-url', workspace.config.baseUrl];
   const cli = await promisify(execFile)(process.execPath, cliArgs, { encoding: 'utf8' });
   assert.equal(JSON.parse(cli.stdout).scores.quality, 55, 'CLI JSON stays machine-readable');
   await assert.rejects(promisify(execFile)(process.execPath, [...cliArgs, '--fail-on-gate', '--min-score', '90']), error => error.code === 1 && JSON.parse(error.stdout).scores.quality === 55);
@@ -95,7 +97,7 @@ try {
   assert.match(screen.screenshot(), /CodeOtter/);
   press('q'); await tui;
   screen = null;
-  const noTty = spawnSync(process.execPath, [resolve(root, 'bin/codeotter.mjs'), 'tui'], { encoding: 'utf8' });
+  const noTty = spawnSync(process.execPath, [resolve(root, 'tui/codeotter.mjs'), 'tui'], { encoding: 'utf8' });
   assert.equal(noTty.status, 1); assert.match(noTty.stderr, /interactive terminal/);
   console.log('TUI tests passed: git sources, model review/tools, failures, cancellation, export, terminal widgets and resize.');
 } finally {

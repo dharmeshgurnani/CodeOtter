@@ -138,11 +138,12 @@ try {
   modelServer.listen(mp, "127.0.0.1"); await once(modelServer, "listening");
 
   const pbDir = join(dir, "pb_data");
-  const migrations = join(root, "pb_migrations");
+  const migrations = join(root, "core", "pb_migrations");
   execFileSync(pbBin, ["superuser", "upsert", "admin@example.test", pbPassword, `--dir=${pbDir}`, `--migrationsDir=${migrations}`], { stdio: "pipe", windowsHide: true });
   child(pbBin, ["serve", `--http=127.0.0.1:${pp}`, `--dir=${pbDir}`, `--migrationsDir=${migrations}`]);
   await ready(`${pb}/api/health`);
-  for (const f of ["server.mjs", "package.json", "models.json", "showcase.json"]) cpSync(join(root, f), join(dir, f));
+  mkdirSync(join(dir, "core"), { recursive: true }); cpSync(join(root, "package.json"), join(dir, "package.json"));
+  for (const f of ["server.mjs", "models.json", "showcase.json"]) cpSync(join(root, "core", f), join(dir, "core", f));
   cpSync(join(root, "web", "dist"), join(dir, "web", "dist"), { recursive: true });
   // Never invoke the real GitHub CLI or inspect a real checkout during this suite.
   const preload = join(dir, "github-fixture.mjs");
@@ -161,7 +162,7 @@ function fixture(args){
 }
 const real=cp.execFileSync; cp.execFileSync=(bin,args,...rest)=>{if(bin==='gh')return fixture(args); if(bin==='git')throw new Error('No checkout'); return real(bin,args,...rest);};
 const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPath,['-e','process.stdout.write(process.argv[1])',fixture(args)],opts):spawn(bin,args,opts);syncBuiltinESMExports();`);
-  const backend = child(process.execPath, ["--import", pathToFileURL(preload).href, join(dir, "server.mjs")], { cwd: dir, env: {
+  const backend = child(process.execPath, ["--import", pathToFileURL(preload).href, join(dir, "core", "server.mjs")], { cwd: dir, env: {
     ...process.env, PORT: String(ap), APP_URL: app, PB_URL: pb, PB_ADMIN_EMAIL: "admin@example.test", PB_ADMIN_PASSWORD: pbPassword,
     FORGEJO_URL: "", FORGEJO_TOKEN: "", GITEA_URL: "", GITEA_TOKEN: "", REPO: "reviewer/sample", PR_SCORER_RECOVERY: "", PR_SCORER_DATA: join(dir, "local"),
   } });
@@ -462,7 +463,8 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
 
   const fileDir = join(dir, "file-storage");
   mkdirSync(join(fileDir, "scores"), { recursive: true });
-  for (const f of ["server.mjs", "package.json", "models.json", "showcase.json"]) cpSync(join(root, f), join(fileDir, f));
+  mkdirSync(join(fileDir, "core"), { recursive: true }); cpSync(join(root, "package.json"), join(fileDir, "package.json"));
+  for (const f of ["server.mjs", "models.json", "showcase.json"]) cpSync(join(root, "core", f), join(fileDir, "core", f));
   writeFileSync(join(fileDir, "config.json"), JSON.stringify({
     [provider]: { url: forge, token: token.sha1 },
     repos: ["reviewer/sample", `${provider}~reviewer/sample`],
@@ -473,7 +475,7 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   writeFileSync(legacyPath, legacy);
   const filePort = await port();
   const fileApp = `http://127.0.0.1:${filePort}`;
-  child(process.execPath, ["--import", pathToFileURL(preload).href, join(fileDir, "server.mjs")], { cwd: fileDir, env: {
+  child(process.execPath, ["--import", pathToFileURL(preload).href, join(fileDir, "core", "server.mjs")], { cwd: fileDir, env: {
     ...process.env, PATH: "", Path: "", PB_URL: "", PORT: String(filePort), APP_URL: fileApp,
     FORGEJO_URL: "", FORGEJO_TOKEN: "", GITEA_URL: "", GITEA_TOKEN: "", REPO: "reviewer/sample", PR_SCORER_RECOVERY: "", PR_SCORER_DATA: join(fileDir, "local"),
   } });
