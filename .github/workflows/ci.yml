@@ -15,9 +15,4 @@ jobs:
       - run: node --check core/server.mjs
       - run: pnpm install --frozen-lockfile
       - run: pnpm -C web install --frozen-lockfile && pnpm -C web build
-      - name: Offline tests
-        run: |
-          for t in test/test-*.mjs; do
-            case "$t" in *forge*) continue;; esac
-            echo "== $t"; node "$t" || exit 1
-          done
+      - run: pnpm test

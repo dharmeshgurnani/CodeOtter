@@ -14,6 +14,7 @@
     "cli": "node tui/codeotter.mjs",
     "tui": "node tui/codeotter.mjs tui",
     "build:tui-icon": "node tui/build-icon.mjs",
+    "test": "node test/run.mjs",
     "test:cli": "node test/test-cli.mjs && node test/test-tui.mjs && node test/test-repository-tui.mjs && node test/test-terminal-icon.mjs && node test/test-diff-layout.mjs && node test/test-pb-recovery.mjs",
     "dev": "node bin/dev.mjs",
     "start": "node core/server.mjs",

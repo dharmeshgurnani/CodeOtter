@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Tests live in `test/` (was `scripts/`), the dev launcher in `bin/dev.mjs`, the terminal icon builder in `tui/build-icon.mjs`. `scripts/` is gone.
+- Tests live in `test/` (was `scripts/`), the dev launcher in `bin/dev.mjs`, the terminal icon builder in `tui/build-icon.mjs`. `scripts/` is gone. `pnpm test` runs the offline suite (`pnpm test tui` filters by name); CI uses it.
 - `install.sh`, `start.sh` and the `deploy/` templates (Azure, Caddy, Linode) moved to `bin/`; `pnpm co:install` and `pnpm co:start` run them. The installer URL is now `.../main/bin/install.sh` (the Azure button and Linode StackScript follow). `start.sh` now works from any checkout, not only the Docker image.
 - **CLI, TUI and MCP reviews use the server engines** (`reviewDiff` in `core/server.mjs`): a configured System One model owns every score and gate, the language model writes the prose and is asked for scores only when no System One model exists, and findings go through the self-check. The CLI no longer carries its own review prompt, score request or critique pass; `--no-critique` is gone. Gates are not reported without a System One model. Cancelling a TUI review aborts the model calls.
 - **Layout**: the backend lives in `core/` (`server.mjs`, `models.json`, `showcase.json`, `pb_migrations/`, `runtimes/`) and the CLI and TUI in `tui/` (was `bin/`). `pnpm start` runs `node core/server.mjs`; the Docker image and `start.sh` follow. Data folders (`pb_data`, `scores`, `.local`, `.pb`, `.env`) stay at the root, so existing installs keep working.
