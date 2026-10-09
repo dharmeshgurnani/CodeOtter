@@ -10,5 +10,5 @@ if [ -z "$domain" ]; then
   ip="$(hostname -I | awk '{print $1}')"
   domain="${ip//./-}.ip.linodeusercontent.com"
 fi
-curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh \
   | CODEOTTER_DOMAIN="$domain" GH_TOKEN="${GH_TOKEN:-${gh_token:-}}" LLM_API_KEY="${LLM_API_KEY:-${llm_api_key:-}}" bash

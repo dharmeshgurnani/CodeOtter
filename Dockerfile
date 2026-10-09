@@ -39,11 +39,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY start.sh package.json ./
+COPY package.json ./
+COPY bin ./bin
 COPY core ./core
 COPY tui ./tui
 COPY --from=terminal-deps /app/node_modules ./node_modules
-RUN chmod +x /app/tui/codeotter.mjs /app/start.sh \
+RUN chmod +x /app/tui/codeotter.mjs /app/bin/start.sh \
  && ln -s /app/tui/codeotter.mjs /usr/local/bin/codeotter
 COPY --from=web /app/web/dist ./web/dist
 
@@ -51,4 +52,4 @@ ENV PB_URL=http://127.0.0.1:8090 PORT=4747 PR_SCORER_DATA=/app/pb_data/local S1_
 EXPOSE 4747 8090
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -sf http://127.0.0.1:4747/healthz >/dev/null || exit 1
 VOLUME ["/app/pb_data"]
-CMD ["sh", "/app/start.sh"]
+CMD ["sh", "/app/bin/start.sh"]

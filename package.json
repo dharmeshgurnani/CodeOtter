@@ -17,6 +17,8 @@
     "test:cli": "node scripts/test-cli.mjs && node scripts/test-tui.mjs && node scripts/test-repository-tui.mjs && node scripts/test-terminal-icon.mjs && node scripts/test-diff-layout.mjs && node scripts/test-pb-recovery.mjs",
     "dev": "node scripts/dev.mjs",
     "start": "node core/server.mjs",
+    "co:start": "sh bin/start.sh",
+    "co:install": "bash bin/install.sh",
     "test:forgejo": "node scripts/test-forgejo.mjs",
     "test:gitea": "node scripts/test-forges.mjs --gitea",
     "build": "pnpm -C web install && pnpm -C web build"

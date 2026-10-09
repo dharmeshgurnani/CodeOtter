@@ -2,8 +2,8 @@
 # Installs CodeOtter on a Linux server: Docker, the release image, hourly Watchtower updates,
 # and HTTPS through Caddy when a domain is given.
 #
-#   curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/install.sh | sudo bash
-#   curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/install.sh | sudo CODEOTTER_DOMAIN=review.example.com bash
+#   curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh | sudo CODEOTTER_DOMAIN=review.example.com bash
 #
 # Optional: CODEOTTER_DOMAIN (DNS A record must point here), CODEOTTER_DIR (default /opt/codeotter),
 # CODEOTTER_REF (git ref for the Compose files, default main), and GH_TOKEN, LLM_API_KEY, LLM_MODEL,

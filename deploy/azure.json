@@ -13,7 +13,7 @@
   "variables": {
     "location": "[resourceGroup().location]",
     "fqdn": "[concat(parameters('dnsLabel'), '.', variables('location'), '.cloudapp.azure.com')]",
-    "script": "[concat('#!/bin/bash\ncurl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/install.sh | CODEOTTER_DOMAIN=', variables('fqdn'), ' GH_TOKEN=''', parameters('ghToken'), ''' LLM_API_KEY=''', parameters('llmApiKey'), ''' bash\n')]"
+    "script": "[concat('#!/bin/bash\ncurl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh | CODEOTTER_DOMAIN=', variables('fqdn'), ' GH_TOKEN=''', parameters('ghToken'), ''' LLM_API_KEY=''', parameters('llmApiKey'), ''' bash\n')]"
   },
   "resources": [
     {
