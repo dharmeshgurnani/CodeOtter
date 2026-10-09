@@ -159,6 +159,7 @@ cd CodeOtter
 pnpm dev      # Development: starts Backend, PocketBase, and Vite dev server with HMR (:5173 -> :4747)
 # or
 pnpm start    # Production: auto-builds frontend if needed and runs CodeOtter on http://localhost:4747
+pnpm co:start # Production with PocketBase started by bin/start.sh (what the Docker image runs)
 ```
 
 Open **`http://localhost:5173`** (dev mode) or **`http://localhost:4747`** (production) in your browser:
@@ -356,9 +357,9 @@ A production-ready Docker container packages the complete CodeOtter platform—i
 Any Linux VPS (DigitalOcean, Hetzner, Vultr, Linode, EC2, your own hardware), as root:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh | bash
 # With HTTPS: point a DNS A record at the server first
-curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/install.sh | CODEOTTER_DOMAIN=review.example.com bash
+curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh | CODEOTTER_DOMAIN=review.example.com bash
 ```
 
 The same line works as cloud-init user data when creating the server. It installs Docker, writes `/opt/codeotter/.env` with a generated PocketBase password, and starts CodeOtter with Watchtower updates. With `CODEOTTER_DOMAIN` it also runs [Caddy](https://caddyserver.com) with a Let's Encrypt certificate and keeps ports 4747 and 8090 on loopback. Re-running it keeps `.env`.

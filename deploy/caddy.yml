@@ -1,5 +1,5 @@
 # HTTPS in front of CodeOtter with an automatic Let's Encrypt certificate.
-# install.sh enables it when CODEOTTER_DOMAIN is set, via COMPOSE_FILE=docker-compose.yml:caddy.yml in .env.
+# bin/install.sh enables it when CODEOTTER_DOMAIN is set, via COMPOSE_FILE=docker-compose.yml:caddy.yml in .env.
 services:
   codeotter:
     ports: !override

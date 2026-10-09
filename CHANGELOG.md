@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- `install.sh` and `start.sh` moved to `bin/`; `pnpm co:install` and `pnpm co:start` run them. The installer URL is now `.../main/bin/install.sh` (the Azure button and Linode StackScript follow). `start.sh` now works from any checkout, not only the Docker image.
 - **CLI, TUI and MCP reviews use the server engines** (`reviewDiff` in `core/server.mjs`): a configured System One model owns every score and gate, the language model writes the prose and is asked for scores only when no System One model exists, and findings go through the self-check. The CLI no longer carries its own review prompt, score request or critique pass; `--no-critique` is gone. Gates are not reported without a System One model. Cancelling a TUI review aborts the model calls.
 - **Layout**: the backend lives in `core/` (`server.mjs`, `models.json`, `showcase.json`, `pb_migrations/`, `runtimes/`) and the CLI and TUI in `tui/` (was `bin/`). `pnpm start` runs `node core/server.mjs`; the Docker image and `start.sh` follow. Data folders (`pb_data`, `scores`, `.local`, `.pb`, `.env`) stay at the root, so existing installs keep working.
 - **License**: CodeOtter is open source under the GNU AGPL-3.0 (was Elastic License 2.0). Self-hosting, modification and redistribution are free; a modified version offered as a network service must publish its source.
