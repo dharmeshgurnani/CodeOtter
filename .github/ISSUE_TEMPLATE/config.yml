@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Docs
+    url: https://codeotter.io/docs/
+    about: Setup, providers, local models, Docker.
+  - name: Security
+    url: https://github.com/dharmeshgurnani/CodeOtter/security/policy
+    about: Report a vulnerability privately.

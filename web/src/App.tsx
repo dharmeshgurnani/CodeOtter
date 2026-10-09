@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/animate-ui/components/radix/sidebar";
 import { updateSeo } from "@/lib/seo";
 import { Button } from "@/components/ui/button";
 import { AppSidebar } from "./app-sidebar";
-import { ReviewPage } from "./review-page";
+const ReviewPage = lazy(() => import("./review-page").then((m) => ({ default: m.ReviewPage })));
 import { SettingsPage } from "./settings-page";
 import { HomePage } from "./home-page";
 import { LoginPage } from "./login-page";
-import { OnboardingPage } from "./onboarding-page";
-import { TableSkeleton } from "@/components/skeletons";
+const OnboardingPage = lazy(() => import("./onboarding-page").then((m) => ({ default: m.OnboardingPage })));
+import { ReviewSkeleton, TableSkeleton } from "@/components/skeletons";
 import { Link } from "@/components/link";
 import { type Board, type Review, type User, repoFromUrl, repoLabel, VERDICT, effort, tone } from "./types";
 
@@ -179,7 +179,7 @@ export default function App() {
   }, [path, settingsPage, repoPage, repoView, org, board]);
 
   if (path === "/login") return <LoginPage error={loginError} onLogin={login} go={go} />;
-  if (path === "/onboarding") return <OnboardingPage onComplete={(targetOrg) => { if (targetOrg) setOrg(targetOrg); go("/"); load(); }} go={go} />;
+  if (path === "/onboarding") return <Suspense fallback={null}><OnboardingPage onComplete={(targetOrg) => { if (targetOrg) setOrg(targetOrg); go("/"); load(); }} go={go} /></Suspense>;
   return (
     <SidebarProvider defaultOpen={sidebarDefaultOpen()}>
       <AppSidebar update={board?.update} repositoriesLoaded={!!board} forgeUrls={board?.forgeUrls ?? {}} repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(scopedBoard)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
@@ -199,7 +199,7 @@ export default function App() {
         <div className="w-full px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-7">
           {error && <p className="text-red-700">{error}</p>}
           {path === "/review" ? (
-            <ReviewPage forgeUrls={board?.forgeUrls} org={org} pr={prRef} repo={prRepo} force={query.get("force") ?? ""} onDone={load} />
+            <Suspense fallback={<ReviewSkeleton />}><ReviewPage forgeUrls={board?.forgeUrls} org={org} pr={prRef} repo={prRepo} force={query.get("force") ?? ""} onDone={load} /></Suspense>
           ) : settingsPage ? (
             <SettingsPage forgeUrls={board?.forgeUrls ?? {}} page={settingsPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onSaved={load} />
           ) : (

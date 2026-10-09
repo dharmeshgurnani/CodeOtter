@@ -7,7 +7,7 @@ services:
     image:
       url: ghcr.io/dharmeshgurnani/codeotter:latest
     plan: standard
-    healthCheckPath: /api/me
+    healthCheckPath: /healthz
     disk:
       name: pb-data
       mountPath: /app/pb_data

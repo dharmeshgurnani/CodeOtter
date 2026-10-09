@@ -4,7 +4,8 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 import { createHash } from "node:crypto";
 
-const source = readFileSync(new URL("../web/public/favicon.svg", import.meta.url));
+// Hashed in LF form so a Windows checkout (CRLF) and CI (LF) agree.
+const source = Buffer.from(readFileSync(new URL("../web/public/favicon.svg", import.meta.url), "utf8").replace(/\r\n/g, "\n"));
 const image = new Resvg(source, { fitTo: { mode: "width", value: 128 }, font: { loadSystemFonts: false } }).render();
 mkdirSync(new URL("../bin/assets/", import.meta.url), { recursive: true });
 writeFileSync(new URL("../bin/assets/favicon.json", import.meta.url), JSON.stringify({

@@ -21,9 +21,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/dharmeshgurnani/CodeOtter/actions/workflows/ci.yml"><img src="https://github.com/dharmeshgurnani/CodeOtter/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://codeotter.io"><img src="https://img.shields.io/badge/Website-codeotter.io-b45309.svg" alt="Website" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-ELv2-c2410c.svg" alt="Elastic License 2.0" /></a>
-  <a href="package.json"><img src="https://img.shields.io/badge/Node-%3E%3D20.11-111111.svg" alt="Node Version" /></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/Node-%3E%3D22-111111.svg" alt="Node Version" /></a>
   <a href="#-security--privacy"><img src="https://img.shields.io/badge/Privacy-Zero_Telemetry-15803d.svg" alt="Zero Telemetry" /></a>
   <a href="#what-is-codeotter"><img src="https://img.shields.io/badge/Deployment-100%25_Self--Hosted-15803d.svg" alt="100% Self Hosted" /></a>
   <a href="#-100-offline-mode-zero-cloud"><img src="https://img.shields.io/badge/Models-Local_GGUF_%7C_BYOK-b45309.svg" alt="Local or BYOK" /></a>
@@ -145,7 +146,7 @@ Works with **any local open-weight model or hosted API** — mix and match Syste
 
 ## ⚡ Quickstart
 
-### Local Setup (Requires Node 20.11+ & pnpm)
+### Local Setup (Requires Node 22+ & pnpm)
 
 For GitHub repositories, authenticate the **GitHub CLI (`gh`)** (`gh auth status`). Forgejo uses its REST API and does not require `gh`:
 
@@ -296,6 +297,9 @@ Evaluates structured rubrics and merge-policy criteria in a single lightning-fas
 - **9 Pre-Merge Policy Gates**: `Title check`, `Description check`, `Security` (injection, auth bypass, secrets, SSRF, XSS), `Complexity`, `Tests`, `Documentation`, `Scope`, `Repository guidelines` (`AGENTS.md` / `CLAUDE.md` compliance), and `Issue requirements` (validates diff against linked GitHub issue acceptance criteria).
 
 *Both engines run in parallel; reviews take only as long as the slowest pass. Either engine can also operate standalone.*
+
+### Auto-review
+Turn on **Auto-review** under **Admin / Model provider / Review** and every new or updated pull request in an onboarded repository gets a full review with scores and the review comment posted, one PR at a time, on the same poll as triage. Drafts and PRs labelled `codeotter:skip` are skipped; each head commit is reviewed once.
 
 ### Fast triage: stop the pipeline early
 System One rates each new or updated pull request's correctness risk and blast radius from a digest of the whole change and sets the `codeotter/triage` commit status, about 80 seconds on CPU with Kev 0.8B. A GitHub Actions job waits for it: red stops the long build, green lets it run. Turn it on under **Admin / Model provider / Fast triage**; workflow in [docs/ci-triage.md](docs/ci-triage.md). If System One fails, the status is `error` with the reason, never a guessed score.

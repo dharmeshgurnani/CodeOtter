@@ -1,0 +1,8 @@
+name: Feature
+description: Something CodeOtter should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: What and why, description: "What you want, and the situation where you would use it." }
+    validations: { required: true }
