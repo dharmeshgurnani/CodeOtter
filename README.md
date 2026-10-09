@@ -202,7 +202,7 @@ pnpm -C web build
 pnpm test:forgejo
 pnpm test:gitea
 # Keep a disposable installation running for browser QA:
-node scripts/test-forges.mjs --gitea --serve
+node test/test-forges.mjs --gitea --serve
 ```
 
 The suite requires Docker and `.pb/pocketbase` (`.pb/pocketbase.exe` on Windows), or `TEST_PB_BIN`. The suites start Forgejo 15, Gitea 1.24.6 and PocketBase with disposable data, use a deterministic local model, and never write to the running CodeOtter installation. They cover each provider separately and all three together, including real self-hosted OAuth, token isolation, identical repository names, fork PRs, comment upserts and both storage modes. GitHub CLI and OAuth responses are fixtures; real GitHub OAuth credentials are not used.
