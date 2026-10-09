@@ -7,4 +7,5 @@ scores
 *.log
 .env
 .pb
+.local
 config.json

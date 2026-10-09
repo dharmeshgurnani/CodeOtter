@@ -209,11 +209,39 @@ The suite requires Docker and `.pb/pocketbase` (`.pb/pocketbase.exe` on Windows)
 
 ## 📟 Native `codeotter` CLI &amp; CI Runner
 
-CodeOtter includes a zero-dependency CLI tool (`bin/codeotter.mjs`) for reviewing local changes before commit, running CI gate checks in GitHub/Forgejo Actions, or integrating with IDEs via MCP (Model Context Protocol).
+CodeOtter has one CLI with an interactive Blessed TUI and scriptable review, CI, JSON and MCP modes. Requires Node 22 or later. Run `pnpm install --frozen-lockfile`, then `pnpm tui`. With no arguments, `codeotter` opens the TUI in an interactive terminal; `codeotter review --json` remains suitable for coding agents.
+
+The default TUI groups all connected repositories under expandable organizations. Selecting a repository scopes its PRs; moving between PRs immediately updates scores, summary and full details. Saved reviews appear immediately, and missing reviews calculate sequentially using the web app's configured engines. Reviews share the same storage. The TUI does not publish comments or suggestions.
+
+**No running web server is required.** The TUI imports shared services from `server.mjs` without binding a port, building the frontend or starting scheduled automation. Forge APIs and hosted models still require network access. PocketBase is auto-managed where configured; locally started storage survives terminal closure and retries refused reads once, without replaying writes. Web authentication, permissions and organization scoping are unchanged.
+
+Configuration defaults to the installation beside `server.mjs`. Set `CODEOTTER_HOME` to an existing installation to use its `.env`, `config.json`, `scores/`, `.pb`, `pb_data` and default `.local` directory. Explicit `PB_URL` and `PR_SCORER_DATA` take precedence.
+
+Scores use the web app's green/amber/red thresholds, inverted for risk and blast radius. Full details contains gates, findings and a folder-tree walkthrough. The underlined orange PR link opens in your browser; **Copy as prompt** copies plain text without added instructions. Clipboard copying uses OS tools, with OSC 52 forwarding as a sandbox fallback where supported.
+
+The **Changes** tab uses optional [Delta](https://github.com/dandavison/delta) for real PR diffs, syntax highlighting, old/new line numbers and gutter-preserving wrapping. Install `git-delta` separately (Windows: `winget install dandavison.delta`; macOS: `brew install git-delta`), or set `CODEOTTER_DELTA` to its executable. Nothing downloads automatically; the rest of the TUI works without Delta.
+
+The header uses `web/public/favicon.svg` on SIXEL-capable terminals, with an emoji fallback. Set `CODEOTTER_IMAGE=off` to disable images; run `pnpm build:tui-icon` after changing the SVG. Brand orange accents and borders stay consistent; yellow marks active selection and focus. Ordinary review views omit model/provider identities.
+
+| Key | Action |
+| --- | --- |
+| `Tab` / `Shift+Tab` | Cycle repositories, PRs, Review and Changes forward/backward |
+| Arrows / `Enter` | Navigate and select; expand/collapse organizations |
+| Left / Right in details | Switch Review/Changes tabs |
+| `PgUp` / `PgDn` | Scroll full details or changes |
+| `c` / `o` | Copy content / open the PR |
+| `g` / `r` | Refresh / recalculate the selected PR |
+| `Esc` | Return from Changes or stop the review queue |
+| `q` / `Ctrl-C` | Quit |
+
+Use `codeotter tui --local` for staged/unstaged/base/patch review, Ask, description/improvement/docs/changelog drafts, session settings, history and JSON export. Press `?` for local-mode keys. It uses provider environment variables or `--provider`, `--model`, `--base-url` and `--key`, with a 35,000-character diff context. Use a terminal at least 60 columns wide and 20 rows tall. Onboarding, accounts/OAuth, model downloads and publishing controls remain in the web app.
 
 ```bash
-# Review current working tree diff in terminal with color gauges & walkthrough
-node bin/codeotter.mjs
+# Browse connected repositories using the shared local backend
+node bin/codeotter.mjs tui
+
+# Print a one-shot review with color gauges & walkthrough
+node bin/codeotter.mjs review
 
 # Review staged changes before git commit
 node bin/codeotter.mjs --staged

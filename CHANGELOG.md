@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added a lightweight Blessed TUI to the existing CLI; interactive launches open connected repositories, while review, JSON, CI and MCP remain scriptable.
+- Reused the web backend and configured engines directly, without requiring a running web server. An organization/repository tree shows all connections, saved reviews and sequential calculation of missing reviews without publishing comments.
+- Added live PR previews, web-matched score colors, summary columns, formatted review details, folder walkthroughs, plain-text copying and clickable PR links. Review/Changes tabs use optional Delta for unified diffs with gutter-preserving wrapping.
+- Added a favicon terminal header, brand orange accents, focus-only yellow highlights, structured skeletons and forward/reverse keyboard navigation. Compact layouts preserve score visibility.
+- Added local workspace review and draft tools, cancellation, history and JSON export. Human-readable terminal views omit model identities; incomplete model answers and failed self-checks fail explicitly.
+- Fixed local PocketBase lifetime and read recovery when another terminal closes; writes are never replayed. Included terminal runtime dependencies in Docker and isolated regression coverage.
+
 ## 0.6.0 (2026-10-08)
 
 - **Cloudflare Clef** as a hosted System One provider (`cloudflare/clef`, `cloudflare/clef-flash`) through OpenRouter, on the same typed endpoint as Jev. OpenRouter System One model lists now come from its decision models.

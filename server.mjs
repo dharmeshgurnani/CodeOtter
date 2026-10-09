@@ -2,13 +2,18 @@
 import http from "node:http";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomBytes, createHash, createSign } from "node:crypto";
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, createWriteStream, statSync, renameSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, createWriteStream, statSync, renameSync, rmSync, realpathSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+// Importing the shared services from the TUI must not start a web server or automation.
+const IS_SERVER = !!process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+const CODEOTTER_HOME = resolve(process.env.CODEOTTER_HOME || import.meta.dirname);
 
 // Auto-load .env if present
-const ENV_FILE = join(import.meta.dirname, ".env");
+const ENV_FILE = join(CODEOTTER_HOME, ".env");
 if (existsSync(ENV_FILE) && typeof process.loadEnvFile === "function") {
   try { process.loadEnvFile(ENV_FILE); } catch {}
 }
@@ -181,7 +186,7 @@ const ENV_DEFAULTS = process.env.LLM_BASE_URL
 // Local models (models.json): open-weight System One models served by the `laya` runtime (ggmlc) as a sidecar,
 // downloaded with one click into DATA_DIR. Same /v1/systemone contract as Jev, so scoring code does not change.
 const CATALOG = JSON.parse(readFileSync(join(import.meta.dirname, "models.json"), "utf8"));
-const DATA_DIR = process.env.PR_SCORER_DATA || join(import.meta.dirname, ".local");
+const DATA_DIR = process.env.PR_SCORER_DATA || join(CODEOTTER_HOME, ".local");
 const LOCAL = Object.fromEntries(CATALOG.models.map((m) => [m.id, m])); // both kinds: "s1" (typed) and "llm" (chat)
 const LOCAL_S1 = CATALOG.models.filter((m) => m.kind === "s1");
 // Shown beside small-context System One models wherever they are picked: they read only part of a large pull request.
@@ -413,7 +418,7 @@ async function ensureSidecar(m) {
 }
 // Auto triage: every two minutes, each open pull request in an onboarded repository whose head moved since its last triage gets one.
 let triagePolling = false;
-setInterval(async () => {
+if (IS_SERVER) setInterval(async () => {
   if (triagePolling) return;
   triagePolling = true;
   try {
@@ -495,8 +500,8 @@ function findPocketBase() {
   const isWin = process.platform === "win32";
   const binaryName = isWin ? "pocketbase.exe" : "pocketbase";
   const candidates = [
-    join(import.meta.dirname, ".pb", binaryName),
-    join(import.meta.dirname, binaryName),
+    join(CODEOTTER_HOME, ".pb", binaryName),
+    join(CODEOTTER_HOME, binaryName),
   ];
   for (const c of candidates) {
     if (existsSync(c)) return c;
@@ -511,8 +516,8 @@ function findPocketBase() {
 
 const pbBinAvailable = findPocketBase();
 const PB_URL = process.env.PB_URL || (pbBinAvailable ? "http://127.0.0.1:8090" : "");
-const SCORES = join(import.meta.dirname, "scores");
-const CONFIG = join(import.meta.dirname, "config.json");
+const SCORES = join(CODEOTTER_HOME, "scores");
+const CONFIG = join(CODEOTTER_HOME, "config.json");
 const readConfig = () => (existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, "utf8")) : {});
 const keyOf = (url) => /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/.test(url)
   ? url.replace("https://github.com/", "").replace(/\//g, "-")
@@ -537,7 +542,11 @@ const fileStore = {
 };
 
 let pbProc = null;
-async function ensurePocketBase() {
+let pbStarting;
+function ensurePocketBase() {
+  return pbStarting ||= startPocketBase().finally(() => { pbStarting = null; });
+}
+async function startPocketBase() {
   if (!PB_URL) return;
   const pbBin = findPocketBase();
   // Check if PocketBase is already running
@@ -546,8 +555,11 @@ async function ensurePocketBase() {
     .catch(() => false);
   if (reachable) return;
   if (!pbBin) return;
+  // An unreachable remote database must never start a local replacement.
+  const url = new URL(PB_URL);
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) return;
 
-  const dir = join(import.meta.dirname, "pb_data");
+  const dir = join(CODEOTTER_HOME, "pb_data");
   const migrationsDir = join(import.meta.dirname, "pb_migrations");
   mkdirSync(dir, { recursive: true });
 
@@ -558,21 +570,26 @@ async function ensurePocketBase() {
     execFileSync(pbBin, ["superuser", "upsert", adminEmail, adminPassword, "--dir", dir, "--migrationsDir", migrationsDir], { stdio: "ignore" });
   } catch {}
 
-  const url = new URL(PB_URL);
   const hostPort = `${url.hostname}:${url.port || "8090"}`;
-  pbProc = spawn(pbBin, ["serve", `--http=${hostPort}`, "--dir", dir, "--migrationsDir", migrationsDir], { stdio: "ignore", detached: false });
+  pbProc = spawn(pbBin, ["serve", `--http=${hostPort}`, "--dir", dir, "--migrationsDir", migrationsDir], { stdio: "ignore", detached: !IS_SERVER, windowsHide: true });
+  let startError;
+  pbProc.once("error", error => { startError = error; });
+  if (!IS_SERVER) pbProc.unref();
 
   const killPb = () => { if (pbProc) { try { pbProc.kill(); } catch {} pbProc = null; } };
-  process.on("exit", killPb);
-  process.on("SIGINT", () => { killPb(); process.exit(); });
-  process.on("SIGTERM", () => { killPb(); process.exit(); });
+  if (IS_SERVER) {
+    process.once("exit", killPb);
+    process.once("SIGINT", () => { killPb(); process.exit(); });
+    process.once("SIGTERM", () => { killPb(); process.exit(); });
+  }
 
   for (let i = 0; i < 20; i++) {
+    if (startError) throw new Error(`Could not start PocketBase: ${startError.message}`);
     const ok = await fetch(`${PB_URL}/api/health`, { signal: AbortSignal.timeout(1000) })
       .then((r) => r.ok)
       .catch(() => false);
     if (ok) {
-      console.log(`PocketBase auto-started at ${PB_URL}`);
+      if (IS_SERVER) console.log(`PocketBase auto-started at ${PB_URL}`);
       return;
     }
     await new Promise((r) => setTimeout(r, 250));
@@ -592,7 +609,20 @@ async function pbAuth() {
   pbToken = (await res.json()).token;
 }
 async function pb(path, init = {}, retry = true) {
-  const res = await fetch(`${PB_URL}/api/${path}`, { ...init, headers: { "content-type": "application/json", authorization: pbToken }, signal: AbortSignal.timeout(10000) });
+  let res;
+  try {
+    res = await fetch(`${PB_URL}/api/${path}`, { ...init, headers: { "content-type": "application/json", authorization: pbToken }, signal: AbortSignal.timeout(10000) });
+  } catch (error) {
+    // Only retry reads: a failed write may already have reached the database.
+    const refused = error.cause?.code === "ECONNREFUSED" || error.cause?.errors?.some(e => e.code === "ECONNREFUSED");
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(new URL(PB_URL).hostname);
+    if (retry && refused && local && pbBinAvailable && (init.method || "GET").toUpperCase() === "GET") {
+      await ensurePocketBase();
+      await pbAuth();
+      return pb(path, init, false);
+    }
+    throw new Error(`Cannot reach PocketBase at ${PB_URL}: ${error.cause?.code || error.message}`, { cause: error });
+  }
   if (res.status === 401 && retry) return pbAuth().then(() => pb(path, init, false));
   if (!res.ok) throw new Error(`Storage ${res.status}: ${pbError(await res.text())}`);
   return res.json();
@@ -2152,7 +2182,7 @@ async function resolvePr(ref, repo) {
 
 const hasValidScores = (s) => s && typeof s === "object" && ["quality", "correctness_risk", "test_coverage", "readability", "pr_hygiene"].some((k) => Number(s[k]) > 0);
 
-async function startOrPollReview(ref, force, repo, part = "") {
+async function startOrPollReview(ref, force, repo, part = "", publish = true) {
   const { urlGuess, spec } = await resolvePr(ref, repo);
   const existing = activeReviews.get(urlGuess);
   if (!force && existing) {
@@ -2488,9 +2518,9 @@ async function startOrPollReview(ref, force, repo, part = "") {
       const doPostReview = repoCfg.postReview ?? rc.postReview;
       const doPostInlineSuggestions = repoCfg.postInlineSuggestions ?? rsCfg.postInlineSuggestions ?? rc.postInlineSuggestions;
       await syncPrComments(result, repoOf(live.pr), {
-        postScores: !!(runScores && doPostScores && (typed || review?.scores)),
-        postReview: !!(runLlm && doPostReview && review?.summary),
-        postInlineSuggestions: !!(runLlm && doPostInlineSuggestions && (review?.findings || []).some((f) => !f.dismissed && (f.suggestion || f.line))),
+        postScores: !!(publish && runScores && doPostScores && (typed || review?.scores)),
+        postReview: !!(publish && runLlm && doPostReview && review?.summary),
+        postInlineSuggestions: !!(publish && runLlm && doPostInlineSuggestions && (review?.findings || []).some((f) => !f.dismissed && (f.suggestion || f.line))),
       });
       await store.put(result);
       entry.state = result;
@@ -2966,7 +2996,7 @@ async function runCommand(repo, c, { cmd, arg }) {
 // Every minute: each onboarded repository's comments since the last poll, oldest first. The first poll after enabling
 // looks back five minutes, so older comments never fire.
 let commandPolling = false;
-setInterval(async () => {
+if (IS_SERVER) setInterval(async () => {
   if (commandPolling) return;
   commandPolling = true;
   try {
@@ -3414,7 +3444,7 @@ function renderScore(r) {
 }
 
 const DIST = join(import.meta.dirname, "web", "dist");
-if (!existsSync(DIST)) {
+if (IS_SERVER && !existsSync(DIST)) {
   console.log("web/dist not found. Building web frontend...");
   try {
     const isWin = process.platform === "win32";
@@ -4029,6 +4059,11 @@ const readJson = (req) =>
     req.on("data", (d) => { b += d; if (b.length > 1e6) { req.destroy(); err(new Error("Request body too large")); } }).on("end", () => { try { ok(b ? JSON.parse(b) : {}); } catch (e) { err(e); } }).on("error", err);
   });
 
+let coreReady;
+export function initializeCore() {
+  return coreReady ||= initializeStorage().catch(error => { coreReady = null; throw error; });
+}
+async function initializeStorage() {
 await store.init();
 for (const [id, f] of Object.entries(FORGES)) {
   const saved = await store.getSetting(id);
@@ -4044,6 +4079,39 @@ for (const [id, f] of Object.entries(FORGES)) {
   }
   if (f.url && previous !== f.url) await store.setSetting(`${id}Origin`, f.url);
 }
+}
+
+// Local operator interface: same storage credentials and models as this installation.
+// Web callers still go through gate(); no HTTP authentication is bypassed or changed.
+export async function repositoryBoard(org = "") {
+  await initializeCore();
+  if (org && !OWNER_RE.test(org)) throw new Error("Bad organization");
+  const rs = await repos();
+  const c = await llmConfig();
+  const scoped = rs.filter(r => org && r.startsWith(`${org}/`));
+  return {
+    repos: rs, model: `${c.provider}/${c.model}`, store: PB_URL ? "pocketbase" : "files",
+    forgeUrls: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, f.url])),
+    reviewed: org ? (await store.all()).filter(r => repoOf(r.pr).startsWith(`${org}/`)) : [],
+    open: (await Promise.all(scoped.map(openPrs))).flat(),
+  };
+}
+export async function repositoryReview(repo, pr, force = false) {
+  await initializeCore();
+  checkRepoScope(repo, repo.split("/")[0]);
+  if (!(await repos()).includes(repo) || parsePrUrl(pr)?.repo !== repo) throw new Error("Pull request is outside the connected repository");
+  return startOrPollReview(pr, force, repo, "", false);
+}
+export async function repositoryDiff(repo, pr) {
+  await initializeCore();
+  checkRepoScope(repo, repo.split("/")[0]);
+  const parsed = parsePrUrl(pr);
+  if (!(await repos()).includes(repo) || parsed?.repo !== repo) throw new Error("Pull request is outside the connected repository");
+  return readPr(pr, ["-R", repo, String(parsed.number)], true);
+}
+
+if (IS_SERVER) {
+await initializeCore();
 http
   .createServer(async (req, res) => {
     const url = new URL(req.url, "http://x");
@@ -4594,3 +4662,4 @@ http
   })
   .setTimeout(0) // Node cuts requests at 300 s by default; a cold local sidecar plus a long review can take longer
   .listen(PORT, async () => console.log(`CodeOtter on http://localhost:${PORT} (repo ${REPO}, model ${(await llmConfig()).model}, store ${PB_URL ? `PocketBase ${PB_URL}` : "scores/"})`));
+}
