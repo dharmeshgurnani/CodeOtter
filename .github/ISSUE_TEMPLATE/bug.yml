@@ -1,0 +1,16 @@
+name: Bug
+description: Something broke
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes: { label: CodeOtter version, placeholder: "0.6.0, Docker :latest, or a commit" }
+    validations: { required: true }
+  - type: input
+    id: models
+    attributes: { label: Provider and models, placeholder: "openrouter/cloudflare/clef + anthropic/claude-sonnet-5-5, or local Kev 0.8B" }
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: "Steps, expected result, actual result, and the error shown on screen or in server.log." }
+    validations: { required: true }

@@ -2,6 +2,7 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | Auto-review: new and updated pull requests reviewed and posted without a command; CI on every PR; async gh; /healthz | 2026-10-09 |
 | [x] | Repository TUI in the existing CLI, sharing web storage and engines without a web server; organization tree and automatic missing reviews | 2026-10-09 |
 | [x] | Live score/summary previews, formatted details, folder walkthroughs, copying, PR links and Review/Changes tabs using Delta | 2026-10-09 |
 | [x] | Branded favicon header, focus-aware selection, structured skeletons, compact layouts and keyboard navigation | 2026-10-09 |
@@ -10,7 +11,7 @@
 | [x] | Cloudflare Clef (`cloudflare/clef`, `cloudflare/clef-flash`) as a hosted System One provider via OpenRouter | 2026-10-08 |
 | [x] | Accepted fixes: suggestions authors applied are remembered per repository and guide later reviews (PR-Agent-inspired) | 2026-10-04 |
 | [x] | PR comment commands: /review, /describe, /improve, /ask, /docs, /changelog (PR-Agent-inspired) | 2026-10-04 |
-| [ ] | PR comment commands via webhooks (GitHub App, Forgejo/Gitea) instead of polling | |
+| [ ] | PR events and comment commands via webhooks (GitHub App, Forgejo/Gitea) instead of polling; post as a GitHub App bot | |
 | [x] | Docs and Changelog tools (PR-Agent-inspired) | 2026-10-04 |
 | [x] | Improve: ranked, self-checked code suggestions posted as multi-line committable suggestions (PR-Agent-inspired) | 2026-10-04 |
 | [x] | Ask: free-form questions about a PR (PR-Agent-inspired) | 2026-10-04 |

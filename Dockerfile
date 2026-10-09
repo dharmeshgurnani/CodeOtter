@@ -2,7 +2,7 @@
 # Built on the runner's own platform; only the runtime stage is per-architecture.
 FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web
 WORKDIR /app/web
-RUN npm i -g pnpm
+RUN npm i -g pnpm@10.20.0
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web .
@@ -50,6 +50,6 @@ COPY --from=web /app/web/dist ./web/dist
 
 ENV PB_URL=http://127.0.0.1:8090 PORT=4747 PR_SCORER_DATA=/app/pb_data/local S1_DEVICE=cpu PR_SCORER_PYTHON=python3
 EXPOSE 4747 8090
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -sf http://127.0.0.1:4747/api/me >/dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -sf http://127.0.0.1:4747/healthz >/dev/null || exit 1
 VOLUME ["/app/pb_data"]
 CMD ["sh", "/app/start.sh"]

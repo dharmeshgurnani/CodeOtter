@@ -422,12 +422,19 @@ if (IS_SERVER) setInterval(async () => {
   if (triagePolling) return;
   triagePolling = true;
   try {
-    if (!(await triageConfig()).auto) return;
+    const [tc, rc] = await Promise.all([triageConfig(), reviewConfig()]);
+    if (!tc.auto && !rc.auto) return;
     const done = (await store.getSetting("triageResults")) || {};
+    const reviewed = (await store.getSetting("autoReviewed")) || {};
     for (const repo of await repos()) {
       for (const p of await openPrs(repo)) {
-        if (!SHA_RE.test(p.headRefOid || "") || done[p.url]?.headSha === p.headRefOid) continue;
-        await triagePr(p.url, repo).catch((e) => console.warn(`[triage] ${p.url}: ${e.message}`));
+        if (!SHA_RE.test(p.headRefOid || "")) continue;
+        if (tc.auto && done[p.url]?.headSha !== p.headRefOid) await triagePr(p.url, repo).catch((e) => console.warn(`[triage] ${p.url}: ${e.message}`));
+        if (!rc.auto || reviewed[p.url] === p.headRefOid || p.isDraft || (p.labels || []).some((l) => (l?.name || l) === "codeotter:skip")) continue;
+        // ponytail: reviews run one after another inside this loop; a queue when a team outgrows it
+        await syncPrComments(await score(p.url, true, repo), repo, { postScores: true, postReview: true }).catch((e) => console.warn(`[auto-review] ${p.url}: ${e.message}`));
+        reviewed[p.url] = p.headRefOid;
+        await store.setSetting("autoReviewed", reviewed);
       }
     }
   } catch (e) {
@@ -689,15 +696,8 @@ const pbStore = {
 };
 const store = PB_URL ? pbStore : fileStore;
 
-// GitHub CLI. stderr is captured so "gh auth login" / "Not Found" reach the UI instead of the terminal.
-const gh = (...rawArgs) => {
-  const args = Array.isArray(rawArgs[0]) ? rawArgs[0] : rawArgs;
-  try {
-    return execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "pipe"] });
-  } catch (e) {
-    throw new Error(`gh ${args.slice(0, 2).join(" ")}: ${String(e.stderr || e.message).trim().split("\n")[0] || "failed"}`);
-  }
-};
+// GitHub CLI, always async: a synchronous gh call would stall every other request and poll loop for a network round trip.
+// stderr is captured so "gh auth login" / "Not Found" reach the UI instead of the terminal.
 const ghAsync = (...rawArgs) => {
   const args = Array.isArray(rawArgs[0]) ? rawArgs[0] : rawArgs;
   return new Promise((resolve, reject) => {
@@ -779,7 +779,7 @@ function normalizeForgePr(p, repo, files = [], commits = []) {
     headRepo: p.head?.repo?.full_name ? `${forgeId(repo)}~${p.head.repo.full_name}` : repo,
     additions: p.additions ?? files.reduce((n, f) => n + f.additions, 0),
     deletions: p.deletions ?? files.reduce((n, f) => n + f.deletions, 0), changedFiles: p.changed_files ?? files.length,
-    state: p.merged ? "MERGED" : String(p.state || "open").toUpperCase(), files, commits,
+    state: p.merged ? "MERGED" : String(p.state || "open").toUpperCase(), isDraft: !!p.draft, labels: p.labels || [], files, commits,
   };
 }
 
@@ -960,7 +960,7 @@ async function askModel(prompt, c) {
   return (await res.json()).choices[0].message.content.replace(/<think>[\s\S]*?<\/think>/g, "");
 }
 
-const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, contextLines: 16, reflectMin: 5, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false, commands: false };
+const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, contextLines: 16, reflectMin: 5, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false, commands: false, auto: false };
 const reviewConfig = async () => ({ ...REVIEW_DEFAULTS, ...((await store.getSetting("review")) || {}) });
 
 // Repository review guides: AGENTS.md and/or CLAUDE.md at the repo root (both are used when both exist, since one is
@@ -984,20 +984,13 @@ async function guideFiles(repo, ref = "") {
     guideCache.set(cacheKey, { files, at: Date.now() });
     return files;
   }
-  const files = GUIDE_FILES.filter((f) => {
-    try {
-      if (ref) {
-        try {
-          gh("api", `repos/${repo}/contents/${f}?ref=${encodeURIComponent(ref)}`, "--jq", ".name");
-          return true;
-        } catch {}
-      }
-      gh("api", `repos/${repo}/contents/${f}`, "--jq", ".name");
-      return true;
-    } catch {
-      return repo === REPO && existsSync(join(import.meta.dirname, f));
-    }
-  });
+  const files = [];
+  for (const f of GUIDE_FILES) {
+    const exists = await ghAsync("api", `repos/${repo}/contents/${f}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`, "--jq", ".name").then(() => true)
+      .catch(() => (ref ? ghAsync("api", `repos/${repo}/contents/${f}`, "--jq", ".name").then(() => true) : false))
+      .catch(() => repo === REPO && existsSync(join(import.meta.dirname, f)));
+    if (exists) files.push(f);
+  }
   guideCache.set(cacheKey, { files, at: Date.now() });
   return files;
 }
@@ -1009,11 +1002,11 @@ const guideText = async (repo, file, ref = "") => {
   }
   if (ref) {
     try {
-      return gh("api", `repos/${repo}/contents/${file}?ref=${encodeURIComponent(ref)}`, "-H", "Accept: application/vnd.github.raw");
+      return await ghAsync("api", `repos/${repo}/contents/${file}?ref=${encodeURIComponent(ref)}`, "-H", "Accept: application/vnd.github.raw");
     } catch {}
   }
   try {
-    return gh("api", `repos/${repo}/contents/${file}`, "-H", "Accept: application/vnd.github.raw");
+    return await ghAsync("api", `repos/${repo}/contents/${file}`, "-H", "Accept: application/vnd.github.raw");
   } catch {
     return repo === REPO && existsSync(join(import.meta.dirname, file)) ? readFileSync(join(import.meta.dirname, file), "utf8") : "";
   }
@@ -1162,9 +1155,7 @@ async function fetchLinkedIssues(baseRepo, pr) {
     refs.slice(0, 3).map(async ({ repo: issueRepo, number: num }) => {
       if (!REPO_RE.test(issueRepo)) return null;
       try {
-        const raw = isForgeRepo(issueRepo) ? JSON.stringify(await forgeApi(`repos/${issueRepo}/issues/${num}`)) : await ghAsync(["issue", "view", String(num), "-R", issueRepo, "--json", "number,title,body,state,url,labels"]).catch(() =>
-          gh(["issue", "view", String(num), "-R", issueRepo, "--json", "number,title,body,state,url,labels"]),
-        );
+        const raw = isForgeRepo(issueRepo) ? JSON.stringify(await forgeApi(`repos/${issueRepo}/issues/${num}`)) : await ghAsync(["issue", "view", String(num), "-R", issueRepo, "--json", "number,title,body,state,url,labels"]);
         const iss = JSON.parse(raw);
         if (!iss || !iss.number) return null;
         return {
@@ -2139,7 +2130,7 @@ async function repositoryChoices(owner = "") {
     // 4. Try gh CLI
     if (!listSet.size) {
       try {
-        const ghItems = JSON.parse(gh("repo", "list", ...(owner ? [owner] : []), "--limit", "100", "--json", "nameWithOwner"));
+        const ghItems = JSON.parse(await ghAsync("repo", "list", ...(owner ? [owner] : []), "--limit", "100", "--json", "nameWithOwner"));
         if (Array.isArray(ghItems)) {
           for (const r of ghItems) {
             if (r.nameWithOwner) listSet.add(r.nameWithOwner);
@@ -2341,9 +2332,7 @@ async function startOrPollReview(ref, force, repo, part = "", publish = true) {
         let deltaDiff = "";
         if (hasNewSha && newCommits.length > 0) {
           try {
-            const cmpRaw = isForgeRepo(repoOf(live.pr)) ? JSON.stringify(await forgeApi(`repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`)) : await ghAsync("api", `repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`).catch(() =>
-              gh(["api", `repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`]),
-            );
+            const cmpRaw = isForgeRepo(repoOf(live.pr)) ? JSON.stringify(await forgeApi(`repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`)) : await ghAsync("api", `repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`);
             const cmp = JSON.parse(cmpRaw);
             if (Array.isArray(cmp?.files)) {
               deltaDiff = cmp.files
@@ -2637,7 +2626,7 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
 
   try {
     const args = buildReviewArgs(rawHeadSha.length >= 7);
-    await ghAsync(args).catch(() => gh(args));
+    await ghAsync(args);
     return {
       posted: comments.length,
       mode: "inline_review",
@@ -2647,7 +2636,7 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
     try {
       if (rawHeadSha) {
         const argsNoSha = buildReviewArgs(false);
-        await ghAsync(argsNoSha).catch(() => gh(argsNoSha));
+        await ghAsync(argsNoSha);
         return {
           posted: comments.length,
           mode: "inline_review",
@@ -2672,9 +2661,7 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
           : []),
       ]),
     ].join("\n");
-    await ghAsync("pr", "comment", r.pr.url, "--body", fallbackBody).catch(() =>
-      gh(["pr", "comment", r.pr.url, "--body", fallbackBody]),
-    );
+    await ghAsync("pr", "comment", r.pr.url, "--body", fallbackBody);
     return {
       posted: comments.length,
       mode: "pr_comment_fallback",
@@ -2689,9 +2676,7 @@ async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, post
   let existingComments = [];
   try {
     // Forgejo's issue-comment endpoint returns all comments and ignores page/limit.
-    const raw = isForgeRepo(repo) ? JSON.stringify(await forgeApi(`repos/${repo}/issues/${r.pr.number}/comments`)) : await ghAsync(["api", `repos/${repo}/issues/${r.pr.number}/comments?per_page=100`]).catch(() =>
-      gh(["api", `repos/${repo}/issues/${r.pr.number}/comments`]),
-    );
+    const raw = isForgeRepo(repo) ? JSON.stringify(await forgeApi(`repos/${repo}/issues/${r.pr.number}/comments`)) : await ghAsync(["api", `repos/${repo}/issues/${r.pr.number}/comments?per_page=100`]);
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) existingComments = parsed;
   } catch (e) { if (isForgeRepo(repo)) throw e; }
@@ -2703,9 +2688,7 @@ async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, post
         await forgeApi(`repos/${repo}/issues/comments/${existing.id}`, { method: "PATCH", body: { body } });
         return `${label} (updated)`;
       }
-      await ghAsync(["api", "--method", "PATCH", `repos/${repo}/issues/comments/${existing.id}`, "-f", `body=${body}`]).catch(() =>
-        gh(["api", "--method", "PATCH", `repos/${repo}/issues/comments/${existing.id}`, "-f", `body=${body}`]),
-      );
+      await ghAsync(["api", "--method", "PATCH", `repos/${repo}/issues/comments/${existing.id}`, "-f", `body=${body}`]);
       return `${label} (updated)`;
     }
     await createPrComment(r.pr.url, repo, r.pr.number, body);
@@ -3356,7 +3339,7 @@ const page = (title, actions, body) =>
 async function openPrs(repo) {
   if (isForgeRepo(repo)) return (await forgeList(`repos/${repo}/pulls?state=open`)).map((p) => normalizeForgePr(p, repo));
   try {
-    return JSON.parse(gh("pr", "list", "-R", repo, "--json", "number,title,author,url,updatedAt,additions,deletions,changedFiles,headRefOid", "--limit", "30"));
+    return JSON.parse(await ghAsync("pr", "list", "-R", repo, "--json", "number,title,author,url,updatedAt,additions,deletions,changedFiles,headRefOid,isDraft,labels", "--limit", "30"));
   } catch {
     return [];
   }
@@ -3578,7 +3561,7 @@ const SETTINGS_PAGES = {
       if (add && !(v.list || []).map(clean).includes(add)) {
         try {
           if (isForgeRepo(add)) await forgeApi(`repos/${add}`);
-          else gh("repo", "view", add, "--json", "nameWithOwner");
+          else await ghAsync("repo", "view", add, "--json", "nameWithOwner");
         } catch {
           throw new Error(`Cannot access ${nativeRepo(add)}: check the name and ${isForgeRepo(add) ? FORGES[forgeId(add)].label : "GitHub"} credentials`);
         }
@@ -3679,6 +3662,7 @@ const SETTINGS_PAGES = {
             { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a PR comment with all System One scores after review" },
             { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add a PR comment with the review summary and link to the full report" },
             { key: "postInlineSuggestions", label: "Post inline suggestions", type: "checkbox", text: "Post inline committable suggestion comments on PR diff lines" },
+            { key: "auto", label: "Auto-review", type: "checkbox", text: "Review every new or updated pull request and post the result (drafts and PRs labelled codeotter:skip are left alone)" },
             { key: "commands", label: "PR comment commands", type: "checkbox", text: "Run /review, /describe, /improve, /ask, /docs and /changelog from comments by owners, members and collaborators" },
           ],
           actions: [{ id: "save", label: "Save" }],
@@ -4170,7 +4154,7 @@ http
                 const user = await r.json();
                 return json({ ok: true, message: `Connected as @${user.login}` });
               }
-              const out = gh("repo", "list", "--limit", "1", "--json", "nameWithOwner");
+              await ghAsync("repo", "list", "--limit", "1", "--json", "nameWithOwner");
               return json({ ok: true, message: "Connected via GitHub CLI" });
             } catch (err) {
               return json({ ok: false, error: err.message });
@@ -4287,6 +4271,7 @@ http
         if (PB_URL) { try { const m = await store.authMethods(); providers = Object.entries(LOGIN_PROVIDERS).filter(([, spec]) => m.oauth2?.enabled && m.oauth2.providers.some((p) => p.name === spec.pb)).map(([id, spec]) => ({ id, label: spec.label })); } catch {} }
         return json({ showcase, signInAvailable: !!PB_URL, configured: providers.length > 0, providers });
       }
+      if (url.pathname === "/healthz") return json({ ok: true, version: VERSION });
       if (url.pathname === "/api/me") {
         const u = await currentUser(req);
         return json({ user: u ? { id: u.id, name: u.name, email: u.email, role: u.role, avatar: u.avatar } : null, signInAvailable: !!PB_URL });
