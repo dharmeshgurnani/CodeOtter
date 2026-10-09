@@ -12,10 +12,22 @@
   },
   "scripts": {
     "cli": "node bin/codeotter.mjs",
+    "tui": "node bin/codeotter.mjs tui",
+    "build:tui-icon": "node scripts/build-tui-icon.mjs",
+    "test:cli": "node scripts/test-cli.mjs && node scripts/test-tui.mjs && node scripts/test-repository-tui.mjs && node scripts/test-terminal-icon.mjs && node scripts/test-diff-layout.mjs && node scripts/test-pb-recovery.mjs",
     "dev": "node scripts/dev.mjs",
     "start": "node server.mjs",
     "test:forgejo": "node scripts/test-forgejo.mjs",
     "test:gitea": "node scripts/test-forges.mjs --gitea",
     "build": "pnpm -C web install && pnpm -C web build"
+  },
+  "dependencies": {
+    "ansi-regex": "^6.4.0",
+    "blessed": "0.1.81",
+    "slice-ansi": "^9.0.1",
+    "wrap-ansi": "^10.0.2"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2"
   }
 }

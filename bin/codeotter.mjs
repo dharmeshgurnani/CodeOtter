@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 // 🦦 CodeOtter CLI — Autonomous Dual-Engine AI Code Review, Scoring Gauges & Pre-Merge Gate Enforcement.
-// Zero runtime dependencies. Standalone terminal, CI runner, or MCP server mode.
+// Blessed is lazy-loaded only for the interactive TUI; CI and MCP use Node alone.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import readline from "node:readline";
+import { pathToFileURL } from "node:url";
+import { normalizeReview } from "./review-output.mjs";
 
-// Auto-load .env in current directory or repo root if present
-const envFiles = [join(process.cwd(), ".env"), join(import.meta.dirname, "..", ".env")];
+// An explicit installation must not inherit another checkout's .env credentials.
+const envFiles = process.env.CODEOTTER_HOME
+  ? [join(process.env.CODEOTTER_HOME, ".env")]
+  : [join(process.cwd(), ".env"), join(import.meta.dirname, "..", ".env")];
 for (const envFile of envFiles) {
   if (existsSync(envFile) && typeof process.loadEnvFile === "function") {
     try { process.loadEnvFile(envFile); } catch {}
@@ -101,7 +105,7 @@ function isGitRepo() {
 
 function getRepoRoot() {
   try {
-    return execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return process.cwd();
   }
@@ -122,16 +126,17 @@ function getLocalGuidelines(repoRoot = getRepoRoot()) {
 }
 
 function getGitDiff(options = {}) {
-  const args = ["diff", "--no-color"];
+  const args = ["diff", "--no-color", "--no-ext-diff", "--no-textconv"];
   if (options.staged) {
     args.push("--cached");
   } else if (options.base) {
-    args.push(`${options.base}...HEAD`);
+    const base = execFileSync("git", ["rev-parse", "--verify", "--end-of-options", `${options.base}^{commit}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    args.push(`${base}...HEAD`);
   }
   if (options.files && options.files.length) {
     args.push("--", ...options.files);
   }
-  return execFileSync("git", args, { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+  return execFileSync("git", args, { encoding: "utf8", maxBuffer: 10 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
 }
 
 function parseDiff(diffText) {
@@ -166,10 +171,7 @@ function computeBlastRadius(files, outsideCallers = 0, outsideFiles = 0) {
   const dirs = new Set(files.map((f) => f.path.split("/").slice(0, 3).join("/")));
   const hot = HOTSPOTS.filter(([, re]) => files.some((f) => re.test(f.path))).map(([n]) => n);
   const tests = files.filter((f) => /test|spec|__tests__/.test(f.path)).length;
-  const callerImpact = Math.min(25, outsideCallers * 4 + outsideFiles * 2);
-  const score = Math.min(100, Math.min(30, files.length * 2.5) + Math.min(25, lines / 30) + Math.min(25, hot.length * 10) + callerImpact);
   return {
-    score: Math.round(score),
     files: files.length,
     lines,
     dirs: dirs.size,
@@ -289,7 +291,7 @@ function resolveModelConfig(flags = {}) {
   return { provider, baseUrl, apiKey, model };
 }
 
-async function requestLlm(prompt, config) {
+async function requestLlm(prompt, config, signal) {
   const { provider, baseUrl, apiKey, model } = config;
 
   try {
@@ -307,7 +309,7 @@ async function requestLlm(prompt, config) {
           max_tokens: 16000,
           messages: [{ role: "user", content: prompt }],
         }),
-        signal: AbortSignal.timeout(180000),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180000)]) : AbortSignal.timeout(180000),
       });
       if (!res.ok) throw new Error(`Anthropic error (${res.status}): ${(await res.text()).slice(0, 300)}`);
       const data = await res.json();
@@ -327,7 +329,7 @@ async function requestLlm(prompt, config) {
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
       }),
-      signal: AbortSignal.timeout(180000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180000)]) : AbortSignal.timeout(180000),
     });
 
     if (!res.ok) throw new Error(`${provider} error (${res.status}): ${(await res.text()).slice(0, 300)}`);
@@ -347,7 +349,7 @@ async function requestLlm(prompt, config) {
 }
 
 // --- Multi-Agent Anti-Hallucination Critique Pass ---
-async function critiqueFindings(findings, diff, guide, config) {
+async function critiqueFindings(findings, diff, guide, config, signal) {
   if (!findings || !findings.length) return [];
   const critiquePrompt = `You are the CodeOtter Critique & Anti-Hallucination Filter Agent.
 Your job is to strictly verify candidate code review findings against the git diff and rules to eliminate false positives, hallucinated deprecations, and ungrounded nitpicks.
@@ -381,16 +383,16 @@ INSTRUCTIONS:
 ]`;
 
   try {
-    const raw = await requestLlm(critiquePrompt, config);
+    const raw = await requestLlm(critiquePrompt, config, signal);
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return parsed;
     }
   } catch (err) {
-    // If critique pass fails or times out, fallback to raw candidate findings safely
+    throw new Error(`Self-check failed: ${err.message}`);
   }
-  return findings;
+  throw new Error("Self-check failed to output a JSON array.");
 }
 
 // --- Main Review Engine ---
@@ -427,7 +429,8 @@ Provide your evaluation as a valid JSON object with the following structure:
     "correctness_risk": <0-100>,
     "test_coverage": <0-100>,
     "readability": <0-100>,
-    "pr_hygiene": <0-100>
+    "pr_hygiene": <0-100>,
+    "blast_radius": <0-100>
   },
   "gates": [
     { "id": "title", "pass": <true/false>, "explanation": "..." },
@@ -456,24 +459,24 @@ Provide your evaluation as a valid JSON object with the following structure:
 }
 Return ONLY the raw JSON object.`;
 
-  const raw = await requestLlm(reviewPrompt, config);
+  const raw = await requestLlm(reviewPrompt, config, options.signal);
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error("Model failed to output valid JSON review.");
-  const review = JSON.parse(jsonMatch[0]);
+  const review = normalizeReview(JSON.parse(jsonMatch[0]), S1_GATES);
 
   // Run Anti-Hallucination Critique Pass if enabled
   let finalFindings = review.findings || [];
   if (!options.noCritique && finalFindings.length > 0) {
-    finalFindings = await critiqueFindings(finalFindings, diff, guide, config);
+    finalFindings = normalizeReview({ ...review, findings: await critiqueFindings(finalFindings, diff, guide, config, options.signal) }, S1_GATES).findings;
   }
 
   return {
     title,
     body,
     files,
-    blast,
+    blast: { ...blast, score: review.scores.blast_radius },
     outsideImpact,
-    scores: review.scores || { quality: 70, correctness_risk: 20, test_coverage: 70, readability: 80, pr_hygiene: 80 },
+    scores: review.scores,
     gates: (review.gates || []).map((g) => {
       const def = S1_GATES.find((d) => d.id === g.id);
       return { id: g.id, label: def?.label || g.id, pass: !!g.pass, explanation: g.explanation || "" };
@@ -487,9 +490,9 @@ Return ONLY the raw JSON object.`;
 
 // --- Terminal UI Formatter ---
 function renderScorecard(result) {
-  const { scores, blast, gates, summary, walkthrough, findings, model } = result;
+  const { scores, blast, gates, summary, walkthrough, findings } = result;
 
-  console.log(`\n${c.bold}${c.cyan}🦦 CodeOtter Dual-Engine Review${c.reset} ${c.dim}(model: ${model})${c.reset}\n`);
+  console.log(`\n${c.bold}${c.cyan}🦦 CodeOtter Review${c.reset}\n`);
 
   // Scores Table
   console.log(`${c.bold}┌─ Quality & Risk Scores ─────────────────────────────┐${c.reset}`);
@@ -554,11 +557,10 @@ function renderScorecard(result) {
 
 // --- GitHub/Forge PR Comment Formatter ---
 function formatMarkdownComment(result, prUrl = "") {
-  const { scores, blast, gates, summary, walkthrough, findings, model } = result;
+  const { scores, blast, gates, summary, walkthrough, findings } = result;
   const lines = [
     `<!-- codeotter:scores -->`,
     `### 🦦 CodeOtter — AI Review & Scorecard`,
-    `> **Model:** \`${model}\``,
     "",
     `| Metric | Score | Assessment |`,
     `| :--- | :---: | :--- |`,
@@ -699,19 +701,23 @@ ${c.bold}USAGE:${c.reset}
   codeotter [command] [options]
 
 ${c.bold}COMMANDS:${c.reset}
-  review              Review local git diff (default if no command given)
+  tui                 Connected repositories, scores and summaries (terminal default)
+  review              Review local git diff (default outside a terminal)
   pr <url-or-number>  Review and score a GitHub / Forgejo / Gitea Pull Request
   ci                  Run automated CI gate checks with merge blocker exit codes
   mcp                 Start Model Context Protocol (MCP) server over stdio
   help                Show this help message
 
 ${c.bold}OPTIONS:${c.reset}
+  --local            Use the standalone local-diff TUI instead
   -s, --staged        Review staged git changes (git diff --cached)
   -b, --base <branch> Review changes compared against base branch (e.g. main, master)
   --diff <file>       Read diff from file or standard input (-)
   --files <paths...>  Limit review to specific files
   --model <name>      Override model (e.g. gpt-4o, claude-3-5-sonnet, qwen2.5-coder)
   --provider <name>   Override provider (anthropic, openai, gemini, ollama, groq, etc.)
+  --base-url <url>    Override the model API endpoint
+  --key <api-key>     Override the provider API key (or use its environment variable)
   --fail-on-gate      Exit with code 1 if any pre-merge gate fails (CI mode)
   --min-score <n>     Exit with code 1 if Quality score is less than <n> (default: 60)
   --post-comment      Post / update review scorecard comment on the Pull Request
@@ -735,6 +741,7 @@ async function main() {
 
   const command = argv[0] && !argv[0].startsWith("-") ? argv[0] : "review";
   const flags = {
+    local: argv.includes("--local"),
     staged: argv.includes("-s") || argv.includes("--staged"),
     base: argv.includes("-b") ? argv[argv.indexOf("-b") + 1] : argv.includes("--base") ? argv[argv.indexOf("--base") + 1] : null,
     model: argv.includes("--model") ? argv[argv.indexOf("--model") + 1] : null,
@@ -748,6 +755,17 @@ async function main() {
     json: argv.includes("--json"),
     diffFile: argv.includes("--diff") ? argv[argv.indexOf("--diff") + 1] : null,
   };
+
+  if (command === "tui" || (!argv.length && process.stdin.isTTY && process.stdout.isTTY)) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("The TUI requires an interactive terminal. Use review --json for automation.");
+    if (flags.diffFile === "-") throw new Error("Use --diff <file> in the TUI; stdin is reserved for keyboard input.");
+    const { startTui } = await import("./tui.mjs");
+    await startTui(flags);
+    // A local review may still have model requests in flight when the user quits.
+    // Exit hooks terminate owned model runtimes; shared PocketBase stays running.
+    if (!flags.local) process.exit(0);
+    return;
+  }
 
   if (command === "mcp") {
     startMcpServer();
@@ -796,7 +814,8 @@ async function main() {
             if (lowScore) console.error(`  • Quality score (${result.scores.quality}) is below minimum threshold (${flags.minScore})`);
             for (const g of failedGates) console.error(`  • Gate failed: ${g.label} (${g.explanation})`);
           }
-          process.exit(1);
+          process.exitCode = 1;
+          return;
         }
       }
     } catch (err) {
@@ -842,7 +861,9 @@ async function main() {
   printHelp();
 }
 
-main().catch((err) => {
+export { getGitDiff, parseDiff, getLocalGuidelines, getRepoRoot, resolveModelConfig, requestLlm, runReview };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main().catch((err) => {
   console.error(`${c.red}Fatal: ${err.message}${c.reset}`);
   process.exit(1);
 });

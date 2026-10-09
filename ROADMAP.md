@@ -2,6 +2,11 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | Repository TUI in the existing CLI, sharing web storage and engines without a web server; organization tree and automatic missing reviews | 2026-10-09 |
+| [x] | Live score/summary previews, formatted details, folder walkthroughs, copying, PR links and Review/Changes tabs using Delta | 2026-10-09 |
+| [x] | Branded favicon header, focus-aware selection, structured skeletons, compact layouts and keyboard navigation | 2026-10-09 |
+| [x] | Independent local PocketBase lifetime, read recovery and CLI/TUI regression tests | 2026-10-09 |
+| [x] | Lightweight workspace TUI: diff sources, reviews, Ask and draft tools, cancellation, history and JSON export | 2026-10-08 |
 | [x] | Cloudflare Clef (`cloudflare/clef`, `cloudflare/clef-flash`) as a hosted System One provider via OpenRouter | 2026-10-08 |
 | [x] | Accepted fixes: suggestions authors applied are remembered per repository and guide later reviews (PR-Agent-inspired) | 2026-10-04 |
 | [x] | PR comment commands: /review, /describe, /improve, /ask, /docs, /changelog (PR-Agent-inspired) | 2026-10-04 |

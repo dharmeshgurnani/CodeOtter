@@ -8,7 +8,14 @@ RUN pnpm install --frozen-lockfile
 COPY web .
 RUN pnpm build
 
-# Stage 2: runtime = node + python3 + venv + gh + pocketbase in one image
+# Terminal dependencies are pure JavaScript; the backend still uses Node alone.
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS terminal-deps
+WORKDIR /app
+RUN npm i -g pnpm@10.20.0
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile
+
+# Runtime = node + python3 + venv + gh + pocketbase in one image
 FROM node:22-bookworm-slim
 ARG PB_VERSION=0.40.4
 ARG GH_VERSION=2.92.0
@@ -36,6 +43,7 @@ COPY server.mjs start.sh showcase.json models.json package.json ./
 COPY pb_migrations ./pb_migrations
 COPY runtimes ./runtimes
 COPY bin ./bin
+COPY --from=terminal-deps /app/node_modules ./node_modules
 RUN chmod +x /app/bin/codeotter.mjs /app/start.sh \
  && ln -s /app/bin/codeotter.mjs /usr/local/bin/codeotter
 COPY --from=web /app/web/dist ./web/dist
