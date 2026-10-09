@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- **License**: CodeOtter is open source under the GNU AGPL-3.0 (was Elastic License 2.0). Self-hosting, modification and redistribution are free; a modified version offered as a network service must publish its source.
 - **Auto-review** (Admin → Model provider → Review): every new or updated pull request in an onboarded repository is reviewed and the scores and review are posted, one PR at a time, on the same two-minute poll as triage. Drafts and PRs labelled `codeotter:skip` are left alone; a head commit is reviewed once.
 - Every GitHub CLI call is now asynchronous. A `gh` round trip used to block every other request and poll loop in the process.
 - `GET /healthz` answers without touching storage; the Docker and Render health checks use it instead of `/api/me`.
