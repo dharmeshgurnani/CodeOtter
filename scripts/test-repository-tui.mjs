@@ -9,10 +9,10 @@ import { once } from 'node:events';
 import { promisify, stripVTControlCharacters } from 'node:util';
 import { PassThrough } from 'node:stream';
 import blessed from 'blessed';
-import { createRepositoryClient, repositoryRows, reviewComplete, formatRepositoryReview, formatWalkthrough } from '../bin/repositories.mjs';
-import { startRepositoryTui } from '../bin/repository-tui.mjs';
-import { scoreColor, colorScores } from '../bin/tui-theme.mjs';
-import { formatDetailText } from '../bin/tui-details.mjs';
+import { createRepositoryClient, repositoryRows, reviewComplete, formatRepositoryReview, formatWalkthrough } from '../tui/repositories.mjs';
+import { startRepositoryTui } from '../tui/repository-tui.mjs';
+import { scoreColor, colorScores } from '../tui/tui-theme.mjs';
+import { formatDetailText } from '../tui/tui-details.mjs';
 
 assert.match(formatDetailText('#1 PR\nhttps://github.com/one/repo/pull/1'), /\{130-fg\}\{underline\}https:/);
 
@@ -71,7 +71,7 @@ try {
     const intervals = [];
     const timer = globalThis.setInterval;
     globalThis.setInterval = (fn, ms) => { intervals.push(ms); return timer(fn, ms); };
-    const core = await import(${JSON.stringify(pathToFileURL(resolve('server.mjs')).href)});
+    const core = await import(${JSON.stringify(pathToFileURL(resolve('core/server.mjs')).href)});
     assert.deepEqual(intervals, [60000], 'only model idle cleanup, no PR automation');
     const catalog = await core.repositoryBoard();
     assert.equal(catalog.reviewed.length, 0);
@@ -94,7 +94,7 @@ try {
   await new Promise(resolve => portProbe.listen(0, '127.0.0.1', resolve));
   const port = portProbe.address().port;
   await new Promise(resolve => portProbe.close(resolve));
-  backend = spawn(process.execPath, [resolve('server.mjs')], { env: { SystemRoot: process.env.SystemRoot, PATH: '', CODEOTTER_HOME: temp, REPO: 'one/repo', CODEOTTER_UPDATE_CHECK: '0', PORT: String(port) }, stdio: 'ignore' });
+  backend = spawn(process.execPath, [resolve('core/server.mjs')], { env: { SystemRoot: process.env.SystemRoot, PATH: '', CODEOTTER_HOME: temp, REPO: 'one/repo', CODEOTTER_UPDATE_CHECK: '0', PORT: String(port) }, stdio: 'ignore' });
   let liveBoard;
   for (let i = 0; i < 50; i++) {
     try { liveBoard = await (await fetch(`http://127.0.0.1:${port}/api/reviews?org=one`, { signal: AbortSignal.timeout(500) })).json(); break; } catch {}

@@ -25,14 +25,15 @@ Rules for anyone (human or agent) changing this codebase. Keep them; they encode
 
 ## Engineering rules
 
-- **Dependency-free backend.** `server.mjs` is one Node file using only the standard library and `fetch`. Provider calls are raw HTTP, including Anthropic's Messages API.
-- **Storage** is PocketBase when `PB_URL` is set (Docker sets it), else JSON files. Schema lives in `pb_migrations/`.
+- **Layout.** `core/` is the backend (`server.mjs`, `models.json`, `showcase.json`, `pb_migrations/`, `runtimes/`); it will be split into modules inside `core/`, never back into the root. `tui/` is the CLI and terminal UI. `web/` is the browser UI. `scripts/` holds the dev launcher and tests. The root holds only docs, deploy files and package manifests.
+- **Dependency-free backend.** `core/server.mjs` uses only the standard library and `fetch`. Provider calls are raw HTTP, including Anthropic's Messages API.
+- **Storage** is PocketBase when `PB_URL` is set (Docker sets it), else JSON files. Schema lives in `core/pb_migrations/`.
 - **Never run write-then-clear tests against a live instance.** A save/clear test once wiped real GitHub OAuth credentials. Read-only checks only; for write paths use a throwaway PocketBase data dir.
 - **Build**: `cd web && pnpm build` (strict TypeScript; unused imports fail). **Run**: `pnpm dev` for local dev (backend on 4747 + Vite on 5173 + auto-managed PocketBase on 8090) or `pnpm start` for production (`node server.mjs` on 4747). Docker sets `PB_URL` and runs PocketBase and server in one container.
 - **Docs travel with the change**: README for behaviour, ROADMAP for status, a CHANGELOG line per release.
 - **No rule-based stand-ins for models.** Scores, gates and findings come from a model or the review fails with the model's error on screen; nothing is posted. Never substitute heuristics when a model fails to load or answer.
 - **Model output is untrusted.** `judge()` normalises scores, verdict, findings and walkthrough before storage; never render raw model fields.
-- **Every data endpoint is gated** (`gate()` in `server.mjs`): admin or owner once an account exists, owner-level anonymous only during bootstrap or with `PR_SCORER_RECOVERY=1`. Cross-site requests to `/api/*` are refused. Validate anything that reaches `gh` argv (`OWNER_RE`, `REPO_RE`, `parsePrUrl`).
+- **Every data endpoint is gated** (`gate()` in `core/server.mjs`): admin or owner once an account exists, owner-level anonymous only during bootstrap or with `PR_SCORER_RECOVERY=1`. Cross-site requests to `/api/*` are refused. Validate anything that reaches `gh` argv (`OWNER_RE`, `REPO_RE`, `parsePrUrl`).
 
 ## Local workflow notes (one developer's habits, not project rules)
 

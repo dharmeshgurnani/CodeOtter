@@ -106,7 +106,7 @@ export function formatRepositoryReview(row) {
 export function createRepositoryClient({ core: suppliedCore, pollMs = 1000 } = {}) {
   // Lazy import: the UI can show initialization errors instead of exiting before rendering.
   let core;
-  const services = () => core ||= suppliedCore ? Promise.resolve(suppliedCore) : import("../server.mjs");
+  const services = () => core ||= suppliedCore ? Promise.resolve(suppliedCore) : import("../core/server.mjs");
   return {
     origin: "Local CodeOtter",
     async board(org, signal) {

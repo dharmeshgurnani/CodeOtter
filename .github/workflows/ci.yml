@@ -12,7 +12,7 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm, cache-dependency-path: "**/pnpm-lock.yaml" }
-      - run: node --check server.mjs
+      - run: node --check core/server.mjs
       - run: pnpm install --frozen-lockfile
       - run: pnpm -C web install --frozen-lockfile && pnpm -C web build
       - name: Offline tests
