@@ -13,6 +13,8 @@ import { startTui } from '../tui/tui.mjs';
 
 const root = process.cwd();
 const temp = mkdtempSync(join(tmpdir(), 'codeotter-tui-'));
+// Reviews import core/server.mjs: keep storage and settings in the throwaway home, never the live installation.
+process.env.CODEOTTER_HOME = temp; process.env.CODEOTTER_UPDATE_CHECK = '0'; process.env.PB_URL = '';
 const gateIds = ['title', 'description', 'security', 'complexity', 'tests', 'docs', 'scope', 'guidelines'];
 const fixture = {
   scores: Object.fromEntries(['quality', 'correctness_risk', 'test_coverage', 'readability', 'pr_hygiene', 'blast_radius'].map(k => [k, 55])),
@@ -27,7 +29,7 @@ const server = createServer(async (req, res) => {
   const prompt = JSON.parse(body).messages[0].content;
   requests.push(prompt);
   if (responseMode === 'slow') return;
-  const content = responseMode === 'invalid' ? '{}' : prompt.includes('CANDIDATE FINDINGS') ? '[]' : prompt.includes('valid JSON object') ? JSON.stringify(fixture) : '# Draft\nFixture answer';
+  const content = responseMode === 'invalid' ? '{}' : prompt.includes('checking another reviewer') ? '{"scores":[{"index":0,"score":0}]}' : prompt.includes('senior staff code reviewer') ? JSON.stringify(fixture) : '# Draft\nFixture answer';
   res.setHeader('content-type', 'application/json');
   res.end(JSON.stringify({ choices: [{ message: { content } }] }));
 });
@@ -48,7 +50,7 @@ try {
   const entry = await workspace.run('review');
   assert.equal(entry.result.blast.score, 55);
   assert.deepEqual(entry.result.findings, [], 'self-check can reject all findings');
-  assert.match(reviewSections(entry).Gates, /PASS/);
+  assert.deepEqual(entry.result.gates, [], 'gates come from System One only; none without it');
   for (const tool of ['ask', 'describe', 'improve', 'docs', 'changelog']) assert.match((await workspace.run(tool, 'Why?')).result, /Draft/);
   assert(requests.some(p => p.includes('QUESTION: Why?')));
   assert.equal(workspace.history.length, 6);

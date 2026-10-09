@@ -258,9 +258,9 @@ node tui/codeotter.mjs mcp
 ```
 
 ### Key CLI Features:
-- **Anti-Hallucination Critique Pass**: Automatically filters out false positives and ungrounded nitpicks by cross-verifying findings against the diff hunks.
+- **Same engines as the web app**: `codeotter review`, `pr`, `ci` and the MCP server run the installation's configured language and System One models through `core/server.mjs`. A configured System One model owns every score and gate; `--provider`/`--model` flags override the language model only. Findings go through the same self-check pass.
 - **Smart Context**: Scans for outside callers and evaluates cross-file contract safety.
-- **Pre-Merge Gates**: Validates title, description, security, complexity, tests, documentation, and `AGENTS.md` / `CLAUDE.md` guidelines.
+- **Pre-Merge Gates**: title, description, security, complexity, tests, documentation, scope and `AGENTS.md` / `CLAUDE.md` guidelines, answered by the System One model (none without one).
 - **Offline or BYOK**: Works with local `llama.cpp` / Ollama or hosted API keys (Anthropic, OpenAI, Gemini, MiniMax, Groq, OpenRouter).
 
 ---
