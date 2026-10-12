@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -432,18 +432,25 @@ export function MarkdownView({
 }) {
   const [visible, setVisible] = useState(writing ? "" : content);
   const [done, setDone] = useState(!writing);
+  // Callbacks live in refs so a parent re-render with a new function identity does not restart the typing animation.
+  const onUpdateRef = useRef(onUpdate);
+  const onDoneRef = useRef(onDone);
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+    onDoneRef.current = onDone;
+  });
 
   useEffect(() => {
     if (!writing) {
       setVisible(content);
       setDone(true);
-      onUpdate?.(content);
+      onUpdateRef.current?.(content);
       return;
     }
     if (!content) {
       setVisible("");
       setDone(true);
-      onUpdate?.("");
+      onUpdateRef.current?.("");
       return;
     }
     setDone(false);
@@ -461,15 +468,15 @@ export function MarkdownView({
       idx = Math.min(totalLen, idx + stepChunk);
       const nextText = content.slice(0, idx);
       setVisible(nextText);
-      onUpdate?.(nextText);
+      onUpdateRef.current?.(nextText);
       if (idx >= totalLen) {
         clearInterval(timer);
         setDone(true);
-        onDone?.();
+        onDoneRef.current?.();
       }
     }, stepMs);
     return () => clearInterval(timer);
-  }, [content, writing, duration, onUpdate, onDone]);
+  }, [content, writing, duration]);
 
   const isDark = variant === "dark";
   const textToRender = writing ? visible : content;

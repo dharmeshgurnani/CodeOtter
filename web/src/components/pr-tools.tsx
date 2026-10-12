@@ -18,11 +18,14 @@ export function PrTools({ org, prUrl }: { org: string; prUrl: string }) {
   const endpoint = `/api/tools?org=${encodeURIComponent(org)}`;
 
   useEffect(() => {
+    let alive = true;
     fetch(endpoint).then((r) => r.json()).then((d: Tool[]) => {
-      if (!Array.isArray(d)) return;
+      if (!alive || !Array.isArray(d)) return;
       setTools(d);
-      setId((cur) => cur || d[0]?.id || "");
+      // keep the current pick only if the new list still has it
+      setId((cur) => (cur && d.some((t) => t.id === cur) ? cur : d[0]?.id || ""));
     }).catch(() => {});
+    return () => { alive = false; };
   }, [endpoint]);
 
   const tool = tools.find((t) => t.id === id);

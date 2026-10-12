@@ -9,6 +9,9 @@ Standard library HTTP server. Loads the checkpoint with Transformers once, then 
 
 Diff encoding follows the paper's comment-generation task: each line is prefixed with <add>, <del> or <keep>,
 the source is truncated to 512 tokens, and generation starts from the <msg> token.
+
+One review runs at a time (the model is not re-entrant). A request that cannot take the lock within
+LOCK_TIMEOUT seconds gets 503; bodies over MAX_BODY bytes get 413. /health never takes the lock.
 """
 import argparse
 import json
@@ -27,6 +30,9 @@ args = parser.parse_args()
 import torch  # noqa: E402
 from transformers import AutoTokenizer, T5ForConditionalGeneration  # noqa: E402
 
+MAX_BODY = 2 * 1024 * 1024  # 2 MB
+LOCK_TIMEOUT = 600  # seconds a request waits for the model before giving up with 503
+
 device = args.device
 if device == "auto":
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -36,6 +42,15 @@ t0 = time.time()
 tokenizer = AutoTokenizer.from_pretrained(args.model)
 model = T5ForConditionalGeneration.from_pretrained(args.model).to(device).eval()
 SPECIAL = {k: tokenizer.convert_tokens_to_ids(k) for k in ("<add>", "<del>", "<keep>", "<msg>", "<start>", "<end>")}
+# A checkpoint without the task's special tokens maps them to <unk>; every prompt would then be garbage.
+_missing = [k for k, v in SPECIAL.items() if v is None or v == tokenizer.unk_token_id]
+if _missing:
+    sys.stderr.write(
+        f"[codereviewer] tokenizer at {args.model} lacks the CodeReviewer special tokens {_missing} "
+        "(they resolve to <unk>); this is not a CodeReviewer checkpoint or its tokenizer files are missing.\n"
+    )
+    sys.stderr.flush()
+    sys.exit(1)
 MODEL_NAME = args.model.replace("\\", "/").rstrip("/").split("/")[-1]
 print(f"[codereviewer] loaded {MODEL_NAME} on {device} in {time.time() - t0:.1f}s", flush=True)
 lock = threading.Lock()
@@ -57,14 +72,15 @@ def encode_hunk(diff: str) -> str:
 
 
 def review(hunks, max_new_tokens=96):
+    """Caller holds `lock`."""
     results = []
     for i, h in enumerate(hunks):
-        src = encode_hunk(h.get("diff", ""))
+        src = encode_hunk(h.get("diff", "") if isinstance(h, dict) else "")
         if not src.strip():
             results.append({"index": i, "comment": ""})
             continue
         ids = tokenizer(src, max_length=args.max_source, truncation=True, return_tensors="pt").input_ids.to(device)
-        with lock, torch.no_grad():
+        with torch.no_grad():
             out = model.generate(
                 ids,
                 decoder_input_ids=torch.tensor([[SPECIAL["<msg>"]]], device=device),
@@ -103,13 +119,31 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(404, {"error": "not found"})
         try:
             n = int(self.headers.get("content-length") or 0)
+        except ValueError:
+            return self._json(400, {"error": "invalid content-length"})
+        if n < 0:
+            return self._json(400, {"error": "invalid content-length"})
+        if n > MAX_BODY:
+            return self._json(413, {"error": f"request body too large ({n} bytes; limit {MAX_BODY})"})
+        try:
             req = json.loads(self.rfile.read(n) or b"{}")
-            hunks = req.get("hunks") or []
+        except ValueError as e:
+            return self._json(400, {"error": f"invalid JSON: {e}"})
+        if not isinstance(req, dict):
+            return self._json(400, {"error": "request body must be a JSON object"})
+        hunks = req.get("hunks") or []
+        if not isinstance(hunks, list):
+            return self._json(400, {"error": "'hunks' must be a list"})
+        if not lock.acquire(timeout=LOCK_TIMEOUT):
+            return self._json(503, {"error": f"model busy: no slot within {LOCK_TIMEOUT}s"})
+        try:
             t = time.time()
             comments = review(hunks[:64], int(req.get("max_new_tokens") or 96))
             self._json(200, {"model": MODEL_NAME, "device": device, "comments": comments, "latency_ms": round((time.time() - t) * 1000)})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
+        finally:
+            lock.release()
 
 
 ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()

@@ -30,8 +30,21 @@ export const GiteaMark = () => (
 
 export function LoginPage({ error, onLogin, go }: { error: string; onLogin: (provider: string) => Promise<void> | void; go: (p: string) => void }) {
   const [d, setD] = useState<LoginData | null>(null);
+  const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { fetch("/api/login").then((r) => r.json()).then(setD).catch(() => {}); }, []);
+  useEffect(() => {
+    let alive = true;
+    // Same shape as App's api(): JSON on success, {error} on failure.
+    fetch("/api/login")
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
+        if (!r.ok) throw new Error(j.error || `${r.status}`);
+        return j as LoginData;
+      })
+      .then((j) => alive && setD(j))
+      .catch((e: Error) => alive && setLoadError(e.message));
+    return () => { alive = false; };
+  }, []);
   const canLogin = !!d?.signInAvailable && !!d?.configured;
   const reason = !d ? "" : !d.signInAvailable ? "Sign-in is not available on this instance." : !d.configured ? "Sign-in is not configured yet." : "";
 
@@ -47,7 +60,8 @@ export function LoginPage({ error, onLogin, go }: { error: string; onLogin: (pro
           <div className="w-full max-w-[380px]">
             <h1 className="text-[28px] font-semibold tracking-tight text-neutral-900">Sign in</h1>
             <p className="mt-2 text-[15px] text-neutral-600">Review pull requests for quality, blast radius and actionable comments.</p>
-            {!d && <div className="mt-8 h-12 w-full animate-pulse rounded-lg bg-neutral-200" />}
+            {!d && !loadError && <div className="mt-8 h-12 w-full animate-pulse rounded-lg bg-neutral-200" />}
+            {loadError && <p className="mt-8 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{loadError}</p>}
             {(d?.providers ?? []).map((provider) => <button
               key={provider.id}
               type="button"
@@ -81,17 +95,17 @@ export function LoginPage({ error, onLogin, go }: { error: string; onLogin: (pro
         <DitherCanvas className="absolute inset-0 h-full w-full" pixel={3} />
         <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/70 to-transparent" />
         <div className="relative flex h-full flex-col justify-end p-12 xl:p-16">
-          {d ? (
+          {d?.showcase ? (
             <>
               <h2 className="max-w-[22ch] text-[34px] font-semibold leading-[1.1] tracking-tight xl:text-[40px]">{d.showcase.headline}</h2>
               <p className="mt-3 max-w-[48ch] text-[15px] text-white/70">{d.showcase.sub}</p>
               <div className="mt-10 grid grid-cols-1 gap-8 xl:grid-cols-3">
-                {d.showcase.groups.map((g) => (
-                  <div key={g.title}>
+                {(Array.isArray(d.showcase.groups) ? d.showcase.groups : []).map((g, gi) => (
+                  <div key={`${g.title ?? gi}`}>
                     <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50">{g.title}</div>
                     <ul className="space-y-2">
-                      {g.items.map((it) => (
-                        <li key={it.label}>
+                      {(Array.isArray(g.items) ? g.items : []).map((it, ii) => (
+                        <li key={ii}>
                           {it.href ? (
                             <a className="group block no-underline" href={it.href} target="_blank" rel="noreferrer">
                               <span className="text-[15px] font-medium text-white/90 group-hover:text-white group-hover:underline">{it.label}</span>

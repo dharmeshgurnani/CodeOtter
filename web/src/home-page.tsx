@@ -12,7 +12,7 @@ export function HomePage({ go, version, org }: { go: (p: string) => void; versio
     setErr("");
     fetch(`/api/home?org=${encodeURIComponent(org)}`)
       .then(async (r) => (r.ok ? r.json() : Promise.reject(new Error((await r.json().catch(() => ({}))).error || `${r.status}`))))
-      .then((d) => alive && setSections(d.sections))
+      .then((d) => alive && setSections(Array.isArray(d?.sections) ? d.sections : []))
       .catch((e) => alive && setErr(e.message));
     return () => { alive = false; };
   }, [version, org]);

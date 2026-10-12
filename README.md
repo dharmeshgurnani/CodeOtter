@@ -251,8 +251,11 @@ node tui/codeotter.mjs --staged
 # Review PR and post scorecard comment
 node tui/codeotter.mjs pr 42 --post-comment
 
-# Run in CI as a merge blocker (exits with code 1 if gates fail or score < 60)
+# Run in CI as a merge blocker (exits with code 1 if gates fail or score < 60; 2 on a bad flag or unknown command)
 node tui/codeotter.mjs ci --fail-on-gate --min-score 60
+
+# Limit a review to some paths
+node tui/codeotter.mjs review --files src/cart.js,src/tax.js
 
 # Run Model Context Protocol (MCP) server for Cursor / Claude Desktop / IDEs
 node tui/codeotter.mjs mcp

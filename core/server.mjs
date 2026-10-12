@@ -55,7 +55,12 @@ function availableUpdate() {
   }
   return release.version && newer(release.version, VERSION) ? { version: release.version, url: release.url } : null;
 }
-const REPO = process.env.REPO ||(Object.values(FORGES).some((f) => f.url) ? "" : repoFromCwd());
+// Declared before repoFromCwd() runs below: a const used before its declaration throws, and the catch blocks there would hide it.
+// <repo-id>
+const OWNER_RE = /^(?:(?:forgejo|gitea)~)?[\w][\w.-]*$/;
+const REPO_RE = /^(?:(?:forgejo|gitea)~)?[\w][\w.-]*\/[\w][\w.-]*$/;
+// </repo-id>
+const REPO = process.env.REPO || (Object.values(FORGES).some((f) => f.url) ? "" : repoFromCwd());
 function repoFromCwd() {
   try {
     const ghRepo = execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { encoding: "utf8" }).trim();
@@ -221,15 +226,29 @@ async function downloadFile(url, dest, key) {
   try {
     mkdirSync(join(dest, ".."), { recursive: true });
     const part = `${dest}.part`;
-    const have = fileSize(part);
-    const res = await fetch(url, { headers: have ? { range: `bytes=${have}-` } : {}, redirect: "follow", signal: AbortSignal.timeout(3600000) });
+    let have = fileSize(part);
+    // Idle timeout instead of a fixed total: a multi-GB file is allowed to take hours, a stalled socket is cut in a minute.
+    const ctl = new AbortController();
+    let idle = setTimeout(() => ctl.abort(new Error("Download stalled: no data for 60 s")), 60000);
+    const touch = () => { clearTimeout(idle); idle = setTimeout(() => ctl.abort(new Error("Download stalled: no data for 60 s")), 60000); };
+    let res = await fetch(url, { headers: have ? { range: `bytes=${have}-` } : {}, redirect: "follow", signal: ctl.signal });
+    if (res.status === 416) {
+      // the partial file is not resumable (already complete, or the server changed): start over once
+      rmSync(part, { force: true });
+      have = 0;
+      res = await fetch(url, { redirect: "follow", signal: ctl.signal });
+    }
     if (!res.ok && res.status !== 206) throw new Error(`Download failed: HTTP ${res.status}`);
     const resumed = res.status === 206;
     st.done = resumed ? have : 0;
     st.total = st.done + Number(res.headers.get("content-length") || 0);
     const out = createWriteStream(part, { flags: resumed ? "a" : "w" });
-    const counter = new (class extends (await import("node:stream")).Transform { _transform(chunk, _e, cb) { st.done += chunk.length; cb(null, chunk); } })();
-    await pipeline(Readable.fromWeb(res.body), counter, out);
+    const counter = new (class extends (await import("node:stream")).Transform { _transform(chunk, _e, cb) { st.done += chunk.length; touch(); cb(null, chunk); } })();
+    try {
+      await pipeline(Readable.fromWeb(res.body), counter, out);
+    } finally {
+      clearTimeout(idle);
+    }
     renameSync(part, dest);
   } catch (e) {
     st.error = e.message;
@@ -239,12 +258,14 @@ async function downloadFile(url, dest, key) {
 }
 // Runtimes: tried in catalog order per platform (e.g. a GPU build first, a CPU build as fallback).
 const TAR = process.platform === "win32" && existsSync(join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe")) ? join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe") : "tar";
+let pythonFound = null; // probing up to four interpreters blocks the event loop for seconds; do it once per process
 function findPython() {
+  if (pythonFound !== null) return pythonFound;
   for (const cand of [process.env.PR_SCORER_PYTHON, "python3", "python", "py"].filter(Boolean)) {
     const r = spawnSync(cand, cand === "py" ? ["-3", "-c", "import sys;print(sys.version_info[:2]>=(3,10))"] : ["-c", "import sys;print(sys.version_info[:2]>=(3,10))"], { encoding: "utf8", timeout: 20000, windowsHide: true });
-    if (r.status === 0 && /True/.test(r.stdout)) return cand;
+    if (r.status === 0 && /True/.test(r.stdout)) return (pythonFound = cand);
   }
-  return "";
+  return (pythonFound = "");
 }
 const pyReady = new Set();
 const venvPython = (name) => join(runtimeDir(name), "venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
@@ -264,12 +285,16 @@ async function ensureRuntime(name) {
     try {
       mkdirSync(runtimeDir(name), { recursive: true });
       const run = (cmd, args) => new Promise((resolve, reject) => {
+        // 30 minutes: a stalled pip would otherwise report "install already in progress" until the server restarts
         const p = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
         let log = "";
+        let timedOut = false;
+        const timer = setTimeout(() => { timedOut = true; try { p.kill("SIGKILL"); } catch {} }, 1800000);
+        timer.unref?.();
         p.stdout.on("data", (d) => { log = (log + d).slice(-2000); });
         p.stderr.on("data", (d) => { log = (log + d).slice(-2000); });
-        p.on("error", reject);
-        p.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${args.slice(0, 3).join(" ")} failed: ${log.trim().split("\n").pop()}`))));
+        p.on("error", (e) => { clearTimeout(timer); reject(e); });
+        p.on("exit", (code) => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(`${args.slice(0, 3).join(" ")} failed: ${timedOut ? "timed out after 30 min" : log.trim().split("\n").pop()}`)); });
       });
       if (!existsSync(py)) await run(sys, sys === "py" ? ["-3", "-m", "venv", join(runtimeDir(name), "venv")] : ["-m", "venv", join(runtimeDir(name), "venv")]);
       st.label = "Installing Python packages (PyTorch, Transformers)";
@@ -403,6 +428,7 @@ async function ensureSidecar(m) {
     let log = "";
     proc.stderr.on("data", (d) => { log = (log + d).slice(-4000); });
     proc.stdout.on("data", (d) => { log = (log + d).slice(-4000); });
+    proc.on("error", (e) => { log = `${log}\n${e.message}`.slice(-4000); if (sc.proc === proc) Object.assign(sc, { proc: null, ready: false, starting: null }); });
     proc.on("exit", () => { if (sc.proc === proc) Object.assign(sc, { proc: null, ready: false, starting: null }); });
     for (let i = 0; i < 300; i++) {
       if (!sc.proc) throw new Error(`Local model runtime exited: ${log.trim().split("\n").pop() || "no output"}`);
@@ -427,16 +453,32 @@ if (IS_SERVER) setInterval(async () => {
     if (!tc.auto && !rc.auto) return;
     const done = (await store.getSetting("triageResults")) || {};
     const reviewed = (await store.getSetting("autoReviewed")) || {};
+    const open = new Set();
+    let listedAll = true;
     for (const repo of await repos()) {
-      for (const p of await openPrs(repo)) {
+      // One unreachable forge or repository must not stop the others from being triaged and reviewed.
+      let prs;
+      try { prs = await openPrs(repo); } catch (e) { listedAll = false; console.warn(`[triage] ${repo}: ${e.message}`); continue; }
+      for (const p of prs) {
+        open.add(p.url);
         if (!SHA_RE.test(p.headRefOid || "")) continue;
         if (tc.auto && done[p.url]?.headSha !== p.headRefOid) await triagePr(p.url, repo).catch((e) => console.warn(`[triage] ${p.url}: ${e.message}`));
         if (!rc.auto || reviewed[p.url] === p.headRefOid || p.isDraft || (p.labels || []).some((l) => (l?.name || l) === "codeotter:skip")) continue;
         // ponytail: reviews run one after another inside this loop; a queue when a team outgrows it
-        await syncPrComments(await score(p.url, true, repo), repo, { postScores: true, postReview: true }).catch((e) => console.warn(`[auto-review] ${p.url}: ${e.message}`));
-        reviewed[p.url] = p.headRefOid;
-        await store.setSetting("autoReviewed", reviewed);
+        try {
+          await syncPrComments(await score(p.url, true, repo), repo, { postScores: true, postReview: true });
+          // recorded on success only: a failed review (model down, rate limit) is retried on the next poll
+          reviewed[p.url] = p.headRefOid;
+          await store.setSetting("autoReviewed", reviewed);
+        } catch (e) {
+          console.warn(`[auto-review] ${p.url}: ${e.message}`);
+        }
       }
+    }
+    // Closed PRs leave the record; unpruned it grows until the settings row hits its size limit and every save fails.
+    if (listedAll && rc.auto) {
+      const stale = Object.keys(reviewed).filter((u) => !open.has(u));
+      if (stale.length) { for (const u of stale) delete reviewed[u]; await store.setSetting("autoReviewed", reviewed); }
     }
   } catch (e) {
     console.warn(`[triage] ${e.message}`);
@@ -446,6 +488,13 @@ if (IS_SERVER) setInterval(async () => {
 }, 120e3).unref();
 setInterval(() => { for (const k of ["s1", "llm"]) { const sc = sidecars[k]; if (sc.proc && sc.ready && Date.now() - sc.lastUse > 15 * 60e3) stopSidecar(k); } }, 60e3).unref();
 process.on("exit", stopSidecars);
+// Signals stop the sidecars whether or not PocketBase was auto-started (that path adds its own handler). Without this a
+// docker stop or Ctrl-C leaves laya / llama-server / python holding their ports and the next start reports "runtime exited".
+if (IS_SERVER) {
+  for (const sig of ["SIGINT", "SIGTERM"]) process.once(sig, () => { stopSidecars(); process.exit(); });
+  process.on("unhandledRejection", (e) => console.error("[unhandledRejection]", e?.stack || e));
+  process.on("uncaughtException", (e) => console.error("[uncaughtException]", e?.stack || e));
+}
 
 async function s1Config() {
   const saved = (await store.getSetting("s1")) || {};
@@ -528,7 +577,14 @@ const pbBinAvailable = findPocketBase();
 const PB_URL = process.env.PB_URL || (pbBinAvailable ? "http://127.0.0.1:8090" : "");
 const SCORES = join(CODEOTTER_HOME, "scores");
 const CONFIG = join(CODEOTTER_HOME, "config.json");
+// <file-store>
 const readConfig = () => (existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, "utf8")) : {});
+// Write to a sibling file and rename: a crash mid-write never leaves half a JSON document behind.
+const writeJsonAtomic = (file, value) => { const tmp = `${file}.${process.pid}.tmp`; writeFileSync(tmp, JSON.stringify(value, null, 2)); renameSync(tmp, file); };
+// Settings are whole objects read, modified and written back; poll loops and web saves run them one at a time.
+let settingsChain = Promise.resolve();
+const withSettingsLock = (fn) => { const run = settingsChain.then(fn, fn); settingsChain = run.catch(() => {}); return run; };
+const readJsonFileOrNull = (file) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch (e) { console.warn(`[store] skipping unreadable ${file}: ${e.message}`); return null; } };
 const keyOf = (url) => /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/.test(url)
   ? url.replace("https://github.com/", "").replace(/\//g, "-")
   : createHash("sha256").update(url).digest("hex");
@@ -538,18 +594,20 @@ const fileStore = {
     const f = join(SCORES, `${keyOf(url)}.json`);
     return existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : null;
   },
-  put: async (r) => writeFileSync(join(SCORES, `${keyOf(r.pr.url)}.json`), JSON.stringify(r, null, 2)),
+  put: async (r) => writeJsonAtomic(join(SCORES, `${keyOf(r.pr.url)}.json`), r),
   getSetting: async (key) => readConfig()[key] ?? null,
-  setSetting: async (key, value) => writeFileSync(CONFIG, JSON.stringify({ ...readConfig(), [key]: value }, null, 2)),
+  setSetting: (key, value) => withSettingsLock(async () => writeJsonAtomic(CONFIG, { ...readConfig(), [key]: value })),
   all: async () =>
     (existsSync(SCORES) ? readdirSync(SCORES) : [])
       .filter((f) => f.endsWith(".json"))
-      .map((f) => JSON.parse(readFileSync(join(SCORES, f), "utf8")))
+      .map((f) => readJsonFileOrNull(join(SCORES, f)))
+      .filter((r) => r && r.pr && typeof r.at === "string")
       .sort((a, b) => b.at.localeCompare(a.at)),
   reviews() {
     return this.all();
   },
 };
+// </file-store>
 
 let pbProc = null;
 let pbStarting;
@@ -614,6 +672,7 @@ async function pbAuth() {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
+    signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) throw new Error(`PocketBase auth ${res.status}: ${(await res.text()).slice(0, 300)}`);
   pbToken = (await res.json()).token;
@@ -648,7 +707,11 @@ function pbError(text) {
     return text.slice(0, 300);
   }
 }
-const pbFind = async (url) => (await pb(`collections/reviews/records?perPage=1&filter=${encodeURIComponent(`url="${url}"`)}`)).items[0];
+// The filter is a string: a quote or backslash in the key would change its meaning, and no PR URL or setting key has one.
+// <pb-filter>
+const pbFilterEq = (field, value) => { if (/["\\]/.test(value)) throw new Error(`Invalid ${field}`); return encodeURIComponent(`${field}="${value}"`); };
+const pbFind = async (url) => (await pb(`collections/reviews/records?perPage=1&filter=${pbFilterEq("url", String(url))}`)).items[0];
+// </pb-filter>
 const pbStore = {
   async init() {
     await ensurePocketBase();
@@ -670,32 +733,45 @@ const pbStore = {
     const hit = await pbFind(r.pr.url);
     await pb(hit ? `collections/reviews/records/${hit.id}` : "collections/reviews/records", { method: hit ? "PATCH" : "POST", body });
   },
-  all: async () => (await pb("collections/reviews/records?perPage=500&sort=-at")).items.map((i) => i.data),
+  // Page through: a flat perPage=500 silently dropped the oldest reviews once an installation outgrew it.
+  async all() {
+    const out = [];
+    for (let page = 1; page <= 40; page++) {
+      const r = await pb(`collections/reviews/records?perPage=500&page=${page}&sort=-at`);
+      out.push(...r.items.map((i) => i.data));
+      if (page >= (r.totalPages || 1)) break;
+    }
+    return out;
+  },
   reviews() {
     return this.all();
   },
   getOAuth: async () => (await pb("collections/users")).oauth2,
-  hasForgeIdentities: async (provider) => (await pb(`collections/_externalAuths/records?perPage=1&filter=${encodeURIComponent(`provider="${provider}"`)}`)).items.length > 0,
+  hasForgeIdentities: async (provider) => (await pb(`collections/_externalAuths/records?perPage=1&filter=${pbFilterEq("provider", String(provider))}`)).items.length > 0,
   // Sign-in: PocketBase's manual OAuth2 flow. No superuser token involved; these are public user endpoints.
-  authMethods: async () => (await fetch(`${PB_URL}/api/collections/users/auth-methods`)).json(),
+  async authMethods() {
+    const res = await fetch(`${PB_URL}/api/collections/users/auth-methods`, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`Storage ${res.status}: ${pbError(await res.text())}`);
+    return res.json();
+  },
   async authWithOAuth2(body) {
-    const res = await fetch(`${PB_URL}/api/collections/users/auth-with-oauth2`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetch(`${PB_URL}/api/collections/users/auth-with-oauth2`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
     if (!res.ok) throw new Error(`Sign-in failed: ${pbError(await res.text())}`);
     return res.json();
   },
   async authRefresh(token) {
-    const res = await fetch(`${PB_URL}/api/collections/users/auth-refresh`, { method: "POST", headers: { authorization: token } });
+    const res = await fetch(`${PB_URL}/api/collections/users/auth-refresh`, { method: "POST", headers: { authorization: token }, signal: AbortSignal.timeout(10000) });
     return res.ok ? res.json() : null;
   },
-  userFile: (id, file) => fetch(`${PB_URL}/api/files/users/${id}/${file}`),
+  userFile: (id, file) => fetch(`${PB_URL}/api/files/users/${id}/${file}`, { signal: AbortSignal.timeout(10000) }),
   users: async () => (await pb("collections/users/records?perPage=200&sort=created")).items,
   setRole: (id, role) => pb(`collections/users/records/${id}`, { method: "PATCH", body: JSON.stringify({ role }) }),
   setOAuth: async (oauth2) => pb("collections/users", { method: "PATCH", body: JSON.stringify({ oauth2 }) }),
-  getSetting: async (key) => (await pb(`collections/settings/records?perPage=1&filter=${encodeURIComponent(`key="${key}"`)}`)).items[0]?.value ?? null,
-  async setSetting(key, value) {
-    const hit = (await pb(`collections/settings/records?perPage=1&filter=${encodeURIComponent(`key="${key}"`)}`)).items[0];
+  getSetting: async (key) => (await pb(`collections/settings/records?perPage=1&filter=${pbFilterEq("key", String(key))}`)).items[0]?.value ?? null,
+  setSetting: (key, value) => withSettingsLock(async () => {
+    const hit = (await pb(`collections/settings/records?perPage=1&filter=${pbFilterEq("key", String(key))}`)).items[0];
     await pb(hit ? `collections/settings/records/${hit.id}` : "collections/settings/records", { method: hit ? "PATCH" : "POST", body: JSON.stringify({ key, value }) });
-  },
+  }),
 };
 const store = PB_URL ? pbStore : fileStore;
 
@@ -704,21 +780,27 @@ const store = PB_URL ? pbStore : fileStore;
 const ghAsync = (...rawArgs) => {
   const args = Array.isArray(rawArgs[0]) ? rawArgs[0] : rawArgs;
   return new Promise((resolve, reject) => {
+    // Two minutes covers a slow diff; a hung gh (proxy, credential helper) would otherwise pin the poll loops forever.
+    // Own timer rather than spawn's timeout option: Node leaves that one armed when the binary is missing.
     const p = spawn("gh", args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let out = "";
     let err = "";
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; try { p.kill("SIGKILL"); } catch {} }, 120000);
+    timer.unref?.();
     p.stdout.on("data", (d) => { out += d; });
     p.stderr.on("data", (d) => { err += d; });
-    p.on("error", reject);
+    p.on("error", (e) => { clearTimeout(timer); reject(new Error(`gh ${args.slice(0, 2).join(" ")}: ${e.code === "ENOENT" ? "GitHub CLI (gh) not found on PATH" : e.message}`)); });
     p.on("close", (code) => {
+      clearTimeout(timer);
       if (code === 0) resolve(out);
+      else if (timedOut) reject(new Error(`gh ${args.slice(0, 2).join(" ")}: timed out after 120 s`));
       else reject(new Error(`gh ${args.slice(0, 2).join(" ")}: ${String(err).trim().split("\n")[0] || "failed"}`));
     });
   });
 };
-const OWNER_RE = /^(?:(?:forgejo|gitea)~)?[\w][\w.-]*$/;
-const REPO_RE = /^(?:(?:forgejo|gitea)~)?[\w][\w.-]*\/[\w][\w.-]*$/;
-const forgeId = (repo) => /^(forgejo|gitea)~/.exec(String(repo))?.[1] || "";
+// <pr-url>
+const forgeId =(repo) => /^(forgejo|gitea)~/.exec(String(repo))?.[1] || "";
 const isForgeRepo = (repo) => !!forgeId(repo);
 const nativeRepo = (repo) => String(repo).replace(/^(forgejo|gitea)~/, "");
 const repoLabel = (repo) => isForgeRepo(repo) ? `${nativeRepo(repo)} · ${FORGES[forgeId(repo)].label}` : repo;
@@ -744,6 +826,7 @@ function cleanRepo(value, org = "") {
   return s.replace(/^https:\/\/github\.com\//, "");
 }
 
+// </pr-url>
 // Only operator-configured origins receive the token. Never follow upstream redirects.
 async function forgeApi(path, { method = "GET", body, raw = false, source = forgeId(path.replace(/^repos\//, "")) } = {}) {
   const f = FORGES[source];
@@ -928,6 +1011,7 @@ function blastRadius(files, outsideCallers = 0, outsideFiles = 0) {
 }
 
 // One prompt in, text out. Anthropic uses the Messages API; everyone else is OpenAI chat/completions.
+// <ask-model>
 async function askModel(prompt, c) {
   if (!c.model) throw new Error("No model configured: open Settings");
   if (c.local && !c.enabled) throw new Error(`${c.local.label} is not downloaded: open Settings / Local models`);
@@ -951,6 +1035,7 @@ async function askModel(prompt, c) {
     const msg = await res.json();
     if (msg.stop_reason === "refusal") throw new Error(`Anthropic declined the request (${msg.stop_details?.category || "refusal"})`);
     if (msg.stop_reason === "max_tokens") throw new Error("Anthropic response was cut off at max_tokens: the review is incomplete");
+    if (!Array.isArray(msg.content)) throw new Error(`Anthropic returned no content: ${JSON.stringify(msg).slice(0, 300)}`);
     return msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   }
   const res = await fetch(`${base}/chat/completions`, {
@@ -960,9 +1045,14 @@ async function askModel(prompt, c) {
     signal: withAbort(c.signal, c.local ? 900000 : 180000),
   });
   if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  return (await res.json()).choices[0].message.content.replace(/<think>[\s\S]*?<\/think>/g, "");
+  // Proxies and some local servers answer 200 with {error} or an empty choices list; show that instead of a TypeError.
+  const body = await res.json().catch(() => null);
+  const text = body?.choices?.[0]?.message?.content;
+  if (typeof text !== "string") throw new Error(`LLM returned no text: ${body?.error?.message || body?.error || JSON.stringify(body ?? "").slice(0, 300)}`);
+  return text.replace(/<think>[\s\S]*?<\/think>/g, "");
 }
 
+// </ask-model>
 const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, contextLines: 16, reflectMin: 5, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false, commands: false, auto: false };
 const reviewConfig = async () => ({ ...REVIEW_DEFAULTS, ...((await store.getSetting("review")) || {}) });
 
@@ -985,6 +1075,7 @@ async function guideFiles(repo, ref = "") {
       } catch (e) { if (e.status !== 404) throw e; }
     }
     guideCache.set(cacheKey, { files, at: Date.now() });
+    capMap(guideCache, 500);
     return files;
   }
   const files = [];
@@ -1711,7 +1802,7 @@ function findFileLineInDiff(file, diff) {
 }
 
 function deriveSuggestionFromDetail(f, diff = "") {
-  const str = (x, max) => String(x ?? "").slice(0, max);
+  const str = (x, max) => String(x ?? "").replace(/<!--[\s\S]*?(-->|$)/g, "").slice(0, max); // no HTML comments: they could forge CodeOtter's own comment markers
   const SEV_MAP = {
     blocker: "high",
     major: "medium",
@@ -1872,7 +1963,7 @@ async function judge(pr, diff, c, r = REVIEW_DEFAULTS, guide = null, wantScores 
     throw new Error("The model did not return valid JSON; try again or pick another model");
   }
   const n = (x) => Math.max(0, Math.min(100, Math.round(Number(x)) || 0));
-  const str = (x, max) => String(x ?? "").slice(0, max);
+  const str = (x, max) => String(x ?? "").replace(/<!--[\s\S]*?(-->|$)/g, "").slice(0, max); // no HTML comments: they could forge CodeOtter's own comment markers
   const scoreKeys = ["quality", "correctness_risk", "test_coverage", "readability", "pr_hygiene", "blast_radius"];
   if (wantScores) {
     const missing = scoreKeys.filter((k) => out.scores?.[k] === null || out.scores?.[k] === "" || !Number.isFinite(Number(out.scores?.[k])));
@@ -2186,6 +2277,8 @@ async function startOrPollReview(ref, force, repo, part = "", publish = true) {
     }
     return existing.state;
   }
+  // A forced re-review joins a run still in flight instead of starting a second one that would post twice.
+  if (force && existing && !existing.done && !existing.error) return existing.state;
   const stored = (await store.get(urlGuess)) || (await store.reviews()).find((x) => x.pr?.url === urlGuess) || null;
   // Merge any in-flight state with stored state so partial re-runs never lose live scores or narrative
   const cached = existing?.state
@@ -2271,7 +2364,7 @@ async function startOrPollReview(ref, force, repo, part = "", publish = true) {
       narrative: runLlm && !!llmReady,
     },
   };
-  const entry = { state: live, error: null, promise: null };
+  const entry = { state: live, error: null, promise: null, done: false };
   activeReviews.set(pr.url, entry);
 
   entry.promise = (async () => {
@@ -2516,10 +2609,14 @@ async function startOrPollReview(ref, force, repo, part = "", publish = true) {
       });
       await store.put(result);
       entry.state = result;
+      entry.done = true;
       setTimeout(() => { if (activeReviews.get(live.pr.url) === entry) activeReviews.delete(live.pr.url); }, 30000).unref?.();
       return result;
     } catch (e) {
       entry.error = e.message;
+      entry.done = true;
+      // The next poll reports the error; without a poller the entry (and its live state) would stay in memory for good.
+      setTimeout(() => { if (activeReviews.get(live.pr.url) === entry) activeReviews.delete(live.pr.url); }, 120000).unref?.();
       throw e;
     }
   })();
@@ -2679,7 +2776,8 @@ async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, post
   let existingComments = [];
   try {
     // Forgejo's issue-comment endpoint returns all comments and ignores page/limit.
-    const raw = isForgeRepo(repo) ? JSON.stringify(await forgeApi(`repos/${repo}/issues/${r.pr.number}/comments`)) : await ghAsync(["api", `repos/${repo}/issues/${r.pr.number}/comments?per_page=100`]);
+    // --paginate --slurp: on a busy PR the marker comment may sit past the first 100, and a miss would post a duplicate.
+    const raw = isForgeRepo(repo) ? JSON.stringify(await forgeApi(`repos/${repo}/issues/${r.pr.number}/comments`)) : await ghAsync(["api", "--paginate", "--slurp", `repos/${repo}/issues/${r.pr.number}/comments?per_page=100`]).then((s) => JSON.stringify(JSON.parse(s).flat()));
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) existingComments = parsed;
   } catch (e) { if (isForgeRepo(repo)) throw e; }
@@ -2902,6 +3000,8 @@ async function postSuggestions({ pr }, result) {
 // Model prose posted to a PR: no HTML comments (they could forge CodeOtter's comment markers) and no live @mentions.
 const proseOf = (x, max) => String(x ?? "").replace(/<!--[\s\S]*?(-->|$)/g, "").replace(/(^|[^\w`])@(?=[\w-])/g, "$1@\u200b").trim().slice(0, max);
 const toolResults = new Map();
+// Caches keyed by PR or commit grow with every review; keep the newest entries only.
+const capMap = (map, max) => { while (map.size > max) map.delete(map.keys().next().value); };
 async function runPrTool(prUrl, id, { question = "", action = "run" } = {}) {
   const tool = PR_TOOLS[id];
   if (!tool) throw new Error(`Unknown tool ${id}`);
@@ -2911,6 +3011,7 @@ async function runPrTool(prUrl, id, { question = "", action = "run" } = {}) {
     const ctx = await prToolContext(prUrl);
     const result = { tool: id, label: tool.label, ...(await tool.run(ctx, oneLine(question, 2000))), headSha: ctx.pr.headRefOid || "", at: new Date().toISOString() };
     toolResults.set(key, result);
+    capMap(toolResults, 500);
     return result;
   }
   const result = toolResults.get(key);
@@ -3992,6 +4093,7 @@ async function homeData(org = "") {
   ];
   return { sections };
 }
+// <scope>
 function requestOrg(url) {
   const org = url.searchParams.get("org") || "";
   if (org && !OWNER_RE.test(org)) throw new Error("Bad organization");
@@ -4001,6 +4103,7 @@ function checkRepoScope(repo, org) {
   if (!REPO_RE.test(repo) || (isForgeRepo(repo) && !forgeUrl(repo))) throw new Error("Invalid repository");
   if (org && !repo.startsWith(`${org}/`)) throw new Error("Repository is outside the active organization");
 }
+// </scope>
 // Cookies: pr_oauth is an opaque key for server-held state/PKCE; pr_auth is the PocketBase user token.
 const cookies = (req) => Object.fromEntries((req.headers.cookie || "").split(";").map((c) => c.trim().split("=")).filter(([k]) => k).map(([k, ...v]) => { try { return [k, decodeURIComponent(v.join("="))]; } catch { return [k, ""]; } }));
 const setCookie = (res, name, value, maxAge) => {
@@ -4010,6 +4113,7 @@ const setCookie = (res, name, value, maxAge) => {
 // Account types. owner: everything. admin: everything except Accounts and sign-in configuration. developer: reserved.
 // The first account to sign in becomes owner; later ones admin. Until any account exists, an anonymous visitor
 // is treated as owner so the instance can be set up (bootstrap); once an owner exists, anonymous gets no settings.
+// <roles>
 const ROLES = ["owner", "admin"];
 const userView = (rec) => ({ id: rec.id, name: rec.name || rec.username || rec.email?.split("@")[0] || "User", email: rec.email || "", role: rec.role || "", avatar: rec.avatar ? `/api/me/avatar?id=${rec.id}&f=${encodeURIComponent(rec.avatar)}` : "" });
 async function currentUser(req) {
@@ -4040,6 +4144,7 @@ async function gate(req, res, access = "admin") {
   res.end(JSON.stringify({ error: user ? `This needs the ${access} role` : "Sign in to continue", login: !user }));
   return { user, ok: false };
 }
+// </roles>
 const readJson = (req) =>
   new Promise((ok, err) => {
     let b = "";
@@ -4307,7 +4412,11 @@ http
         if (PB_URL) { try { const m = await store.authMethods(); providers = Object.entries(LOGIN_PROVIDERS).filter(([, spec]) => m.oauth2?.enabled && m.oauth2.providers.some((p) => p.name === spec.pb)).map(([id, spec]) => ({ id, label: spec.label })); } catch {} }
         return json({ showcase, signInAvailable: !!PB_URL, configured: providers.length > 0, providers });
       }
-      if (url.pathname === "/healthz") return json({ ok: true, version: VERSION });
+      if (url.pathname === "/healthz") {
+        // Liveness stays 200 (a PocketBase restart must not restart this container too); storage health is reported alongside.
+        const storage = PB_URL ? await fetch(`${PB_URL}/api/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok).catch(() => false) : existsSync(SCORES);
+        return json({ ok: true, version: VERSION, storage: { kind: PB_URL ? "pocketbase" : "files", ok: storage } });
+      }
       if (url.pathname === "/api/me") {
         const u = await currentUser(req);
         return json({ user: u ? { id: u.id, name: u.name, email: u.email, role: u.role, avatar: u.avatar } : null, signInAvailable: !!PB_URL });
@@ -4594,8 +4703,8 @@ http
         return res.end(DEFAULT_FAVICON_SVG);
       }
       if (url.pathname === "/og.svg") {
-        const prParam = url.searchParams.get("pr") || "";
-        const cachedPr = prParam ? await store.get(prParam).catch(() => null) : null;
+        const prParam = (url.searchParams.get("pr") || "").trim();
+        const cachedPr = validPrUrl(prParam) ? await store.get(prParam).catch(() => null) : null;
         const ogTitle = cachedPr
           ? `#${cachedPr.pr.number} ${cachedPr.pr.title}`.slice(0, 72)
           : (url.searchParams.get("title") || "CodeOtter — AI Pull Request Review & Merge Gates").slice(0, 72);
@@ -4621,8 +4730,8 @@ http
         let ogType = "website";
         let ogImg = `${APP_URL}/og.svg`;
         if (url.pathname === "/review" && url.searchParams.get("pr")) {
-          const ref = url.searchParams.get("pr") || "";
-          const cPr = await store.get(ref).catch(() => null);
+          const ref = (url.searchParams.get("pr") || "").trim();
+          const cPr = validPrUrl(ref) ? await store.get(ref).catch(() => null) : null;
           if (cPr?.pr) {
             const [vl] = VERDICT[cPr.review?.verdict] || ["Commented"];
             pageTitle = `PR #${cPr.pr.number}: ${cPr.pr.title} (${repoOf(cPr.pr)}) · CodeOtter`;
@@ -4682,5 +4791,9 @@ http
     }
   })
   .setTimeout(0) // Node cuts requests at 300 s by default; a cold local sidecar plus a long review can take longer
+  .on("error", (e) => {
+    console.error(e.code === "EADDRINUSE" ? `Port ${PORT} is already in use (set PORT to pick another)` : `Cannot listen on ${PORT}: ${e.message}`);
+    process.exit(1);
+  })
   .listen(PORT, async () => console.log(`CodeOtter on http://localhost:${PORT} (repo ${REPO}, model ${(await llmConfig()).model}, store ${PB_URL ? `PocketBase ${PB_URL}` : "scores/"})`));
 }

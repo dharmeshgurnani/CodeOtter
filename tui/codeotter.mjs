@@ -125,7 +125,8 @@ function getLocalGuidelines(repoRoot = getRepoRoot()) {
   return guides.length ? guides.join("\n\n") : null;
 }
 
-function getGitDiff(options = {}) {
+// `paths` limits the diff to those files (`git diff ... -- <paths>`); `options.files` is accepted as well.
+function getGitDiff(options = {}, paths = options.files) {
   const args = ["diff", "--no-color", "--no-ext-diff", "--no-textconv"];
   if (options.staged) {
     args.push("--cached");
@@ -133,8 +134,9 @@ function getGitDiff(options = {}) {
     const base = execFileSync("git", ["rev-parse", "--verify", "--end-of-options", `${options.base}^{commit}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
     args.push(`${base}...HEAD`);
   }
-  if (options.files && options.files.length) {
-    args.push("--", ...options.files);
+  const files = Array.isArray(paths) ? paths.filter((p) => typeof p === "string" && p.trim()) : [];
+  if (files.length) {
+    args.push("--", ...files);
   }
   return execFileSync("git", args, { encoding: "utf8", maxBuffer: 10 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
 }
@@ -486,6 +488,8 @@ function formatMarkdownComment(result, prUrl = "") {
 
 // --- MCP (Model Context Protocol) Server Mode ---
 function startMcpServer() {
+  // The client closed the pipe (EPIPE): nothing left to answer, leave quietly.
+  process.stdout.on("error", () => process.exit(0));
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
 
   function send(response) {
@@ -493,14 +497,26 @@ function startMcpServer() {
   }
 
   rl.on("line", async (line) => {
-    if (!line.trim()) return;
-    let req;
+    let id;
     try {
-      req = JSON.parse(line);
-    } catch {
-      return;
+      if (!line.trim()) return;
+      let req;
+      try {
+        req = JSON.parse(line);
+      } catch {
+        return send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
+      }
+      if (!req || typeof req !== "object" || Array.isArray(req)) {
+        return send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request: expected a JSON-RPC request object" } });
+      }
+      id = req.id;
+      await handle(req);
+    } catch (err) {
+      send({ jsonrpc: "2.0", id: id === undefined ? null : id, error: { code: -32603, message: err?.message || String(err) } });
     }
+  });
 
+  async function handle(req) {
     const { id, method, params } = req;
 
     if (method === "initialize") {
@@ -545,8 +561,14 @@ function startMcpServer() {
     }
 
     if (method === "tools/call") {
-      const { name, arguments: args } = params || {};
+      const { name, arguments: args } = (params && typeof params === "object") ? params : {};
       if (name === "codeotter_review_diff") {
+        if (!args || typeof args !== "object" || Array.isArray(args)) {
+          return send({ jsonrpc: "2.0", id, error: { code: -32602, message: "Invalid params: 'arguments' must be an object" } });
+        }
+        if (typeof args.diff !== "string") {
+          return send({ jsonrpc: "2.0", id, error: { code: -32602, message: "Invalid params: 'arguments.diff' must be a string" } });
+        }
         try {
           const res = await runReview(args.diff, { title: args.title, body: args.body });
           return send({
@@ -571,12 +593,12 @@ function startMcpServer() {
     if (id !== undefined) {
       send({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
     }
-  });
+  }
 }
 
 // --- CLI Entry Point & Flag Parser ---
-function printHelp() {
-  console.log(`
+function printHelp(toStderr = false) {
+  (toStderr ? console.error : console.log)(`
 ${c.bold}${c.cyan}🦦 CodeOtter CLI${c.reset} v${VERSION}
 Autonomous Dual-Engine AI Code Review, Scoring Gauges & Pre-Merge Gate Enforcement.
 
@@ -622,19 +644,45 @@ async function main() {
   }
 
   const command = argv[0] && !argv[0].startsWith("-") ? argv[0] : "review";
+
+  // Value of `--name <value>` (or its alias). The token after the flag must exist and not be another
+  // flag; a lone "-" is allowed because `--diff -` means standard input. Missing value → exit 2.
+  function flagValue(name, alias = null) {
+    let i = argv.indexOf(name);
+    if (i === -1 && alias) i = argv.indexOf(alias);
+    if (i === -1) return null;
+    const value = argv[i + 1];
+    if (value === undefined || (value.startsWith("-") && value !== "-")) {
+      console.error(`Missing value for ${name}`);
+      process.exit(2);
+    }
+    return value;
+  }
+
+  const minScoreRaw = flagValue("--min-score");
+  const minScore = minScoreRaw === null ? 60 : Number(minScoreRaw);
+  if (!Number.isFinite(minScore)) {
+    console.error(`Invalid value for --min-score: expected a number, got "${minScoreRaw}"`);
+    process.exit(2);
+  }
+  // Named `paths`, not `files`: runReview's `files` option is the parsed diff file list.
+  const pathsRaw = flagValue("--files");
+  const paths = pathsRaw === null ? null : pathsRaw.split(",").map((p) => p.trim()).filter(Boolean);
+
   const flags = {
     local: argv.includes("--local"),
     staged: argv.includes("-s") || argv.includes("--staged"),
-    base: argv.includes("-b") ? argv[argv.indexOf("-b") + 1] : argv.includes("--base") ? argv[argv.indexOf("--base") + 1] : null,
-    model: argv.includes("--model") ? argv[argv.indexOf("--model") + 1] : null,
-    provider: argv.includes("--provider") ? argv[argv.indexOf("--provider") + 1] : null,
-    key: argv.includes("--key") ? argv[argv.indexOf("--key") + 1] : null,
-    baseUrl: argv.includes("--base-url") ? argv[argv.indexOf("--base-url") + 1] : null,
+    base: flagValue("--base", "-b"),
+    model: flagValue("--model"),
+    provider: flagValue("--provider"),
+    key: flagValue("--key"),
+    baseUrl: flagValue("--base-url"),
     failOnGate: argv.includes("--fail-on-gate"),
-    minScore: argv.includes("--min-score") ? Number(argv[argv.indexOf("--min-score") + 1]) : 60,
+    minScore,
     postComment: argv.includes("--post-comment"),
     json: argv.includes("--json"),
-    diffFile: argv.includes("--diff") ? argv[argv.indexOf("--diff") + 1] : null,
+    diffFile: flagValue("--diff"),
+    paths,
   };
 
   if (command === "tui" || (!argv.length && process.stdin.isTTY && process.stdout.isTTY)) {
@@ -642,10 +690,10 @@ async function main() {
     if (flags.diffFile === "-") throw new Error("Use --diff <file> in the TUI; stdin is reserved for keyboard input.");
     const { startTui } = await import("./tui.mjs");
     await startTui(flags);
-    // A local review may still have model requests in flight when the user quits.
-    // Exit hooks terminate owned model runtimes; shared PocketBase stays running.
-    if (!flags.local) process.exit(0);
-    return;
+    // A local review may still have model requests in flight when the user quits, and blessed may leave
+    // stdin handles open. Exit hooks in core/server.mjs terminate owned model runtimes (stopSidecars);
+    // shared PocketBase stays running. Both TUI paths exit explicitly.
+    process.exit(0);
   }
 
   if (command === "mcp") {
@@ -656,13 +704,29 @@ async function main() {
   if (command === "review" || command === "ci" || command === "diff") {
     let diff = "";
     if (flags.diffFile) {
-      diff = flags.diffFile === "-" ? readFileSync(0, "utf8") : readFileSync(flags.diffFile, "utf8");
+      if (flags.diffFile === "-" && process.stdin.isTTY) {
+        console.error(`${c.red}Error: --diff - reads the diff from standard input, but stdin is a terminal. Pipe a diff in (git diff | codeotter --diff -) or pass a file.${c.reset}`);
+        process.exit(2);
+      }
+      try {
+        diff = flags.diffFile === "-" ? readFileSync(0, "utf8") : readFileSync(flags.diffFile, "utf8");
+      } catch (err) {
+        console.error(`${c.red}Error: Cannot read diff from ${flags.diffFile === "-" ? "standard input" : flags.diffFile}: ${err.message}${c.reset}`);
+        process.exit(1);
+      }
     } else {
       if (!isGitRepo()) {
         console.error(`${c.red}Error: Not a git repository. Run inside a git repo or supply diff via --diff <file>.${c.reset}`);
         process.exit(1);
       }
-      diff = getGitDiff({ staged: flags.staged, base: flags.base });
+      try {
+        diff = getGitDiff({ staged: flags.staged, base: flags.base }, flags.paths);
+      } catch (err) {
+        // execFileSync pipes git's stderr; surface it (e.g. "fatal: Needed a single revision" for a bad --base).
+        const gitErr = typeof err.stderr === "string" ? err.stderr.trim() : (err.stderr ? String(err.stderr).trim() : "");
+        console.error(`${c.red}Error: git diff failed${flags.base ? ` against ${flags.base}` : ""}: ${gitErr || err.message}${c.reset}`);
+        process.exit(1);
+      }
     }
 
     if (!diff.trim()) {
@@ -739,7 +803,9 @@ async function main() {
     return;
   }
 
-  printHelp();
+  console.error(`${c.red}Unknown command: ${command}${c.reset}`);
+  printHelp(true);
+  process.exit(2);
 }
 
 export { getGitDiff, parseDiff, getLocalGuidelines, getRepoRoot, resolveModelConfig, requestLlm, runReview };
