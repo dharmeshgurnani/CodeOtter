@@ -25,6 +25,20 @@ describe("JsonReport", () => {
     expect(go).toHaveBeenCalledWith("/review?pr=7");
   });
 
+  it("renders sections whose lists are missing instead of crashing", () => {
+    // Server JSON with items/columns/rows left out: every section still mounts, and the table shows its empty text.
+    const broken = [
+      { id: "s", kind: "stats", title: "Stats" },
+      { id: "t", kind: "table", title: "Table", empty: "Nothing here" },
+      { id: "l", kind: "links", title: "Links" },
+    ] as unknown as ReportSection[];
+    render(<JsonReport sections={broken} go={() => {}} />);
+    expect(screen.getByText("Stats")).toBeInTheDocument();
+    expect(screen.getByText("Table")).toBeInTheDocument();
+    expect(screen.getByText("Links")).toBeInTheDocument();
+    expect(screen.getByText("Nothing here")).toBeInTheDocument();
+  });
+
   it("shows the empty text when a table has no rows", () => {
     render(<JsonReport sections={[{ id: "t", kind: "table", title: "Nothing", columns: ["A"], rows: [], empty: "No rows yet" }]} go={() => {}} />);
     expect(screen.getByText("No rows yet")).toBeInTheDocument();

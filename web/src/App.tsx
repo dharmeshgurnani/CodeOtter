@@ -8,8 +8,10 @@ import { SettingsPage } from "./settings-page";
 import { HomePage } from "./home-page";
 import { LoginPage } from "./login-page";
 const OnboardingPage = lazy(() => import("./onboarding-page").then((m) => ({ default: m.OnboardingPage })));
-import { ReviewSkeleton, TableSkeleton } from "@/components/skeletons";
+import { FormSkeleton, ReviewSkeleton, TableSkeleton } from "@/components/skeletons";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { Link } from "@/components/link";
+import { sessionGet, sessionSet, storageGet, storageSet } from "@/lib/storage";
 import { type Board, type Review, type User, repoFromUrl, repoLabel, VERDICT, effort, tone } from "./types";
 
 const useRoute = () => {
@@ -68,10 +70,10 @@ export default function App() {
   const [error, setError] = useState("");
   const [version, setVersion] = useState(0);
   // Active organization scopes the pages (home, sidebar). Remembered across refreshes.
-  const [org, setOrgState] = useState(() => localStorage.getItem("pr-scorer.org") ?? "");
+  const [org, setOrgState] = useState(() => storageGet("pr-scorer.org") ?? "");
   const orgRef = useRef(org);
   orgRef.current = org;
-  const setOrg = (o: string) => { setOrgState(o); localStorage.setItem("pr-scorer.org", o); };
+  const setOrg = (o: string) => { setOrgState(o); storageSet("pr-scorer.org", o); };
   // Signed-in user (session cookie). Login goes through the server's OAuth start endpoint.
   const [me, setMe] = useState<{ user: User | null; signInAvailable: boolean }>({ user: null, signInAvailable: false });
   const loadMe = () => api("/api/me").then(setMe).catch(() => {});
@@ -84,13 +86,13 @@ export default function App() {
   // Signed in and on the login page: nothing to do there.
   useEffect(() => { if (path === "/login" && me.user) go("/", true); }, [path, me.user]);
   const login = (provider = "github") => {
-    const back = sessionStorage.getItem("pr-scorer.back") || "/";
-    sessionStorage.removeItem("pr-scorer.back");
+    const back = sessionGet("pr-scorer.back") || "/";
+    sessionSet("pr-scorer.back", null);
     return api(`/api/auth/start?provider=${encodeURIComponent(provider)}&back=${encodeURIComponent(back)}`)
       .then((d) => { location.href = d.url; })
       .catch((e) => setLoginError(e.message));
   };
-  const logout = () => fetch("/api/auth/logout", { method: "POST" }).then(() => { loadMe(); load(); });
+  const logout = () => api("/api/auth/logout", { method: "POST" }).then(() => { loadMe(); load(); }).catch((e: Error) => setError(e.message));
   const load = () =>
     api(`/api/reviews?org=${encodeURIComponent(org)}`)
       .then((b: Board) => { if (orgRef.current === org) { setBoard(b); setBoardOrg(org); setError(""); setVersion((v) => v + 1); } })
@@ -101,7 +103,10 @@ export default function App() {
     api(`/api/reviews?org=${encodeURIComponent(org)}`).then((b: Board) => {
       if (alive) { setBoard(b); setBoardOrg(org); setError(""); }
     }).catch((e) => {
-      if (alive) { if (e.login && path !== "/login") go("/login", true); else setError(e.message); }
+      if (!alive) return;
+      // The previous organization's repositories must not feed the sidebar once its load has failed.
+      setBoard(null);
+      if (e.login && path !== "/login") go("/login", true); else setError(e.message);
     });
     return () => { alive = false; };
   }, [org]);
@@ -120,7 +125,7 @@ export default function App() {
   useEffect(() => { if (!known) go("/", true); }, [known]);
 
   useEffect(() => {
-    if (board?.onboardingNeeded && path !== "/onboarding" && path !== "/login" && !localStorage.getItem("pr-scorer.onboarding_done")) {
+    if (board?.onboardingNeeded && path !== "/onboarding" && path !== "/login" && !storageGet("pr-scorer.onboarding_done")) {
       go("/onboarding", true);
     }
   }, [board?.onboardingNeeded, path]);
@@ -179,10 +184,10 @@ export default function App() {
   }, [path, settingsPage, repoPage, repoView, org, board]);
 
   if (path === "/login") return <LoginPage error={loginError} onLogin={login} go={go} />;
-  if (path === "/onboarding") return <Suspense fallback={null}><OnboardingPage onComplete={(targetOrg) => { if (targetOrg) setOrg(targetOrg); go("/"); load(); }} go={go} /></Suspense>;
+  if (path === "/onboarding") return <ErrorBoundary><Suspense fallback={<div className="p-8"><FormSkeleton sections={[3]} /></div>}><OnboardingPage onComplete={(targetOrg) => { if (targetOrg) setOrg(targetOrg); go("/"); load(); }} go={go} /></Suspense></ErrorBoundary>;
   return (
     <SidebarProvider defaultOpen={sidebarDefaultOpen()}>
-      <AppSidebar update={board?.update} repositoriesLoaded={!!board} forgeUrls={board?.forgeUrls ?? {}} repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(scopedBoard)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
+      <AppSidebar update={board?.update} repositoriesLoaded={!!board} forgeUrls={board?.forgeUrls ?? {}} repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(scopedBoard)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionSet("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
       <SidebarInset className="min-w-0">
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3 text-base sm:px-6">
           <span className="flex min-w-0 items-center gap-2.5">
@@ -197,11 +202,16 @@ export default function App() {
           </span>
         </div>
         <div className="w-full px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-7">
-          {error && <p className="text-red-700">{error}</p>}
+          {error && (
+            <div className="mb-4 flex flex-wrap items-center gap-3 text-red-700">
+              <span>{error}</span>
+              <Button variant="outline" size="sm" onClick={() => load()}>Retry</Button>
+            </div>
+          )}
           {path === "/review" ? (
-            <Suspense fallback={<ReviewSkeleton />}><ReviewPage forgeUrls={board?.forgeUrls} org={org} pr={prRef} repo={prRepo} force={query.get("force") ?? ""} onDone={load} /></Suspense>
+            <ErrorBoundary><Suspense fallback={<ReviewSkeleton />}><ReviewPage forgeUrls={board?.forgeUrls} org={org} pr={prRef} repo={prRepo} force={query.get("force") ?? ""} onDone={load} /></Suspense></ErrorBoundary>
           ) : settingsPage ? (
-            <SettingsPage forgeUrls={board?.forgeUrls ?? {}} page={settingsPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionStorage.setItem("pr-scorer.back", location.pathname); go("/login"); }} onSaved={load} />
+            <SettingsPage forgeUrls={board?.forgeUrls ?? {}} page={settingsPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionSet("pr-scorer.back", location.pathname); go("/login"); }} onSaved={load} />
           ) : (
             <>
               {!repoPage ? (

@@ -455,7 +455,14 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
     setPostedSuggestionKeys({});
     setShowScrollBottom(false);
     userScrolledUpRef.current = false;
-  }, [pr, repoHint, org]);
+  }, [pr, repoHint, rerunReq]);
+  // An organization change (reconciliation from the PR's owner) refetches the same review; keep what is on screen, drop only a stale error.
+  useEffect(() => { setErr(""); }, [org]);
+
+  // `force` is consumed once: the URL is cleaned after the forced request but the prop keeps its value until the next navigation,
+  // and a later dependency change (e.g. org reconciliation) must not start a second model run.
+  const forceRef = useRef(force);
+  useEffect(() => { forceRef.current = force; }, [force]);
 
   useEffect(() => {
     let alive = true;
@@ -463,7 +470,9 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
     const plain = `/review?pr=${encodeURIComponent(pr)}${repoHint ? `&repo=${encodeURIComponent(repoHint)}` : ""}`;
     const poll = async (isFirst: boolean) => {
       try {
-        const useForce = isFirst && (!!force || !!rerunReq);
+        const forced = isFirst && !!forceRef.current;
+        if (forced) forceRef.current = "";
+        const useForce = forced || (isFirst && !!rerunReq);
         const partParam = isFirst && rerunReq && rerunReq.part !== "all" ? `&part=${rerunReq.part}` : "";
         const res = await fetch(`/api/score?org=${encodeURIComponent(org)}&pr=${encodeURIComponent(pr)}${repoHint ? `&repo=${encodeURIComponent(repoHint)}` : ""}${useForce ? "&force=1" : ""}${partParam}&async=1`);
         const d = await res.json().catch(() => ({ error: `${res.status}` }));
@@ -483,7 +492,7 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
           }
           return d;
         });
-        if (isFirst && force) history.replaceState(null, "", plain);
+        if (forced) history.replaceState(null, "", plain);
         if (d.pending) {
           timer = setTimeout(() => poll(false), 1000);
         } else {

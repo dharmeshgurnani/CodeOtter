@@ -10,7 +10,11 @@ export type ReportSection =
   | { id: string; kind: "table"; title: string; description?: string; columns: string[]; rows: Cell[][]; empty?: string }
   | { id: string; kind: "links"; title: string; description?: string; items: { label: string; hint?: string; path?: string; href?: string }[] };
 
+// Server JSON is trusted for shape but not for completeness: a missing list renders as empty, never as a crash.
+const list = <T,>(v: T[] | undefined | null): T[] => (Array.isArray(v) ? v : []);
+
 const CellView = ({ c, go }: { c: Cell; go: (p: string) => void }) => {
+  if (c === null || c === undefined) return <span />;
   if (typeof c !== "object") return <span className={typeof c === "number" ? "tabular-nums" : ""}>{c}</span>;
   if (c.tone) return <Pill tone={c.tone === "muted" ? undefined : c.tone}>{c.text}</Pill>;
   if (c.path) return <Link className="text-brand" path={c.path} go={go}>{c.text}</Link>;
@@ -29,23 +33,26 @@ const Heading = ({ s }: { s: ReportSection }) =>
 export function JsonReport({ sections, go }: { sections: ReportSection[]; go: (p: string) => void }) {
   return (
     <div className="space-y-8">
-      {sections.map((s) => (
-        <section key={s.id}>
+      {list(sections).map((s, si) => {
+        const columns = s.kind === "table" ? list(s.columns) : [];
+        const rows = s.kind === "table" ? list(s.rows) : [];
+        return (
+        <section key={`${s.id ?? si}`}>
           <Heading s={s} />
           {s.kind === "stats" && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {s.items.map((it) => (
+              {list(s.items).map((it, i) => (
                 // Nested card: off-white outer shell with the title as a header row, and an inset white panel with its own border for the body.
                 // Every card keeps the same geometry: the shell is a column, the inner panel fills it, and the subtitle and
                 // button rows are always reserved (rendered invisible when empty) so no card is shorter than its neighbours.
-                <div key={it.label} className="flex flex-col rounded-xl border border-neutral-200/90 bg-neutral-50 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+                <div key={i} className="flex flex-col rounded-xl border border-neutral-200/90 bg-neutral-50 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
                   <div className="px-5 pt-3.5 pb-3 text-[15px] font-medium text-neutral-900">{it.label}</div>
                   <div className="mx-1.5 mb-1.5 flex flex-1 flex-col rounded-lg border border-neutral-200 bg-white px-4 pt-4 pb-4">
                     <div className="flex items-baseline gap-2">
                       <span className="text-[22px] font-semibold leading-none tabular-nums text-neutral-900">{it.value}</span>
                       {it.unit && <span className="text-sm text-neutral-500">{it.unit}</span>}
                     </div>
-                    <div className="mt-2.5 min-h-5 text-sm text-neutral-500">{it.hint ?? " "}</div>
+                    <div className="mt-2.5 min-h-5 text-sm text-neutral-500">{it.hint ?? " "}</div>
                     <div className="mt-4">
                       <button
                         type="button"
@@ -54,7 +61,7 @@ export function JsonReport({ sections, go }: { sections: ReportSection[]; go: (p
                         aria-hidden={!it.action}
                         onClick={() => it.action && go(it.action.path)}
                       >
-                        {it.action?.label ?? " "}
+                        {it.action?.label ?? " "}
                       </button>
                     </div>
                   </div>
@@ -66,14 +73,14 @@ export function JsonReport({ sections, go }: { sections: ReportSection[]; go: (p
             <div className="overflow-x-auto rounded-[10px] border border-border">
               <table className="responsive-table w-full border-collapse text-sm">
                 <thead>
-                  <tr>{s.columns.map((c) => <th key={c} className="bg-[#efefef] px-4 py-2 text-left font-medium text-neutral-700">{c}</th>)}</tr>
+                  <tr>{columns.map((c, i) => <th key={i} className="bg-[#efefef] px-4 py-2 text-left font-medium text-neutral-700">{c}</th>)}</tr>
                 </thead>
                 <tbody>
-                  {s.rows.length === 0 && <tr><td colSpan={s.columns.length} className="px-4 py-3 text-muted-foreground">{s.empty ?? "Nothing yet."}</td></tr>}
-                  {s.rows.map((r, i) => (
+                  {rows.length === 0 && <tr><td colSpan={Math.max(1, columns.length)} className="px-4 py-3 text-muted-foreground">{s.empty ?? "Nothing yet."}</td></tr>}
+                  {rows.map((r, i) => (
                     <tr key={i}>
-                      {r.map((c, j) => (
-                        <td key={j} data-label={j > 0 ? s.columns[j] || undefined : undefined} className="border-t border-border px-4 py-2 align-top">
+                      {list(r).map((c, j) => (
+                        <td key={j} data-label={j > 0 ? columns[j] || undefined : undefined} className="border-t border-border px-4 py-2 align-top">
                           <CellView c={c} go={go} />
                         </td>
                       ))}
@@ -85,9 +92,9 @@ export function JsonReport({ sections, go }: { sections: ReportSection[]; go: (p
           )}
           {s.kind === "links" && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {s.items.map((it) => (
+              {list(s.items).map((it, i) => (
                 <a
-                  key={it.label}
+                  key={i}
                   className="block cursor-pointer rounded-[10px] border border-border px-4 py-3 hover:bg-neutral-50"
                   href={it.href ?? it.path}
                   target={it.href ? "_blank" : undefined}
@@ -101,7 +108,8 @@ export function JsonReport({ sections, go }: { sections: ReportSection[]; go: (p
             </div>
           )}
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }

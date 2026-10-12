@@ -6,6 +6,15 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DitherCanvas } from "@/components/dither-canvas";
 import { Toaster, toast } from "sonner";
 import { GitHubMark, ForgejoMark, GiteaMark } from "./login-page";
+import { storageSet } from "@/lib/storage";
+
+// One shape for every API response: JSON on success, {error} on failure (the error text, never the body, reaches the screen).
+const readJson = async (res: Response) => {
+  const d = await res.json().catch(() => ({ error: String(res.status) }));
+  if (!res.ok || d?.error) throw new Error(d?.error || String(res.status));
+  return d;
+};
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 const initials = (s: string) =>
   s
@@ -21,7 +30,7 @@ type OnboardingStatus = {
   hasPb: boolean;
   primaryProvider: string;
   forges: Record<string, { url: string; configured: boolean }>;
-  oauth: any;
+  oauth: unknown;
   repos: string[];
   s1: { provider: string; model: string; baseUrl: string; hasKey: boolean };
   llm: { provider: string; model: string; baseUrl: string; hasKey: boolean };
@@ -96,26 +105,29 @@ export function OnboardingPage({
       if (s >= 1 && s <= 3) setStep(s as 1 | 2 | 3);
     }
 
+    let alive = true;
     fetch("/api/onboarding")
-      .then((r) => r.json())
+      .then(readJson)
       .then((data: OnboardingStatus) => {
+        if (!alive) return;
         setStatus(data);
         if (data.primaryProvider === "forgejo" || data.primaryProvider === "gitea") {
           setProvider(data.primaryProvider);
-          const f = data.forges[data.primaryProvider];
+          const f = data.forges?.[data.primaryProvider];
           if (f?.url) setForgeUrl(f.url);
         }
-        if (data.repos?.length) setSelectedRepos(data.repos);
+        if (Array.isArray(data.repos) && data.repos.length) setSelectedRepos(data.repos);
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e: unknown) => alive && setError(errMsg(e)))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
   }, []);
 
   // Fetch Available Repositories for Step 3
   const loadRepositories = () => {
     setReposLoading(true);
     fetch("/api/onboarding/repos")
-      .then((r) => r.json())
+      .then(readJson)
       .then((d) => {
         if (Array.isArray(d.repos)) {
           setRepoChoices(d.repos);
@@ -144,7 +156,7 @@ export function OnboardingPage({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ returnTo: "/onboarding" }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (data.submit) {
         const form = document.createElement("form");
         form.method = "POST";
@@ -160,12 +172,9 @@ export function OnboardingPage({
         form.submit();
         return;
       }
-      if (data.error) {
-        throw new Error(data.error);
-      }
       await handleSaveStep1();
-    } catch (err: any) {
-      setError(err.message || "Failed to initiate GitHub App creation");
+    } catch (err: unknown) {
+      setError(errMsg(err) || "Failed to initiate GitHub App creation");
       setBusy(false);
     }
   };
@@ -176,7 +185,7 @@ export function OnboardingPage({
     setBusy(true);
     setTestResult(null);
     try {
-      const payload: any = { provider };
+      const payload: Record<string, unknown> = { provider };
       if (provider === "github") {
         if (ghToken) payload.token = ghToken;
       } else {
@@ -188,14 +197,14 @@ export function OnboardingPage({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ error: String(res.status) }));
       if (!res.ok || !data.ok) {
-        setTestResult({ ok: false, message: data.error || data.message || "Connection failed" });
+        setTestResult({ ok: false, message: data.error || data.message || `Connection failed (${res.status})` });
       } else {
         setTestResult({ ok: true, message: data.message || "Connection successful" });
       }
-    } catch (err: any) {
-      setTestResult({ ok: false, message: err.message || "Connection failed" });
+    } catch (err: unknown) {
+      setTestResult({ ok: false, message: errMsg(err) || "Connection failed" });
     } finally {
       setBusy(false);
     }
@@ -206,7 +215,7 @@ export function OnboardingPage({
     setError("");
     setBusy(true);
     try {
-      const payload: any = { provider };
+      const payload: Record<string, unknown> = { provider };
       if (provider === "github") {
         if (ghToken) payload.token = ghToken;
         if (ghClientId) payload.clientId = ghClientId;
@@ -224,14 +233,11 @@ export function OnboardingPage({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed to save provider configuration");
-      }
+      await readJson(res);
       setTestResult(null);
       setStep(2);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(errMsg(err) || "Failed to save provider configuration");
     } finally {
       setBusy(false);
     }
@@ -242,7 +248,7 @@ export function OnboardingPage({
     setError("");
     setBusy(true);
     try {
-      const payload: any = {};
+      const payload: Record<string, unknown> = {};
       if (modelMode === "local") {
         payload.s1 = { provider: localS1 };
         payload.llm = { provider: localLlm };
@@ -265,18 +271,15 @@ export function OnboardingPage({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed to save model configuration");
-      }
+      await readJson(res);
 
       if (modelMode === "local") {
         toast.info("Downloading local model checkpoints in background...");
       }
 
       setStep(3);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(errMsg(err) || "Failed to save model configuration");
     } finally {
       setBusy(false);
     }
@@ -296,17 +299,14 @@ export function OnboardingPage({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ repos: selectedRepos }),
       });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed to save repositories");
-      }
+      await readJson(res);
 
       const compRes = await fetch("/api/onboarding/complete", { method: "POST" });
-      const data = await compRes.json().catch(() => ({}));
-      localStorage.setItem("pr-scorer.onboarding_done", "true");
+      const data = await readJson(compRes);
+      storageSet("pr-scorer.onboarding_done", "true");
       onComplete(data.org || selectedRepos[0]?.split("/")[0] || "");
-    } catch (err: any) {
-      setError(err.message || "Failed to complete setup");
+    } catch (err: unknown) {
+      setError(errMsg(err) || "Failed to complete setup");
       setBusy(false);
     }
   };

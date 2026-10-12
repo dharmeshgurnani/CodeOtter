@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { JsonForm, type Section, type Values } from "@/components/json-form";
 import { FormSkeleton } from "@/components/skeletons";
 import type { User } from "./types";
@@ -27,6 +27,23 @@ export function SettingsPage({ forgeUrls, page, org, setOrg, user, onLogin, onSa
     setSaved(d.values);
     setValues(d.values);
   };
+  // Poll ticks refresh sections and saved values; a section's form values follow only while untouched (still equal to what was saved).
+  const savedRef = useRef(saved);
+  useEffect(() => { savedRef.current = saved; }, [saved]);
+  const applyPoll = (d: { sections: Section[]; values: Values }) => {
+    const prevSaved = savedRef.current;
+    setSections(d.sections);
+    setSaved(d.values);
+    setValues((cur) => {
+      const next = { ...cur };
+      for (const id of Object.keys(d.values)) if (JSON.stringify(cur[id]) === JSON.stringify(prevSaved[id])) next[id] = d.values[id];
+      return next;
+    });
+  };
+  // Responses that arrive after the page or organization changed belong to another scope and are dropped.
+  const scopeRef = useRef(`${page}\u0000${org}`);
+  useEffect(() => { scopeRef.current = `${page}\u0000${org}`; }, [page, org]);
+  const inScope = (scope: string) => scopeRef.current === scope;
   const call = async (path: string, init?: RequestInit) => {
     const r = await fetch(path, init);
     const d = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
@@ -35,7 +52,13 @@ export function SettingsPage({ forgeUrls, page, org, setOrg, user, onLogin, onSa
   };
   const url = (suffix = "") => `/api/settings/${page}${suffix}?org=${encodeURIComponent(org)}`;
   // A page change clears the message; an organization change only reloads (keeps redirect messages visible).
-  useEffect(() => { setMsg(redirectMessage()); }, [page]);
+  // The mount run is skipped: the state initializer already consumed the redirect message and cleaned the URL.
+  const lastPage = useRef(page);
+  useEffect(() => {
+    if (lastPage.current === page) return;
+    lastPage.current = page;
+    setMsg(redirectMessage());
+  }, [page]);
   useEffect(() => {
     let alive = true;
     setSections(null);
@@ -46,13 +69,15 @@ export function SettingsPage({ forgeUrls, page, org, setOrg, user, onLogin, onSa
   const pollMs = Math.max(0, ...(sections ?? []).map((s) => s.poll ?? 0));
   useEffect(() => {
     if (!pollMs) return;
-    const t = setInterval(() => call(url()).then(apply).catch(() => {}), pollMs);
-    return () => clearInterval(t);
+    let alive = true;
+    const t = setInterval(() => call(url()).then((d) => alive && applyPoll(d)).catch(() => {}), pollMs);
+    return () => { alive = false; clearInterval(t); };
   }, [pollMs, page, org]);
 
   const onAction = async (sectionId: string, actionId: string, itemId?: string, nextVals?: Record<string, unknown>) => {
     setBusy(`${sectionId}:${actionId}`);
     setMsg(null);
+    const scope = scopeRef.current;
     try {
       if (actionId === "save") {
         const secVals = nextVals ?? values[sectionId];
@@ -86,12 +111,12 @@ export function SettingsPage({ forgeUrls, page, org, setOrg, user, onLogin, onSa
           return;
         }
         if (d.message) setMsg({ ok: true, text: d.message });
-        if (itemId) apply(await call(url())); // row actions change the page (downloaded / active); refetch
+        if (itemId) { const d = await call(url()); if (inScope(scope)) apply(d); } // row actions change the page (downloaded / active); refetch
       }
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message, status: (e as { status?: number }).status });
       // a failed save keeps the edits; other actions reload the page's current values
-      if (actionId !== "save") call(url()).then(apply).catch(() => {});
+      if (actionId !== "save") call(url()).then((d) => inScope(scope) && apply(d)).catch(() => {});
     } finally {
       setBusy("");
     }
