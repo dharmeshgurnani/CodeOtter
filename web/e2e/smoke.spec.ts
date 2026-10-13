@@ -9,6 +9,6 @@ test("home renders from the real server with file storage", async ({ page, reque
 
 test("settings pages come from server JSON and render through the generic form", async ({ page }) => {
   await page.goto("/settings/model");
-  await expect(page.getByText("Auto-review")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Save" }).first()).toBeVisible();
+  await expect(page.getByText("Review engines")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Test" }).first()).toBeVisible();
 });

@@ -2,6 +2,7 @@
 
 | Status | Feature | Date |
 | :---: | :--- | :--- |
+| [x] | Developer role, per-account repository access and invites (uninvited sign-ins refused) | 2026-10-13 |
 | [x] | Auto-review: new and updated pull requests reviewed and posted without a command; CI on every PR; async gh; /healthz | 2026-10-09 |
 | [x] | Repository TUI in the existing CLI, sharing web storage and engines without a web server; organization tree and automatic missing reviews | 2026-10-09 |
 | [x] | Live score/summary previews, formatted details, folder walkthroughs, copying, PR links and Review/Changes tabs using Delta | 2026-10-09 |

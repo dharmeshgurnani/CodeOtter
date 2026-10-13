@@ -2,17 +2,20 @@ import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/animate-ui/components/radix/sidebar";
 import { updateSeo } from "@/lib/seo";
 import { Button } from "@/components/ui/button";
+import { Badge, DataTable } from "@/components/data-table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/animate-ui/components/animate/tooltip";
+import { BookOpen } from "lucide-react";
 import { AppSidebar } from "./app-sidebar";
 const ReviewPage = lazy(() => import("./review-page").then((m) => ({ default: m.ReviewPage })));
 import { SettingsPage } from "./settings-page";
 import { HomePage } from "./home-page";
-import { LoginPage } from "./login-page";
+import { LoginPage, GitHubMark, ForgejoMark, GiteaMark } from "./login-page";
 const OnboardingPage = lazy(() => import("./onboarding-page").then((m) => ({ default: m.OnboardingPage })));
 import { FormSkeleton, ReviewSkeleton, TableSkeleton } from "@/components/skeletons";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Link } from "@/components/link";
 import { sessionGet, sessionSet, storageGet, storageSet } from "@/lib/storage";
-import { type Board, type Review, type User, repoFromUrl, repoLabel, VERDICT, effort, tone } from "./types";
+import { type Board, type Review, type User, forgeId, forgeLabel, repoFromUrl, repoLabel, VERDICT, effort, effortTone, tone } from "./types";
 
 const useRoute = () => {
   const [route, setRoute] = useState(location.pathname + location.search);
@@ -33,27 +36,9 @@ const useRoute = () => {
 // The sidebar provider writes its open/closed state to a cookie but only reads `defaultOpen`; feed it back so a refresh keeps the state.
 const sidebarDefaultOpen = () => !/(?:^|;\s*)sidebar_state=false(?:;|$)/.test(document.cookie);
 
-export const Pill = ({ tone: t, children }: { tone?: string; children: React.ReactNode }) => {
-  const c = { ok: "bg-green-100 text-green-800", warn: "bg-amber-100 text-amber-800", bad: "bg-red-100 text-red-800" }[t ?? ""] ?? "bg-neutral-200 text-neutral-700";
-  return <span className={`inline-block rounded-md px-2 py-px text-xs align-middle ${c}`}>{children}</span>;
-};
-
-const Table = ({ head, children }: { head: string[]; children: React.ReactNode }) => (
-  <div className="rounded-[10px] border border-border overflow-x-auto">
-    <table className="responsive-table w-full border-collapse">
-      <thead>
-        <tr>
-          {head.map((h, i) => (
-            <th key={i} className="bg-[#efefef] text-left font-medium text-neutral-700 px-4 py-2.5 text-sm">{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>{children}</tbody>
-    </table>
-  </div>
-);
-const Td = ({ children, className = "", colSpan, label }: { children: React.ReactNode; className?: string; colSpan?: number; label?: string }) => (
-  <td colSpan={colSpan} data-label={label} className={`px-4 py-3 border-t border-border text-[15px] align-top ${className}`}>{children}</td>
+// The shared badge (components/data-table.tsx) under its older name; tone "ok" | "warn" | "bad", none = neutral.
+export const Pill = ({ tone: t, children }: { tone?: string; children: React.ReactNode }) => (
+  <Badge tone={t === "ok" || t === "warn" || t === "bad" ? t : "muted"}>{children}</Badge>
 );
 // One shape for every API response: JSON on success, {error} on failure; a 403 with login:true means "go sign in".
 const api = async (path: string, init?: RequestInit) => {
@@ -81,7 +66,7 @@ export default function App() {
   useEffect(() => {
     loadMe();
     const err = new URLSearchParams(location.search).get("login_error");
-    if (err) { setLoginError(`Sign-in failed: ${err}`); go("/login", true); }
+    if (err) { setLoginError(err.startsWith("Not invited") ? err : `Sign-in failed: ${err}`); go("/login", true); }
   }, []);
   // Signed in and on the login page: nothing to do there.
   useEffect(() => { if (path === "/login" && me.user) go("/", true); }, [path, me.user]);
@@ -114,13 +99,14 @@ export default function App() {
 
   const reviewUrl = (url: string) => `/review?pr=${encodeURIComponent(url)}`;
   useEffect(() => {
-    if (["/settings/forgejo", "/settings/gitea"].includes(path)) go("/settings/oauth", true);
+    if (["/settings/forgejo", "/settings/gitea"].includes(path)) go("/settings/git", true);
   }, [path]);
   const settingsPage = path.startsWith("/settings/") ? path.slice("/settings/".length) : "";
   // /repo/owner/name -> reviews for that repo, /repo/owner/name/open -> its open pull requests
   const repoParts = path.startsWith("/repo/") ? path.slice("/repo/".length).split("/") : [];
   const repoPage = repoParts.slice(0, 2).join("/");
-  const repoView = repoParts[2] === "open" ? "open" : "reviews";
+  const repoView = repoParts[2] === "open" ? "open" : repoParts[2] === "settings" ? "settings" : "reviews";
+  const repoViewTitle = repoView === "open" ? "Open pull requests" : repoView === "settings" ? "Repository settings" : "Reviews";
   const known = path === "/" || path === "/login" || path === "/onboarding" || path === "/review" || !!settingsPage || repoParts.length >= 2;
   useEffect(() => { if (!known) go("/", true); }, [known]);
 
@@ -138,11 +124,11 @@ export default function App() {
     if (owner && owner !== org) setOrg(owner);
   }, [path, prRef, prRepo, board?.forgeUrls]);
   const title = settingsPage
-    ? `${board?.settingsPages.find((p) => p.id === settingsPage)?.group === "admin" ? "Admin" : "Settings"} / ${board?.settingsPages.find((p) => p.id === settingsPage)?.title ?? settingsPage}`
+    ? `${board?.settingsPages.find((p) => p.id === settingsPage)?.group === "workspace" ? "Workspace" : "System"} / ${board?.settingsPages.find((p) => p.id === settingsPage)?.title ?? settingsPage}`
     : path === "/review"
       ? `Reviews / #${query.get("pr")?.split("/").pop() ?? ""}`
       : repoPage
-        ? `${repoLabel(repoPage)} / ${repoView === "open" ? "Open pull requests" : "Reviews"}`
+        ? `${repoLabel(repoPage)} / ${repoViewTitle}${repoView !== "settings" && scopedBoard ? ` · ${repoView === "open" ? scopedBoard.open.filter((p) => repoOf(p.url, scopedBoard.forgeUrls) === repoPage && !scopedBoard.reviewed.some((r) => r.pr.url === p.url)).length : scopedBoard.reviewed.filter((r) => repoOf(r.pr.url, scopedBoard.forgeUrls) === repoPage).length}` : ""}`
         : org ? `Home / ${repoLabel(org)}` : "Home";
 
   useEffect(() => {
@@ -159,7 +145,7 @@ export default function App() {
       });
     } else if (settingsPage) {
       const pageMeta = board?.settingsPages.find((p) => p.id === settingsPage);
-      const section = pageMeta?.group === "admin" ? "Admin" : "Settings";
+      const section = pageMeta?.group === "workspace" ? "Workspace" : "System";
       const pageTitle = pageMeta?.title ?? settingsPage;
       updateSeo({
         title: `${pageTitle} — ${section} · CodeOtter`,
@@ -167,7 +153,7 @@ export default function App() {
       });
     } else if (repoPage) {
       updateSeo({
-        title: `${repoLabel(repoPage)} — ${repoView === "open" ? "Open Pull Requests" : "PR Reviews"} · CodeOtter`,
+        title: `${repoLabel(repoPage)} — ${repoView === "reviews" ? "PR Reviews" : repoViewTitle} · CodeOtter`,
         description:
           repoView === "open"
             ? `Open pull requests waiting for AI code review in ${repoPage} on CodeOtter.`
@@ -192,13 +178,23 @@ export default function App() {
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3 text-base sm:px-6">
           <span className="flex min-w-0 items-center gap-2.5">
             <SidebarTrigger className="shrink-0" />
-            <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-6 rounded-md shadow-xs shrink-0 cursor-pointer sm:hidden" onClick={() => go("/")} />
+            <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-6 rounded-sm shadow-xs shrink-0 cursor-pointer sm:hidden" onClick={() => go("/")} />
             <span className="truncate">{title}</span>
           </span>
           <span className="flex shrink-0 gap-2">
             {path === "/review" && prRef && /^https?:/.test(prRef) && (
               <Button asChild size="sm" className="sm:h-9 sm:px-4 sm:text-sm"><a href={prRef} target="_blank" rel="noreferrer">Open pull request</a></Button>
             )}
+            <TooltipProvider>
+              <Tooltip side="bottom">
+                <TooltipTrigger asChild>
+                  <Button asChild variant="ghost" size="icon" className="sm:size-9 size-8">
+                    <a href="https://github.com/dharmeshgurnani/CodeOtter#readme" target="_blank" rel="noreferrer" aria-label="Documentation"><BookOpen /></a>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Documentation</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </span>
         </div>
         <div className="w-full px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-7">
@@ -216,6 +212,8 @@ export default function App() {
             <>
               {!repoPage ? (
                 <HomePage go={go} version={version} org={org} />
+              ) : repoView === "settings" ? (
+                <SettingsPage key={repoPage} forgeUrls={board?.forgeUrls ?? {}} page="repo" repo={repoPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionSet("pr-scorer.back", location.pathname); go("/login"); }} onSaved={load} />
               ) : repoView === "open" ? (
                 <OpenList board={scopedBoard} go={go} reviewUrl={reviewUrl} repo={repoPage} />
               ) : (
@@ -240,45 +238,90 @@ const openCounts = (board: Board | null) => {
   return out;
 };
 
-function ReviewedList({ board, go, reviewUrl, repo }: ListProps) {
-  const rows = (board?.reviewed ?? []).filter((r) => !repo || repoOf(r.pr.url, board?.forgeUrls) === repo);
-  if (!board) return <TableSkeleton rows={4} widths={["w-3/4", "w-24", "w-8", "w-8", "w-40"]} />;
+// The pull request on its own forge (GitHub, Forgejo or Gitea), as that provider's mark at the end of a row.
+function ProviderLink({ url, forgeUrls }: { url: string; forgeUrls?: Record<string, string> }) {
+  const repo = repoFromUrl(url, forgeUrls);
+  const id = forgeId(repo);
+  const label = `Open on ${forgeLabel(repo)}`;
   return (
-    <Table head={["Pull request", "Review effort", "Quality", "Blast radius", ""]}>
-      {rows.length === 0 && <tr><Td colSpan={5} className="text-muted-foreground">No reviews yet.</Td></tr>}
-      {rows.map((r: Review) => {
+    <Button asChild variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-foreground">
+      <a href={url} target="_blank" rel="noreferrer" aria-label={label} title={label}>
+        {id === "forgejo" ? <ForgejoMark /> : id === "gitea" ? <GiteaMark /> : <GitHubMark />}
+      </a>
+    </Button>
+  );
+}
+
+// "3d ago" style; the exact time is in the cell's title.
+const ago = (iso: string) => {
+  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  return s < 3600 ? `${Math.max(1, Math.round(s / 60))}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : s < 86400 * 30 ? `${Math.round(s / 86400)}d ago` : new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+};
+
+// Reviewed pull requests, newest review first. On a repository page the repository is implied, so its name is only
+// shown on mixed lists. The PR title is the one link to the review.
+function ReviewedList({ board, go, reviewUrl, repo }: ListProps) {
+  const rows = (board?.reviewed ?? []).filter((r) => !repo || repoOf(r.pr.url, board?.forgeUrls) === repo).sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  if (!board) return <TableSkeleton rows={4} widths={["w-3/4", "w-20", "w-16", "w-12", "w-12", "w-20"]} />;
+  return (
+    <DataTable
+      columns={[
+        { key: "pr", label: "Pull request" },
+        { key: "author", label: "Author" },
+        { key: "effort", label: "Effort", info: "Estimated review effort, from the blast radius and changed lines.\n1 Trivial\n2 Simple\n3 Moderate\n4 Complex\n5 Critical" },
+        { key: "quality", label: "Quality", align: "right", info: "Higher is better." },
+        { key: "blast", label: "Blast radius", align: "right", info: "How far the change reaches. Higher is riskier." },
+        { key: "verdict", label: "Verdict" },
+      ]}
+      empty="No reviews yet."
+      rows={rows.map((r: Review) => {
         const [vl, vt] = VERDICT[r.review.verdict] ?? VERDICT.comment;
         const e = effort(r.blast.score, r.blast.lines);
-        const repo = repoFromUrl(r.pr.url, board?.forgeUrls);
-        return (
-          <tr key={r.pr.url}>
-            <Td><Link className="text-brand" path={reviewUrl(r.pr.url)} go={go}>#{r.pr.number}</Link> {r.pr.title} <Pill>{repoLabel(repo)}</Pill></Td>
-            <Td label="Review effort">🎯 {e.n} ({e.label})</Td>
-            <Td label="Quality"><Pill tone={tone(r.review.scores.quality)}>{r.review.scores.quality}</Pill></Td>
-            <Td label="Blast radius"><Pill tone={tone(r.blast.score, true)}>{r.blast.score}</Pill></Td>
-            <Td className="sm:text-right whitespace-nowrap"><Pill tone={vt}>{vl}</Pill> <Link className="text-brand ml-3" path={reviewUrl(r.pr.url)} go={go}>Review details →</Link></Td>
-          </tr>
-        );
+        return {
+          id: r.pr.url,
+          cells: {
+            pr: (
+              <Link className="group/pr hover:underline" path={reviewUrl(r.pr.url)} go={go}>
+                <span className="text-muted-foreground">#{r.pr.number}</span> <span className="text-foreground group-hover/pr:text-brand">{r.pr.title}</span>
+                {!repo && <> <Pill>{repoLabel(repoFromUrl(r.pr.url, board.forgeUrls))}</Pill></>}
+              </Link>
+            ),
+            author: r.pr.author?.login || "",
+            effort: <span title={e.label}><Pill tone={effortTone(e.n)}>{e.n}/5</Pill></span>,
+            quality: <Pill tone={tone(r.review.scores.quality)}>{r.review.scores.quality}/100</Pill>,
+            blast: <Pill tone={tone(r.blast.score, true)}>{r.blast.score}/100</Pill>,
+            verdict: <Pill tone={vt}>{vl}</Pill>,
+          },
+          actions: <ProviderLink url={r.pr.url} forgeUrls={board.forgeUrls} />,
+        };
       })}
-    </Table>
+    />
   );
 }
 
 function OpenList({ board, go, reviewUrl, repo }: ListProps) {
   const done = new Set(board?.reviewed.map((r) => r.pr.url));
   const rows = (board?.open ?? []).filter((p) => !done.has(p.url) && (!repo || repoOf(p.url, board?.forgeUrls) === repo));
-  if (!board) return <TableSkeleton rows={4} widths={["w-3/4", "w-20", "w-32", "w-16"]} />;
+  if (!board) return <TableSkeleton rows={4} widths={["w-3/4", "w-20", "w-16", "w-32", "w-16"]} />;
   return (
-    <Table head={["Pull request", "Author", "Size", ""]}>
-      {rows.length === 0 && <tr><Td colSpan={4} className="text-muted-foreground">Nothing waiting for review.</Td></tr>}
-      {rows.map((p) => (
-        <tr key={p.url}>
-          <Td><a className="text-brand hover:underline" href={p.url} target="_blank" rel="noreferrer">#{p.number}</a> {p.title}</Td>
-          <Td label="Author">{p.author.login}</Td>
-          <Td label="Size">{p.changedFiles} files <span className="text-green-700">+{p.additions}</span> <span className="text-red-700">-{p.deletions}</span></Td>
-          <Td className="sm:text-right"><Link className="text-brand" path={reviewUrl(p.url)} go={go}>Review →</Link></Td>
-        </tr>
-      ))}
-    </Table>
+    <DataTable
+      columns={[{ key: "pr", label: "Pull request" }, { key: "author", label: "Author" }, { key: "updated", label: "Updated" }, { key: "size", label: "Size", align: "right" }]}
+      empty="Nothing waiting for review."
+      rows={[...rows].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).map((p) => ({
+        id: p.url,
+        cells: {
+          pr: (
+            <a className="group/pr hover:underline" href={p.url} target="_blank" rel="noreferrer">
+              <span className="text-muted-foreground">#{p.number}</span> <span className="text-foreground group-hover/pr:text-brand">{p.title}</span>
+              {!repo && <> <Pill>{repoLabel(repoFromUrl(p.url, board.forgeUrls))}</Pill></>}
+            </a>
+          ),
+          author: p.author.login,
+          updated: p.updatedAt ? <span className="whitespace-nowrap" title={new Date(p.updatedAt).toLocaleString()}>{ago(p.updatedAt)}</span> : "",
+          size: <span className="whitespace-nowrap">{p.changedFiles} files <span className="text-green-700">+{p.additions}</span> <span className="text-red-700">-{p.deletions}</span></span>,
+        },
+        actions: <><Link className="text-brand" path={reviewUrl(p.url)} go={go}>Review →</Link><ProviderLink url={p.url} forgeUrls={board.forgeUrls} /></>,
+      }))}
+    />
   );
 }

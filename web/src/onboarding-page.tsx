@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Check, Plus, RotateCw, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/data-table";
 import { InfoTip } from "@/components/info-tip";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DitherCanvas } from "@/components/dither-canvas";
-import { Toaster, toast } from "sonner";
+import { toast } from "sonner";
 import { GitHubMark, ForgejoMark, GiteaMark } from "./login-page";
 import { storageSet } from "@/lib/storage";
 
@@ -50,11 +51,13 @@ export function OnboardingPage({
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  // The action in flight ("" when idle): every action button is disabled, the running one shows a spinner.
+  const [busy, setBusy] = useState("");
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
-  const [error, setError] = useState("");
-  const [successBanner, setSuccessBanner] = useState("");
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  // Messages are Sonner toasts; the id keeps a repeated message (StrictMode, retries) from stacking.
+  const setError = (m: string) => { if (m) toast.error(m, { id: m }); };
+  const setSuccessBanner = (m: string) => { if (m) toast.success(m, { id: m }); };
+  const setTestResult = (r: { ok: boolean; message: string } | null) => { if (r) (r.ok ? toast.success : toast.error)(r.message); };
   const [showManualGh, setShowManualGh] = useState(false);
 
   // Step 1: Provider State
@@ -149,9 +152,9 @@ export function OnboardingPage({
   // 1-Click Automated GitHub App Manifest Flow (just like Settings -> OAuth)
   const handleCreateGitHubApp = async () => {
     setError("");
-    setBusy(true);
+    setBusy("github");
     try {
-      const res = await fetch("/api/settings/oauth/connect", {
+      const res = await fetch("/api/settings/git/connect", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ returnTo: "/onboarding" }),
@@ -175,14 +178,14 @@ export function OnboardingPage({
       await handleSaveStep1();
     } catch (err: unknown) {
       setError(errMsg(err) || "Failed to initiate GitHub App creation");
-      setBusy(false);
+      setBusy("");
     }
   };
 
   // Test Provider Connection
   const handleTestProvider = async () => {
     setError("");
-    setBusy(true);
+    setBusy("test");
     setTestResult(null);
     try {
       const payload: Record<string, unknown> = { provider };
@@ -206,14 +209,14 @@ export function OnboardingPage({
     } catch (err: unknown) {
       setTestResult({ ok: false, message: errMsg(err) || "Connection failed" });
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   };
 
   // Step 1 -> Step 2
   const handleSaveStep1 = async () => {
     setError("");
-    setBusy(true);
+    setBusy("step1");
     try {
       const payload: Record<string, unknown> = { provider };
       if (provider === "github") {
@@ -239,14 +242,14 @@ export function OnboardingPage({
     } catch (err: unknown) {
       setError(errMsg(err) || "Failed to save provider configuration");
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   };
 
   // Step 2 -> Step 3
   const handleSaveStep2 = async () => {
     setError("");
-    setBusy(true);
+    setBusy("step2");
     try {
       const payload: Record<string, unknown> = {};
       if (modelMode === "local") {
@@ -281,7 +284,7 @@ export function OnboardingPage({
     } catch (err: unknown) {
       setError(errMsg(err) || "Failed to save model configuration");
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   };
 
@@ -292,7 +295,7 @@ export function OnboardingPage({
       setError("Please select at least one repository to onboard.");
       return;
     }
-    setBusy(true);
+    setBusy("step3");
     try {
       const res = await fetch("/api/onboarding/save-repos", {
         method: "POST",
@@ -307,7 +310,7 @@ export function OnboardingPage({
       onComplete(data.org || selectedRepos[0]?.split("/")[0] || "");
     } catch (err: unknown) {
       setError(errMsg(err) || "Failed to complete setup");
-      setBusy(false);
+      setBusy("");
     }
   };
 
@@ -354,13 +357,12 @@ export function OnboardingPage({
 
   return (
     <>
-      <Toaster richColors position="top-right" />
       <div className="grid h-svh max-h-svh overflow-hidden grid-cols-1 bg-white lg:grid-cols-[minmax(560px,7fr)_5fr]">
         {/* Left: Interactive Wizard (Scrollable) */}
         <div className="flex h-full flex-col overflow-y-auto px-6 py-6 sm:px-14 sm:py-10">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-8 rounded-lg shadow-xs" />
+            <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-8 rounded-md shadow-xs" />
             <span className="text-[17px] font-semibold tracking-tight text-neutral-900">CodeOtter Setup</span>
           </div>
           <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-600">
@@ -381,25 +383,6 @@ export function OnboardingPage({
         </div>
 
         <div className="mt-8 flex-1">
-          {successBanner && (
-            <div className="mb-6 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 p-3.5 text-sm text-emerald-800">
-              <span>{successBanner}</span>
-              <button
-                type="button"
-                onClick={() => setSuccessBanner("")}
-                className="text-emerald-700 hover:text-emerald-900 text-xs font-semibold cursor-pointer"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
-
-          {error && (
-            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-3.5 text-sm text-red-800">
-              {error}
-            </div>
-          )}
-
           {/* ========================================================================= */}
           {/* STEP 1: Git & OAuth Provider                                              */}
           {/* ========================================================================= */}
@@ -468,9 +451,9 @@ export function OnboardingPage({
                           {p.icon}
                           <span className="text-[15px] font-semibold text-neutral-900">{p.label}</span>
                         </div>
-                        <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
+                        <Badge>
                           {p.badge}
-                        </span>
+                        </Badge>
                       </div>
                       <div className="mx-1.5 mb-1.5 flex flex-1 flex-col rounded-lg border border-neutral-200 bg-white p-3.5">
                         <div className="text-xs text-neutral-600 leading-relaxed min-h-[36px]">{p.hint}</div>
@@ -510,11 +493,12 @@ export function OnboardingPage({
                         <Button
                           type="button"
                           size="default"
-                          disabled={busy}
+                          disabled={!!busy}
+                          loading={busy === "github"}
                           onClick={handleCreateGitHubApp}
                           className="shrink-0 font-medium"
                         >
-                          {busy ? "Opening GitHub..." : "Create & Connect GitHub App \u2192"}
+                          {"Create & Connect GitHub App \u2192"}
                         </Button>
                       </div>
                     </div>
@@ -577,20 +561,12 @@ export function OnboardingPage({
                               type="button"
                               variant="outline"
                               size="sm"
-                              disabled={busy}
+                              disabled={!!busy}
+                              loading={busy === "test"}
                               onClick={handleTestProvider}
                             >
-                              {busy ? "Testing..." : "Test Connection"}
+                              Test Connection
                             </Button>
-                            {testResult && (
-                              <span
-                                className={`text-xs font-medium ${
-                                  testResult.ok ? "text-emerald-700" : "text-red-700"
-                                }`}
-                              >
-                                {testResult.message}
-                              </span>
-                            )}
                           </div>
                         </div>
                       )}
@@ -660,27 +636,19 @@ export function OnboardingPage({
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={busy}
+                        disabled={!!busy}
+                        loading={busy === "test"}
                         onClick={handleTestProvider}
                       >
-                        {busy ? "Testing..." : "Test Connection"}
+                        Test Connection
                       </Button>
-                      {testResult && (
-                        <span
-                          className={`text-xs font-medium ${
-                            testResult.ok ? "text-emerald-700" : "text-red-700"
-                          }`}
-                        >
-                          {testResult.message}
-                        </span>
-                      )}
                     </div>
                   </div>
                 )}
               </div>
 
               <div className="mt-8 flex justify-end">
-                <Button size="lg" disabled={busy} onClick={handleSaveStep1}>
+                <Button size="lg" disabled={!!busy} loading={busy === "step1"} onClick={handleSaveStep1}>
                   Next: Configure AI Models &rarr;
                 </Button>
               </div>
@@ -768,7 +736,7 @@ export function OnboardingPage({
                             <div className="flex items-center justify-between px-4 pt-3 pb-2.5">
                               <div className="flex items-center gap-2.5">
                                 <Avatar className="size-6 shrink-0 rounded-md border border-neutral-200 bg-white">
-                                  <AvatarImage src={m.icon} alt={m.maker} className="object-contain p-0.5" />
+                                  <AvatarImage src={m.icon} alt={m.maker} className="object-cover" />
                                   <AvatarFallback className="rounded-md text-[10px] font-semibold">{m.name.slice(0, 2)}</AvatarFallback>
                                 </Avatar>
                                 <div>
@@ -778,9 +746,9 @@ export function OnboardingPage({
                                 </div>
                               </div>
                               <div className="flex flex-col items-end">
-                                <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
+                                <Badge>
                                   {m.size}
-                                </span>
+                                </Badge>
                               </div>
                             </div>
                             <div className="mx-1.5 mb-1.5 flex flex-1 flex-col rounded-lg border border-neutral-200 bg-white p-3.5">
@@ -858,7 +826,7 @@ export function OnboardingPage({
                             <div className="flex items-center justify-between px-4 pt-3 pb-2.5">
                               <div className="flex items-center gap-2.5">
                                 <Avatar className="size-6 shrink-0 rounded-md border border-neutral-200 bg-white">
-                                  <AvatarImage src={m.icon} alt={m.maker} className="object-contain p-0.5" />
+                                  <AvatarImage src={m.icon} alt={m.maker} className="object-cover" />
                                   <AvatarFallback className="rounded-md text-[10px] font-semibold">{m.name.slice(0, 2)}</AvatarFallback>
                                 </Avatar>
                                 <div>
@@ -869,9 +837,9 @@ export function OnboardingPage({
                                 </div>
                               </div>
                               <div className="flex flex-col items-end">
-                                <span className="rounded-md bg-neutral-200/70 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
+                                <Badge>
                                   {m.size}
-                                </span>
+                                </Badge>
                               </div>
                             </div>
                             <div className="mx-1.5 mb-1.5 flex flex-1 flex-col rounded-lg border border-neutral-200 bg-white p-3.5">
@@ -1046,7 +1014,7 @@ export function OnboardingPage({
                 <Button variant="outline" onClick={() => setStep(1)}>
                   &larr; Back
                 </Button>
-                <Button size="lg" disabled={busy} onClick={handleSaveStep2}>
+                <Button size="lg" disabled={!!busy} loading={busy === "step2"} onClick={handleSaveStep2}>
                   Next: Connect Repositories &rarr;
                 </Button>
               </div>
@@ -1106,9 +1074,9 @@ export function OnboardingPage({
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200/60">
+                            <Badge tone="ok">
                               Added
-                            </span>
+                            </Badge>
                             <button
                               type="button"
                               aria-label={`Remove ${label}`}
@@ -1270,10 +1238,11 @@ export function OnboardingPage({
                 </Button>
                 <Button
                   size="lg"
-                  disabled={busy || selectedRepos.length === 0}
+                  disabled={!!busy || selectedRepos.length === 0}
+                  loading={busy === "step3"}
                   onClick={handleSaveStep3}
                 >
-                  {busy ? "Finalizing..." : "Go to Dashboard \u2192"}
+                  {"Go to Dashboard \u2192"}
                 </Button>
               </div>
             </div>

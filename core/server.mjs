@@ -434,7 +434,12 @@ async function ensureSidecar(m) {
       if (!sc.proc) throw new Error(`Local model runtime exited: ${log.trim().split("\n").pop() || "no output"}`);
       try {
         const h = await (await fetch(`http://127.0.0.1:${sc.port}/health`, { signal: AbortSignal.timeout(2000) })).json();
-        if (h.status === "ok") { sc.ready = true; sc.device = h.device || (m.runtime === "llama" ? (gpuIndex >= 0 ? `Vulkan${gpuIndex}` : "cpu") : ""); sc.lastUse = Date.now(); sc.starting = null; return sc.port; }
+        if (h.status === "ok") {
+          sc.ready = true; sc.device = h.device || (m.runtime === "llama" ? (gpuIndex >= 0 ? `Vulkan${gpuIndex}` : "cpu") : ""); sc.lastUse = Date.now(); sc.starting = null;
+          // remembered so Local models can say where a runtime ran while it is idle (sidecars stop after 15 idle minutes)
+          if (sc.device) store.getSetting("runtimeDevices").then((d) => store.setSetting("runtimeDevices", { ...(d || {}), [m.runtime]: { device: sc.device, model: m.id } })).catch(() => {});
+          return sc.port;
+        }
       } catch {}
       await new Promise((r) => setTimeout(r, 1000));
     }
@@ -449,13 +454,18 @@ if (IS_SERVER) setInterval(async () => {
   if (triagePolling) return;
   triagePolling = true;
   try {
-    const [tc, rc] = await Promise.all([triageConfig(), reviewConfig()]);
-    if (!tc.auto && !rc.auto) return;
+    const tc = await triageConfig();
+    const all = await repos();
+    const configs = new Map(await Promise.all(all.map(async (r) => [r, await reviewConfig(r)])));
+    const anyAuto = [...configs.values()].some((c) => c.auto);
+    if (!tc.auto && !anyAuto) return;
     const done = (await store.getSetting("triageResults")) || {};
     const reviewed = (await store.getSetting("autoReviewed")) || {};
     const open = new Set();
     let listedAll = true;
-    for (const repo of await repos()) {
+    for (const repo of all) {
+      const rc = configs.get(repo);
+      if (!tc.auto && !rc.auto) continue;
       // One unreachable forge or repository must not stop the others from being triaged and reviewed.
       let prs;
       try { prs = await openPrs(repo); } catch (e) { listedAll = false; console.warn(`[triage] ${repo}: ${e.message}`); continue; }
@@ -476,8 +486,10 @@ if (IS_SERVER) setInterval(async () => {
       }
     }
     // Closed PRs leave the record; unpruned it grows until the settings row hits its size limit and every save fails.
-    if (listedAll && rc.auto) {
-      const stale = Object.keys(reviewed).filter((u) => !open.has(u));
+    // Only repositories listed this round can prove a PR closed; a repository skipped here keeps its entries.
+    if (listedAll && anyAuto) {
+      const skipped = new Set(all.filter((r) => !tc.auto && !configs.get(r).auto));
+      const stale = Object.keys(reviewed).filter((u) => !open.has(u) && !skipped.has(repoOf({ url: u })));
       if (stale.length) { for (const u of stale) delete reviewed[u]; await store.setSetting("autoReviewed", reviewed); }
     }
   } catch (e) {
@@ -694,7 +706,7 @@ async function pb(path, init = {}, retry = true) {
   }
   if (res.status === 401 && retry) return pbAuth().then(() => pb(path, init, false));
   if (!res.ok) throw new Error(`Storage ${res.status}: ${pbError(await res.text())}`);
-  return res.json();
+  return res.status === 204 ? null : res.json();
 }
 // PocketBase validation errors nest as {data:{field:{sub:{code,message}}}}; surface "field.sub: message".
 function pbError(text) {
@@ -766,6 +778,9 @@ const pbStore = {
   userFile: (id, file) => fetch(`${PB_URL}/api/files/users/${id}/${file}`, { signal: AbortSignal.timeout(10000) }),
   users: async () => (await pb("collections/users/records?perPage=200&sort=created")).items,
   setRole: (id, role) => pb(`collections/users/records/${id}`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  // PocketBase provider names (github, oidc, gitea) linked to an account, from its OAuth identities.
+  identities: async (id) => (await pb(`collections/_externalAuths/records?perPage=50&filter=${pbFilterEq("recordRef", String(id))}`)).items.map((i) => i.provider),
+  deleteUser: (id) => pb(`collections/users/records/${encodeURIComponent(id)}`, { method: "DELETE" }),
   setOAuth: async (oauth2) => pb("collections/users", { method: "PATCH", body: JSON.stringify({ oauth2 }) }),
   getSetting: async (key) => (await pb(`collections/settings/records?perPage=1&filter=${pbFilterEq("key", String(key))}`)).items[0]?.value ?? null,
   setSetting: (key, value) => withSettingsLock(async () => {
@@ -782,7 +797,7 @@ const ghAsync = (...rawArgs) => {
   return new Promise((resolve, reject) => {
     // Two minutes covers a slow diff; a hung gh (proxy, credential helper) would otherwise pin the poll loops forever.
     // Own timer rather than spawn's timeout option: Node leaves that one armed when the binary is missing.
-    const p = spawn("gh", args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    const p = spawn("gh", args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, env: ghEnv() });
     let out = "";
     let err = "";
     let timedOut = false;
@@ -833,7 +848,7 @@ async function forgeApi(path, { method = "GET", body, raw = false, source = forg
   if (!f) throw new Error("Missing git server provider");
   path = path.replace(/^repos\/(forgejo|gitea)~/, "repos/");
   if (!f.url || !/^(?:user$|(?:repos|user|users|orgs)\/)/.test(path) || path.split(/[/?]/).some((p) => p === "." || p === "..")) throw new Error("Invalid git server API path");
-  if (!f.token) throw new Error(`Configure an access token in Admin / OAuth / ${f.label} connection`);
+  if (!f.token) throw new Error(`Configure an access token in Admin / Git providers / ${f.label}`);
   const res = await fetch(`${f.url}/api/v1/${path}`, {
     method, redirect: "error", signal: AbortSignal.timeout(30000),
     headers: { authorization: `token ${f.token}`, accept: raw ? "text/plain" : "application/json", ...(body ? { "content-type": "application/json" } : {}) },
@@ -1054,7 +1069,29 @@ async function askModel(prompt, c) {
 
 // </ask-model>
 const REVIEW_DEFAULTS = { maxFindings: 8, diffChars: 90000, contextLines: 16, reflectMin: 5, temperature: 0.2, postScores: false, postReview: false, postInlineSuggestions: false, commands: false, auto: false };
-const reviewConfig = async () => ({ ...REVIEW_DEFAULTS, ...((await store.getSetting("review")) || {}) });
+// Review settings are per repository (repoSettings[repo].review, from Repository settings). Repositories not yet saved
+// there fall back to the old install-wide "review" setting and the per-repository posting toggles kept in "guides".
+const reviewConfig = async (repo = "") => {
+  const [global, guides, rs] = await Promise.all([store.getSetting("review"), repo ? store.getSetting("guides") : null, repo ? store.getSetting("repoSettings") : null]);
+  const base = { ...REVIEW_DEFAULTS, ...(global || {}) };
+  if (!repo) return base;
+  const g = guides?.[repo] || {};
+  const r = rs?.[repo] || {};
+  const legacy = Object.fromEntries(["postScores", "postReview", "postInlineSuggestions"].map((k) => [k, g[k] ?? r[k]]).filter(([, v]) => v !== undefined));
+  return { ...base, ...legacy, ...(r.review || {}) };
+};
+const normalizeReview = (v) => ({
+  maxFindings: Math.min(12, Math.max(3, Number(v.maxFindings) || REVIEW_DEFAULTS.maxFindings)),
+  diffChars: [30000, 60000, 90000, 150000, 300000].includes(Number(v.diffChars)) ? Number(v.diffChars) : REVIEW_DEFAULTS.diffChars,
+  reflectMin: [0, 3, 5, 7].includes(Number(v.reflectMin)) ? Number(v.reflectMin) : REVIEW_DEFAULTS.reflectMin,
+  contextLines: [0, 8, 16, 32].includes(Number(v.contextLines)) ? Number(v.contextLines) : REVIEW_DEFAULTS.contextLines,
+  temperature: Math.min(1, Math.max(0, Number(v.temperature) || 0)),
+  postScores: !!v.postScores,
+  postReview: !!v.postReview,
+  postInlineSuggestions: !!v.postInlineSuggestions,
+  auto: !!v.auto,
+  commands: !!v.commands,
+});
 
 // Repository review guides: AGENTS.md and/or CLAUDE.md at the repo root (both are used when both exist, since one is
 // often a stub pointing at the other). Detection is cached for 10 minutes; whether guides are used is a per-repository
@@ -1432,8 +1469,7 @@ async function triagePr(ref, repoHint = "") {
       const risk = pct("correctness_risk");
       const entry = { ...base, risk, blast: pct("blast_radius"), verdict: risk >= cfg.stopAt ? "attention" : "ok", stopAt: cfg.stopAt, model: `${s1.provider}/${s1.model}`, seconds: Math.round((Date.now() - started) / 1000), at: new Date().toISOString() };
       await postTriageStatus(repo, sha, entry.verdict === "attention" ? "failure" : "success", `Risk ${risk}/100: ${entry.verdict === "attention" ? "needs attention" : "ok to continue"} (${entry.seconds}s)`, pr.url);
-      const repoCfg = ((await store.getSetting("guides")) || {})[repo] || {};
-      if (repoCfg.postScores ?? (await reviewConfig()).postScores) await syncPrComments({ pr }, repo, { triage: entry });
+      if ((await reviewConfig(repo)).postScores) await syncPrComments({ pr }, repo, { triage: entry });
       return saveTriage(entry);
     } catch (e) {
       await postTriageStatus(repo, sha, "error", `Triage failed: ${e.message}`, pr.url).catch(() => {});
@@ -2075,19 +2111,24 @@ const repos = async () => {
   return Array.isArray(saved) ? saved : REPO ? [REPO] : [];
 };
 let ghReposCache;
+// A GitHub token saved in the app (Settings / Git providers, or onboarding) goes to gh calls only, as GH_TOKEN in that
+// child's environment, and takes precedence over one from the server's environment; without one, gh uses its own login.
+// It is never written to process.env, so model sidecars, pip and other children do not inherit it.
+let savedGithubToken = "";
+const ghEnv = () => (savedGithubToken ? { ...process.env, GH_TOKEN: savedGithubToken, GITHUB_TOKEN: savedGithubToken } : process.env);
+function applyGithubToken(token) {
+  savedGithubToken = token || "";
+  ghReposCache = null;
+}
 async function repositoryChoices(owner = "") {
   if (owner && !OWNER_RE.test(owner)) return [];
   if (isForgeRepo(owner)) return (await forgeList("user/repos", forgeId(owner))).map((r) => `${forgeId(owner)}~${r.full_name}`).filter((r) => REPO_RE.test(r) && r.startsWith(`${owner}/`));
 
-  let savedGhToken = (await store.getSetting("githubToken")) || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+  let savedGhToken = savedGithubToken || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
   if (!savedGhToken) {
     try {
       savedGhToken = execFileSync("gh", ["auth", "token"], { encoding: "utf8" }).trim();
     } catch {}
-  }
-  if (savedGhToken) {
-    process.env.GITHUB_TOKEN = savedGhToken;
-    process.env.GH_TOKEN = savedGhToken;
   }
 
   const githubApp = await store.getSetting("githubApp");
@@ -2315,7 +2356,7 @@ async function startOrPollReview(ref, force, repo, part = "", publish = true) {
     part = cached.review?.summary ? "scores" : "";
   }
 
-  const [c, s1, rc] = await Promise.all([llmConfig(), s1Config(), reviewConfig()]);
+  const [c, s1, rc] = await Promise.all([llmConfig(), s1Config(), reviewConfig(repoOf({ url: urlGuess }))]);
   const llmReady = c.local ? c.enabled : !!c.model && (!!c.apiKey || !!PROVIDERS[c.provider]?.noKey || /localhost|127\.0\.0\.1/.test(c.baseUrl));
   if (!llmReady && !s1.enabled) throw new Error("No model configured: open Settings / Model provider");
   if (llmReady && c.api === "codereviewer" && !s1.enabled) throw new Error(`${c.local.label} writes review comments only. Configure a System One model for scores (Settings / Model provider; Laya runs on CPU next to it).`);
@@ -2597,15 +2638,10 @@ async function startOrPollReview(ref, force, repo, part = "", publish = true) {
         gitHistory: live.gitHistory,
         at: new Date().toISOString(),
       };
-      const repoCfg = ((await store.getSetting("guides")) || {})[repoOf(live.pr)] || {};
-      const rsCfg = ((await store.getSetting("repoSettings")) || {})[repoOf(live.pr)] || {};
-      const doPostScores = repoCfg.postScores ?? rc.postScores;
-      const doPostReview = repoCfg.postReview ?? rc.postReview;
-      const doPostInlineSuggestions = repoCfg.postInlineSuggestions ?? rsCfg.postInlineSuggestions ?? rc.postInlineSuggestions;
       await syncPrComments(result, repoOf(live.pr), {
-        postScores: !!(publish && runScores && doPostScores && (typed || review?.scores)),
-        postReview: !!(publish && runLlm && doPostReview && review?.summary),
-        postInlineSuggestions: !!(publish && runLlm && doPostInlineSuggestions && (review?.findings || []).some((f) => !f.dismissed && (f.suggestion || f.line))),
+        postScores: !!(publish && runScores && rc.postScores && (typed || review?.scores)),
+        postReview: !!(publish && runLlm && rc.postReview && review?.summary),
+        postInlineSuggestions: !!(publish && runLlm && rc.postInlineSuggestions &&(review?.findings || []).some((f) => !f.dismissed && (f.suggestion || f.line))),
       });
       await store.put(result);
       entry.state = result;
@@ -2854,7 +2890,7 @@ ${String(pr.body || "(none)").replace(/<!-- codeotter:describe -->[\s\S]*?<!-- \
 ${guide ? `\nRepository guidelines from ${guide.file}:\n${guide.text.slice(0, 8000)}\n` : ""}`;
 async function prToolContext(prUrl) {
   const { urlGuess, spec } = await resolvePr(prUrl, repoOf({ url: prUrl }));
-  const [pr, rawDiff, c, rc] = await Promise.all([readPr(urlGuess, spec).then(JSON.parse), readPr(urlGuess, spec, true), llmConfig(), reviewConfig()]);
+  const [pr, rawDiff, c, rc] = await Promise.all([readPr(urlGuess, spec).then(JSON.parse), readPr(urlGuess, spec, true), llmConfig(), reviewConfig(repoOf({ url: urlGuess }))]);
   if (!c.model) throw new Error("PR tools need a language model: open Admin / Model provider");
   if (c.api === "codereviewer") throw new Error("CodeReviewer only writes per-hunk comments: pick a language model in Admin / Model provider for PR tools");
   let diff = rawDiff;
@@ -3087,9 +3123,15 @@ if (IS_SERVER) setInterval(async () => {
   if (commandPolling) return;
   commandPolling = true;
   try {
-    if (!(await reviewConfig()).commands) return;
     const seen = (await store.getSetting("commandsSeen")) || {};
     for (const repo of await repos()) {
+      if (!(await reviewConfig(repo)).commands) {
+        // marked once while off; the first poll after turning commands on starts from that moment, so nothing posted
+        // while they were off ever runs (and an off repository costs no writes)
+        if (seen[repo] !== "off") { seen[repo] = "off"; await store.setSetting("commandsSeen", seen); }
+        continue;
+      }
+      if (seen[repo] === "off") { seen[repo] = new Date().toISOString(); await store.setSetting("commandsSeen", seen); continue; }
       const since = seen[repo] || new Date(Date.now() - 5 * 60e3).toISOString();
       let list;
       try {
@@ -3553,12 +3595,6 @@ const byProvider = (pick) => Object.fromEntries(Object.entries(PROVIDERS).map(([
 const LOGIN_PROVIDERS = { github: { label: "GitHub", pb: "github" }, ...FORGES };
 const oauthFlows = new Map();
 const FORGE_CONNECTIONS = Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, {
-    async load() {
-      return { sections: [{ id, title: `${f.label} connection`, fields: [
-        { key: "url", label: "Server URL", type: "text", placeholder: `https://${id}.example.com` },
-        { key: "token", label: "Access token", type: "password", placeholder: mask(f.token), hint: "Leave blank to keep the stored token." },
-      ], actions: [{ id: "save", label: "Save" }, { id: `test${id}`, label: "Test connection", variant: "outline", needsSaved: true }] }], values: { [id]: { url: f.url, token: "" } } };
-    },
     async save(body) {
       const v = body[id];
       if (!v) return;
@@ -3582,59 +3618,82 @@ const FORGE_CONNECTIONS = Object.fromEntries(Object.entries(FORGES).map(([id, f]
       return { ok: true, reply: `Connected to ${f.label}` };
     },
   }]));
+// GitHub App manifest flow: the browser posts a manifest to GitHub, the user clicks Create once, GitHub returns a code
+// to /github/manifest/callback, and the conversion gives us the app (sign-in client id + secret, and an id + key that
+// list the repositories it is installed on).
+async function githubManifest(res, body) {
+  if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
+  if ((await store.getOAuth()).providers.some((p) => p.name === "github" && p.clientId)) throw new Error("GitHub already has an app; turn sign-in off under Auth providers to replace it");
+  const state = randomBytes(16).toString("hex");
+  setCookie(res, "pr_manifest", state, 600);
+  // only a path on this site: the manifest callback redirects there
+  if (typeof body?.returnTo === "string" && /^\/(?![/\\])/.test(body.returnTo)) {
+    setCookie(res, "pr_manifest_return", body.returnTo, 600);
+  }
+  const owner = ((await repos())[0] || "codeotter").split("/")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const appPrefix = owner && owner !== "pr-scorer" && owner !== "codeotter" ? `codeotter-${owner}` : "codeotter";
+  const manifest = {
+    name: `${appPrefix}`.slice(0, 28) + "-" + Math.random().toString(36).slice(2, 6),
+    url: APP_URL,
+    redirect_url: `${APP_URL}/github/manifest/callback`,
+    callback_urls: [`${APP_URL}/auth/callback`],
+    setup_url: `${APP_URL}/onboarding?step=2&connected=github`,
+    public: false,
+    default_permissions: {
+      emails: "read",
+      contents: "read",
+      pull_requests: "write",
+      statuses: "write",
+      issues: "write",
+      metadata: "read",
+      administration: "read",
+    },
+    request_oauth_on_install: true,
+  };
+  return { submit: { url: `https://github.com/settings/apps/new?state=${state}`, fields: { manifest: JSON.stringify(manifest) } } };
+}
+// Admin / Git providers and Admin / Auth providers draw the same table: a row per provider with Provider, Server and Status.
+// Only the row's action differs: Test and a gear for the connection there, a sign-in toggle here.
+const PROVIDER_COLUMNS = [{ key: "provider", label: "Provider" }, { key: "server", label: "Server" }, { key: "status", label: "Status" }];
+const PROVIDER_ICONS = { github: "https://github.com/github.png?size=64", forgejo: "https://forgejo.org/favicon.svg", gitea: "https://github.com/go-gitea.png?size=64" };
+const providerUrl = (id) => (id === "github" ? "https://github.com" : FORGES[id].url);
+function providerRow(id, status, extra) {
+  const label = LOGIN_PROVIDERS[id].label;
+  const url = providerUrl(id);
+  return {
+    id,
+    label,
+    cells: {
+      provider: { text: label, icon: PROVIDER_ICONS[id] || "" },
+      server: url ? { text: url.replace(/^https?:\/\//, ""), mono: true } : { text: "Not set", tone: "muted" },
+      status: url ? status : { text: "Not connected", tone: "warn" },
+    },
+    ...extra,
+  };
+}
 const SETTINGS_PAGES = {
   repos: {
-    title: "Repositories",
-    group: "settings",
+    title: "Manage repositories",
+    group: "workspace",
     access: "admin",
     // Scoped to the active organization: only its repositories are listed, offered, or touched on save.
     async load({ org } = {}) {
       const list = (await repos()).filter((r) => !org || r.startsWith(`${org}/`));
-      const [guides, repoSettings, rc] = await Promise.all([
-        store.getSetting("guides").then((x) => x || {}),
-        store.getSetting("repoSettings").then((x) => x || {}),
-        reviewConfig(),
-      ]);
+      // A repository's own settings live on its Repository settings page; this list only summarises them.
       const items = await Promise.all(list.map(async (r) => {
-        const files = await guideFiles(r);
-        const label = files.join(" + ");
-        const g = guides[r] || {};
-        const rs = repoSettings[r] || {};
-        const postScores = g.postScores ?? rc.postScores;
-        const postReview = g.postReview ?? rc.postReview;
-        const postInlineSuggestions = g.postInlineSuggestions ?? rs.postInlineSuggestions ?? rc.postInlineSuggestions;
-        const learnings = normalizeLearningList(rs.learnings ?? g.learnings ?? []);
-        const accepted = normalizeLearningList(rs.accepted ?? []);
-        const settings = {
-          title: r,
-          fields: [
-            files.length ? { key: "useGuides", label: "Auto-detected", type: "checkbox", text: label } : { key: "none", label: "Auto-detected", type: "readonly" },
-            { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a comment to the PR with all System One scores" },
-            { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add the review summary and a link to the full report" },
-            { key: "postInlineSuggestions", label: "Post inline suggestions", type: "checkbox", text: "Post inline committable suggestion comments on PR diff lines" },
-            { key: "learnings", label: "Team learnings", type: "list", removable: true, hint: "Dismissed review findings remembered as persistent team rules for this repository." },
-            { key: "accepted", label: "Accepted fixes", type: "list", removable: true },
-          ],
-          values: {
-            ...(files.length ? { useGuides: g.use ?? true } : { none: "none" }),
-            postScores: !!postScores,
-            postReview: !!postReview,
-            postInlineSuggestions: !!postInlineSuggestions,
-            learnings,
-            accepted,
-          },
-        };
+        const [files, rc, learnings, accepted] = await Promise.all([guideFiles(r), reviewConfig(r), getRepoLearnings(r), getRepoAccepted(r)]);
         const meta = [
-          files.length ? label : "",
-          postScores ? "Post scores" : "",
-          postReview ? "Post review" : "",
-          postInlineSuggestions ? "Inline suggestions" : "",
+          files.join(" + "),
+          rc.auto ? "Auto-review" : "",
+          rc.postScores ? "Post scores" : "",
+          rc.postReview ? "Post review" : "",
+          rc.postInlineSuggestions ? "Inline suggestions" : "",
           learnings.length ? `${learnings.length} learning${learnings.length === 1 ? "" : "s"}` : "",
           accepted.length ? `${accepted.length} accepted fix${accepted.length === 1 ? "" : "es"}` : "",
         ]
           .filter(Boolean)
           .join(" · ");
-        return { id: r, label: repoLabel(r), meta: meta || undefined, settings };
+        return { id: r, label: repoLabel(r), meta: meta || undefined };
       }));
       const sections = [
         {
@@ -3642,8 +3701,8 @@ const SETTINGS_PAGES = {
           title: "Onboarded repositories",
           description: "Pull requests from these repositories show up in Reviews and in the sidebar.",
           fields: [
-            { key: "list", label: "Repositories", type: "list", hint: "The gear opens a repository's settings; the cross removes it (reviews already stored are kept)." },
-            { key: "add", label: "Add repository", type: "combo", placeholder: "owner/name or repository URL", options: (await repositoryChoices(org)).filter((r) => !list.includes(r)).map((value) => ({ value, label: repoLabel(value) })) },
+            { key: "list", label: "Repositories", type: "list", hint: "Removing a repository keeps its stored reviews." },
+            { key: "add", label: "Add repository", type: "picker", placeholder: "Search, or owner/name or repository URL", options: (await repositoryChoices(org)).filter((r) => !list.includes(r)).map((value) => ({ value, label: repoLabel(value) })) },
           ],
           actions: [{ id: "save", label: "Save" }],
         },
@@ -3675,86 +3734,31 @@ const SETTINGS_PAGES = {
         store.getSetting("guides").then((x) => ({ ...(x || {}) })),
         store.getSetting("repoSettings").then((x) => ({ ...(x || {}) })),
       ]);
-      for (const it of listed) {
-        const sv = it.settings?.values;
-        if (!sv) continue;
-        const id = clean(it.id);
-        const nextLearnings = "learnings" in sv ? normalizeLearningList(sv.learnings) : undefined;
-        const nextAccepted = "accepted" in sv ? normalizeLearningList(sv.accepted) : undefined;
-        guides[id] = {
-          ...(guides[id] || {}),
-          ...("useGuides" in sv ? { use: !!sv.useGuides } : {}),
-          ...("postScores" in sv ? { postScores: !!sv.postScores } : {}),
-          ...("postReview" in sv ? { postReview: !!sv.postReview } : {}),
-          ...("postInlineSuggestions" in sv ? { postInlineSuggestions: !!sv.postInlineSuggestions } : {}),
-          ...(nextLearnings !== undefined ? { learnings: nextLearnings } : {}),
-        };
-        repoSettings[id] = {
-          ...(repoSettings[id] || {}),
-          ...("postInlineSuggestions" in sv ? { postInlineSuggestions: !!sv.postInlineSuggestions } : {}),
-          ...(nextLearnings !== undefined ? { learnings: nextLearnings } : {}),
-          ...(nextAccepted !== undefined ? { accepted: nextAccepted } : {}),
-        };
-      }
       for (const k of Object.keys(guides)) if (!next.includes(k)) delete guides[k];
       for (const k of Object.keys(repoSettings)) if (!next.includes(k)) delete repoSettings[k];
       await Promise.all([store.setSetting("guides", guides), store.setSetting("repoSettings", repoSettings)]);
+      // a removed repository also leaves developers' access lists and pending invites, so re-adding it grants nothing
+      await accessQueue(async () => {
+        const [access0, invites0] = await Promise.all([store.getSetting("access"), store.getSetting("invites")]);
+        const access = Object.fromEntries(Object.entries(access0 || {}).map(([id, list]) => [id, (Array.isArray(list) ? list : []).filter((r) => next.includes(r))]));
+        const invites = (Array.isArray(invites0) ? invites0 : []).map((i) => ({ ...i, repos: (i.repos || []).filter((r) => next.includes(r)) }));
+        await Promise.all([store.setSetting("access", access), store.setSetting("invites", invites)]);
+      });
     },
   },
-  model: {
-    title: "Model provider",
-    group: "admin",
+  // One onboarded repository's settings, opened from its sidebar entry (/repo/<id>/settings); not listed in the sidebar's
+  // Settings or Admin groups. The repository travels as ?repo= next to ?org=.
+  repo: {
+    title: "Repository settings",
+    group: "repo",
     access: "admin",
-    async load() {
-      const c = await llmConfig();
-      const s1 = await s1Config();
-      const r = await reviewConfig();
-      const p = PROVIDERS[c.provider] || PROVIDERS.custom;
-      const localIds = Object.keys(LOCAL);
-      const llmCanList = !c.local && c.baseUrl && (c.apiKey || p.noKey || c.provider === "openrouter" || /localhost|127\.0\.0\.1/.test(c.baseUrl));
-      const [llmLive, s1Live] = await Promise.all([
-        llmCanList ? listModels(p.api === "anthropic" ? "anthropic" : "openai", c) : [],
-        s1.provider === "jev" && s1.apiKey ? listModels("s1-typesafe", s1) : S1_PROVIDERS[s1.provider]?.listPrefix ? listModels("s1-openrouter", s1) : [],
-      ]);
+    async load({ org, repo } = {}) {
+      await onboardedRepo(repo, org);
+      const [rc, files, guides, learnings, accepted] = await Promise.all([reviewConfig(repo), guideFiles(repo), store.getSetting("guides"), getRepoLearnings(repo), getRepoAccepted(repo)]);
+      // One section, one Save: review settings, guidelines and learnings are all this repository's.
       const sections = [
         {
-          id: "llm",
-          title: "Language model",
-          description: "Writes the walkthrough and findings. Also scores when no System One model is configured.",
-          fields: [
-            { key: "provider", label: "Provider", type: "select", options: Object.entries(PROVIDERS).map(([value, x]) => ({ value, label: x.label, icon: providerIcon(value) })) },
-            { key: "model", label: "Model", type: "select", hint: llmLive.length ? `${llmLive.length} models listed by ${p.label}.` : c.provider === "custom" ? "Type the model id your endpoint serves." : "Save a key to list the provider's models.", optionsBy: { field: "provider", map: { ...Object.fromEntries(Object.entries(PROVIDERS).map(([k, x]) => [k, x.models.map((value) => ({ value, label: value, icon: modelIcon(value, k) }))])), ...(llmLive.length ? { [c.provider]: llmLive } : {}) } } },
-            { key: "apiKey", label: "API key", type: "password", hint: c.apiKey ? `Saved key ${mask(c.apiKey)}. Leave blank to keep it.` : p.noKey ? "" : "No key saved yet.", placeholder: mask(c.apiKey) || "paste key", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => PROVIDERS[k].noKey) }, linkBy: { field: "provider", map: Object.fromEntries(Object.entries(PROVIDERS).filter(([, x]) => x.keyUrl).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
-            { key: "baseUrl", label: "Base URL", type: "text", hint: "Prefilled per provider. Change only for proxies or self-hosted gateways.", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => PROVIDERS[k].local) }, defaultBy: { field: "provider", map: byProvider((x) => x.baseUrl) } },
-            { key: "llmStatus", label: "Status", type: "readonly", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => !PROVIDERS[k].local) }, hint: c.local ? "Download, switch or delete local models under Settings / Local models." : "" },
-          ],
-          actions: [{ id: "save", label: "Save" }, { id: "test", label: "Test connection", variant: "outline", needsSaved: true }],
-        },
-        {
-          id: "s1",
-          title: "System One model",
-          description: "Typed scores and merge gates in one fast pass. Owns scoring when configured; runs alongside the language model.",
-          fields: [
-            { key: "provider", label: "Provider", type: "select", options: [{ value: "none", label: "None" }, ...Object.entries(S1_PROVIDERS).map(([value, x]) => ({ value, label: x.label, icon: providerIcon(value) }))], infoBy: { field: "provider", map: Object.fromEntries(LOCAL_S1.filter(contextNote).map((m) => [m.id, contextNote(m)])) } },
-            { key: "model", label: "Model", type: "select", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1Live.length ? `${s1Live.length} models listed by ${S1_PROVIDERS[s1.provider].label}.` : "", optionsBy: { field: "provider", map: { none: [], ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.models.map((value) => ({ value, label: value, icon: modelIcon(value, k) }))])), ...(s1Live.length ? { [s1.provider]: s1Live } : {}) } } },
-            { key: "apiKey", label: "API key", type: "password", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1.apiKey ? `Saved key ${mask(s1.apiKey)}. Leave blank to keep it.` : s1.provider === "custom" ? "Optional." : "No key saved yet.", placeholder: mask(s1.apiKey) || "paste key", linkBy: { field: "provider", map: Object.fromEntries(Object.entries(S1_PROVIDERS).filter(([, x]) => x.keyUrl).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
-            { key: "baseUrl", label: "Base URL", type: "text", hideWhen: { field: "provider", in: ["none", ...localIds] }, placeholder: "http://host:port", defaultBy: { field: "provider", map: { none: "", ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.baseUrl])) } } },
-            { key: "status", label: "Status", type: "readonly", hideWhen: { field: "provider", in: ["none", ...Object.keys(S1_PROVIDERS).filter((k) => !S1_PROVIDERS[k].local)] }, hint: s1.local ? "Download, switch or delete local models under Settings / Local models." : "" },
-          ],
-          actions: [{ id: "save", label: "Save" }, { id: "probe", label: "Test connection", variant: "outline", needsSaved: true }],
-        },
-        {
-          id: "triage",
-          title: "Fast triage",
-          description: "System One rates correctness risk and blast radius of each pull request and sets the codeotter/triage commit status.",
-          fields: [
-            { key: "auto", label: "Automatic", type: "checkbox", text: "Triage new and updated pull requests in onboarded repositories" },
-            { key: "stopAt", label: "Fail status at risk", type: "range", min: 25, max: 100, step: 25, hint: "codeotter/triage fails at or above this correctness risk." },
-          ],
-          actions: [{ id: "save", label: "Save" }],
-        },
-        {
-          id: "review",
+          id: "repo",
           title: "Review",
           description: "How much the model reads, how many findings it returns, and what gets posted as PR comments.",
           fields: [
@@ -3768,13 +3772,132 @@ const SETTINGS_PAGES = {
             { key: "postInlineSuggestions", label: "Post inline suggestions", type: "checkbox", text: "Post inline committable suggestion comments on PR diff lines" },
             { key: "auto", label: "Auto-review", type: "checkbox", text: "Review every new or updated pull request and post the result (drafts and PRs labelled codeotter:skip are left alone)" },
             { key: "commands", label: "PR comment commands", type: "checkbox", text: "Run /review, /describe, /improve, /ask, /docs and /changelog from comments by owners, members and collaborators" },
+            files.length ? { key: "useGuides", label: "Review guidelines", type: "checkbox", text: `Follow ${files.join(" + ")}` } : { key: "noGuides", label: "Review guidelines", type: "readonly" },
+            { key: "learnings", label: "Team learnings", type: "list", hint: "Dismissed findings, kept as rules for this repository." },
+            { key: "accepted", label: "Accepted fixes", type: "list" },
           ],
           actions: [{ id: "save", label: "Save" }],
         },
       ];
-      return { sections, values: { llm: { provider: c.provider, model: c.model, apiKey: "", baseUrl: c.baseUrl, llmStatus: c.local ? localStatus(c.local).text : "" }, s1: { provider: s1.provider, model: s1.model, apiKey: "", baseUrl: s1.baseUrl, status: s1.local ? localStatus(s1.local).text : "" }, review: r, triage: await triageConfig() } };
+      return {
+        sections,
+        values: {
+          repo: {
+            ...Object.fromEntries(Object.keys(REVIEW_DEFAULTS).map((k) => [k, rc[k]])),
+            ...(files.length ? { useGuides: guides?.[repo]?.use ?? true } : { noGuides: "No AGENTS.md or CLAUDE.md at the root" }),
+            learnings,
+            accepted,
+            // not drawn: what the page loaded, so a save can tell removals from items added meanwhile
+            loadedLearnings: learnings,
+            loadedAccepted: accepted,
+          },
+        },
+      };
+    },
+    async save(body, { org, repo } = {}) {
+      await onboardedRepo(repo, org);
+      const v = body.repo;
+      if (!v) return;
+      const [guides0, rs0, current] = await Promise.all([store.getSetting("guides"), store.getSetting("repoSettings"), reviewConfig(repo)]);
+      // Only what was sent changes. Review keys merge over the current values. Lists apply removals only: items the
+      // page loaded (`loadedLearnings` / `loadedAccepted`) and no longer sends are dropped from the current list, so a
+      // learning dismissed or a fix accepted while the page was open is kept.
+      const pruned = (now, loaded, sent) => {
+        const keep = new Set(normalizeLearningList(sent));
+        const gone = normalizeLearningList(loaded).filter((x) => !keep.has(x));
+        return normalizeLearningList(now).filter((x) => !gone.includes(x));
+      };
+      const prev = rs0?.[repo] || {};
+      const reviewKeys = Object.keys(REVIEW_DEFAULTS).filter((k) => k in v);
+      const next = { ...prev, ...(reviewKeys.length ? { review: normalizeReview({ ...current, ...Object.fromEntries(reviewKeys.map((k) => [k, v[k]])) }) } : {}) };
+      const g = { ...(guides0?.[repo] || {}), ...("useGuides" in v ? { use: !!v.useGuides } : {}) };
+      if ("learnings" in v) { next.learnings = pruned(await getRepoLearnings(repo), v.loadedLearnings, v.learnings); g.learnings = next.learnings; }
+      if ("accepted" in v) next.accepted = pruned(await getRepoAccepted(repo), v.loadedAccepted, v.accepted);
+      await Promise.all([store.setSetting("guides", { ...(guides0 || {}), [repo]: g }), store.setSetting("repoSettings", { ...(rs0 || {}), [repo]: next })]);
+    },
+  },
+  model: {
+    title: "Model provider",
+    group: "admin",
+    access: "admin",
+    async load() {
+      const c = await llmConfig();
+      const s1 = await s1Config();
+      const p = PROVIDERS[c.provider] || PROVIDERS.custom;
+      const localIds = Object.keys(LOCAL);
+      const llmCanList = !c.local && c.baseUrl && (c.apiKey || p.noKey || c.provider === "openrouter" || /localhost|127\.0\.0\.1/.test(c.baseUrl));
+      const [llmLive, s1Live] = await Promise.all([
+        llmCanList ? listModels(p.api === "anthropic" ? "anthropic" : "openai", c) : [],
+        s1.provider === "jev" && s1.apiKey ? listModels("s1-typesafe", s1) : S1_PROVIDERS[s1.provider]?.listPrefix ? listModels("s1-openrouter", s1) : [],
+      ]);
+      // One table, a row per engine; the gear opens that engine's provider, model, key and URL (same fields as before).
+      const llmFields = [
+            { key: "provider", label: "Provider", type: "select", options: Object.entries(PROVIDERS).map(([value, x]) => ({ value, label: x.label, icon: providerIcon(value) })) },
+            { key: "model", label: "Model", type: "select", hint: llmLive.length ? `${llmLive.length} models listed by ${p.label}.` : c.provider === "custom" ? "Type the model id your endpoint serves." : "Save a key to list the provider's models.", optionsBy: { field: "provider", map: { ...Object.fromEntries(Object.entries(PROVIDERS).map(([k, x]) => [k, x.models.map((value) => ({ value, label: value, icon: modelIcon(value, k) }))])), ...(llmLive.length ? { [c.provider]: llmLive } : {}) } } },
+            { key: "apiKey", label: "API key", type: "password", hint: c.apiKey ? `Saved key ${mask(c.apiKey)}. Leave blank to keep it.` : p.noKey ? "" : "No key saved yet.", placeholder: mask(c.apiKey) || "paste key", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => PROVIDERS[k].noKey) }, linkBy: { field: "provider", map: Object.fromEntries(Object.entries(PROVIDERS).filter(([, x]) => x.keyUrl).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
+            { key: "baseUrl", label: "Base URL", type: "text", hint: "Prefilled per provider. Change only for proxies or self-hosted gateways.", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => PROVIDERS[k].local) }, defaultBy: { field: "provider", map: byProvider((x) => x.baseUrl) } },
+            { key: "llmStatus", label: "Status", type: "readonly", hideWhen: { field: "provider", in: Object.keys(PROVIDERS).filter((k) => !PROVIDERS[k].local) }, hint: c.local ? "Download, switch or delete local models under Settings / Local models." : "" },
+      ];
+      const s1Fields = [
+            { key: "provider", label: "Provider", type: "select", options: [{ value: "none", label: "None" }, ...Object.entries(S1_PROVIDERS).map(([value, x]) => ({ value, label: x.label, icon: providerIcon(value) }))], infoBy: { field: "provider", map: Object.fromEntries(LOCAL_S1.filter(contextNote).map((m) => [m.id, contextNote(m)])) } },
+            { key: "model", label: "Model", type: "select", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1Live.length ? `${s1Live.length} models listed by ${S1_PROVIDERS[s1.provider].label}.` : "", optionsBy: { field: "provider", map: { none: [], ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.models.map((value) => ({ value, label: value, icon: modelIcon(value, k) }))])), ...(s1Live.length ? { [s1.provider]: s1Live } : {}) } } },
+            { key: "apiKey", label: "API key", type: "password", hideWhen: { field: "provider", in: ["none", ...localIds] }, hint: s1.apiKey ? `Saved key ${mask(s1.apiKey)}. Leave blank to keep it.` : s1.provider === "custom" ? "Optional." : "No key saved yet.", placeholder: mask(s1.apiKey) || "paste key", linkBy: { field: "provider", map: Object.fromEntries(Object.entries(S1_PROVIDERS).filter(([, x]) => x.keyUrl).map(([k, x]) => [k, { label: "Get a key", url: x.keyUrl }])) } },
+            { key: "baseUrl", label: "Base URL", type: "text", hideWhen: { field: "provider", in: ["none", ...localIds] }, placeholder: "http://host:port", defaultBy: { field: "provider", map: { none: "", ...Object.fromEntries(Object.entries(S1_PROVIDERS).map(([k, x]) => [k, x.baseUrl])) } } },
+            { key: "status", label: "Status", type: "readonly", hideWhen: { field: "provider", in: ["none", ...Object.keys(S1_PROVIDERS).filter((k) => !S1_PROVIDERS[k].local)] }, hint: s1.local ? "Download, switch or delete local models under Settings / Local models." : "" },
+      ];
+      const s1Spec = S1_PROVIDERS[s1.provider];
+      const triage = await triageConfig();
+      const llmState = c.local ? { text: localStatus(c.local).text, tone: c.enabled ? "ok" : "warn" } : !c.model ? { text: "Not set", tone: "warn" } : c.apiKey ? { text: "Key saved", tone: "ok" } : p.noKey ? { text: "No key needed", tone: "ok" } : { text: "No key", tone: "warn" };
+      const s1State = s1.provider === "none" || !s1Spec ? { text: "Off", tone: "muted" } : s1.local ? { text: localStatus(s1.local).text, tone: s1.enabled ? "ok" : "warn" } : s1.apiKey || s1.provider === "custom" ? { text: s1.apiKey ? "Key saved" : "No key needed", tone: "ok" } : { text: "No key", tone: "warn" };
+      const rows = [
+        {
+          id: "llm",
+          label: "Language model",
+          cells: {
+            engine: "Language model",
+            provider: { text: p.label, icon: providerIcon(c.provider) },
+            model: c.local ? c.local.label : c.model ? { text: c.model, mono: true } : "",
+            status: llmState,
+          },
+          actions: [{ id: "test", label: "Test", ...(c.model || c.local ? {} : { disabled: true }) }],
+          settings: { title: "Language model", description: "Writes the walkthrough and findings. Also scores when no System One model is configured.", fields: llmFields, values: { provider: c.provider, model: c.model, apiKey: "", baseUrl: c.baseUrl, llmStatus: c.local ? localStatus(c.local).text : "" } },
+        },
+        {
+          id: "s1",
+          label: "System One model",
+          cells: {
+            engine: "System One",
+            provider: s1Spec ? { text: s1Spec.label, icon: providerIcon(s1.provider) } : { text: "None", tone: "muted" },
+            model: s1.local ? s1.local.label : s1Spec && s1.model ? { text: s1.model, mono: true } : "",
+            status: s1State,
+          },
+          actions: [{ id: "probe", label: "Test", ...(s1Spec ? {} : { disabled: true }) }],
+          settings: { title: "System One model", description: "Typed scores and merge gates in one fast pass. Owns scoring when configured; runs alongside the language model.", fields: [
+            ...s1Fields,
+            // Fast triage: System One rates correctness risk and blast radius of each PR and sets the codeotter/triage status.
+            { key: "triageAuto", label: "Fast triage", type: "checkbox", text: "Triage new and updated pull requests and set the codeotter/triage status", hideWhen: { field: "provider", in: ["none"] } },
+            { key: "triageStopAt", label: "Fail triage at risk", type: "range", min: 25, max: 100, step: 25, hint: "codeotter/triage fails at or above this correctness risk.", hideWhen: { field: "provider", in: ["none"] } },
+          ], values: { provider: s1.provider, model: s1.model, apiKey: "", baseUrl: s1.baseUrl, status: s1.local ? localStatus(s1.local).text : "", triageAuto: triage.auto, triageStopAt: triage.stopAt } },
+        },
+      ];
+      const sections = [
+        {
+          id: "engines",
+          title: "Review engines",
+          description: "The language model writes the summary, walkthrough and findings; System One owns scores and gates when configured. Both run in parallel.",
+          fields: [{ key: "rows", label: "Engines", type: "table", columns: [{ key: "engine", label: "Engine" }, { key: "provider", label: "Provider" }, { key: "model", label: "Model" }, { key: "status", label: "Status" }] }],
+        },
+      ];
+      return { sections, values: { engines: { rows } } };
     },
     async save(body) {
+      // The engines table posts its rows with the edited one marked; it is applied in the { llm | s1: {...}, triage }
+      // shape, which is also accepted directly. Fast triage lives in the System One dialog.
+      const edited = (body.engines?.rows || []).find((r) => r?.edited && (r.id === "llm" || r.id === "s1"));
+      if (edited) {
+        const v = edited.settings?.values || {};
+        body = { [edited.id]: v, ...(edited.id === "s1" && "triageAuto" in v ? { triage: { auto: v.triageAuto, stopAt: v.triageStopAt } } : {}) };
+      }
       if (body.triage) {
         const v = body.triage;
         await store.setSetting("triage", { auto: !!v.auto, stopAt: Math.min(100, Math.max(25, Math.round((Number(v.stopAt) || 75) / 25) * 25)) });
@@ -3798,26 +3921,6 @@ const SETTINGS_PAGES = {
         if (S1_PROVIDERS[v.provider]?.local && sidecars.s1.id && sidecars.s1.id !== v.provider) stopSidecar("s1");
         modelCache.clear();
       }
-      if (body.review) {
-        const v = body.review;
-        const nextReview = {
-          maxFindings: Math.min(12, Math.max(3, Number(v.maxFindings) || 8)),
-          diffChars: Number(v.diffChars) || 90000,
-          reflectMin: [0, 3, 5, 7].includes(Number(v.reflectMin)) ? Number(v.reflectMin) : REVIEW_DEFAULTS.reflectMin,
-          contextLines: [0, 8, 16, 32].includes(Number(v.contextLines)) ? Number(v.contextLines) : REVIEW_DEFAULTS.contextLines,
-          temperature: Math.min(1, Math.max(0, Number(v.temperature) || 0)),
-          postScores: !!v.postScores,
-          postReview: !!v.postReview,
-          postInlineSuggestions: !!v.postInlineSuggestions,
-          commands: !!v.commands,
-        };
-        await store.setSetting("review", nextReview);
-        const guides = (await store.getSetting("guides")) || {};
-        for (const k of Object.keys(guides)) {
-          guides[k] = { ...guides[k], postScores: nextReview.postScores, postReview: nextReview.postReview, postInlineSuggestions: nextReview.postInlineSuggestions };
-        }
-        await store.setSetting("guides", guides);
-      }
     },
     actions: {
       async probe() {
@@ -3833,68 +3936,141 @@ const SETTINGS_PAGES = {
       return { ok: /ok/i.test(reply), reply: reply.trim().slice(0, 200), ms: Date.now() - t };
     },
   },
-  oauth: {
-    title: "OAuth",
+  // Repository access: where onboarded repositories are read from. Sign-in is the separate OAuth page; any login can
+  // review any connected provider's repositories.
+  git: {
+    title: "Git providers",
     group: "admin",
     access: "admin",
     async load() {
-      const connections = await Promise.all(Object.values(FORGE_CONNECTIONS).map((connection) => connection.load()));
-      if (!PB_URL) return { sections: [{ id: "oauth", title: "OAuth", description: "Sign-in requires PocketBase (PB_URL).", fields: [] }, ...connections.flatMap((c) => c.sections)], values: Object.assign({}, ...connections.map((c) => c.values)) };
-      const o = await store.getOAuth();
-      const values = {};
-      const sections = Object.entries(LOGIN_PROVIDERS).map(([id, spec]) => {
-        const current = o.providers.find((p) => p.name === spec.pb) || {};
-        const section = id === "github" ? "oauth" : `${id}oauth`;
-        values[section] = { enabled: !!o.enabled && !!current.clientId, clientId: current.clientId || "", clientSecret: "", redirectUrl: `${APP_URL}/auth/callback` };
-        return {
-          id: section, title: `${spec.label} OAuth`,
-          fields: [
-            { key: "enabled", label: "Enabled", type: "checkbox", hint: "Disabling removes this provider's saved credentials." },
-            { key: "clientId", label: "Client ID", type: "text", ...(id === "github" || FORGES[id].url ? { link: { label: "Create OAuth app", url: id === "github" ? "https://github.com/settings/developers" : `${FORGES[id].url}/user/settings/applications` } } : {}) },
-            { key: "clientSecret", label: "Client secret", type: "password", placeholder: current.clientId ? "Saved" : "", hint: "Leave blank to keep the stored secret." },
-            { key: "redirectUrl", label: "Callback URL", type: "readonly" },
-          ],
-          actions: [{ id: "save", label: "Save" }, ...(id === "github" && !current.clientId ? [{ id: "connect", label: "Create GitHub app for me", variant: "outline", always: true }] : [])],
-        };
-      });
-      return { sections: sections.flatMap((section, i) => i === 0 ? [section] : [...connections[i - 1].sections, section]), values: Object.assign(values, ...connections.map((c) => c.values)) };
+      const githubToken = (await store.getSetting("githubToken")) || "";
+      // "Create app" makes the provider's OAuth app (GitHub: the app manifest flow, which also gives repository
+      // discovery; Forgejo/Gitea: their OAuth2 API with the saved token) and turns sign-in with it on.
+      const o = PB_URL ? await store.getOAuth() : { providers: [] };
+      const hasApp = (id) => o.providers.some((p) => p.name === LOGIN_PROVIDERS[id].pb && p.clientId);
+      const rows = [
+        providerRow("github", githubToken ? { text: "Token saved", tone: "ok" } : { text: "gh login", tone: "muted" }, {
+          actions: [{ id: "testgithub", label: "Test" }, { id: "connect", label: "Create app", ...(!PB_URL || hasApp("github") ? { disabled: true } : {}) }],
+          settings: {
+            title: "GitHub connection",
+            fields: [
+              { key: "token", label: "Access token", type: "password", placeholder: mask(githubToken), hint: githubToken ? "Leave blank to keep the stored token." : "Without one, the gh CLI's own login (or GH_TOKEN) is used." },
+              ...(githubToken ? [{ key: "clearToken", label: "Saved token", type: "checkbox", text: "Remove it and use the gh CLI's own login (or GH_TOKEN)" }] : []),
+            ],
+            values: { token: "", ...(githubToken ? { clearToken: false } : {}) },
+          },
+        }),
+        ...Object.entries(FORGES).map(([id, f]) => providerRow(id, f.token ? { text: "Token saved", tone: "ok" } : { text: "No token", tone: "muted" }, {
+          actions: [{ id: `test${id}`, label: "Test", ...(f.url ? {} : { disabled: true }) }, { id: `app${id}`, label: "Create app", ...(!PB_URL || !f.url || !f.token || hasApp(id) ? { disabled: true } : {}) }],
+          settings: {
+            title: `${f.label} connection`,
+            fields: [
+              { key: "url", label: "Server URL", type: "text", placeholder: `https://${id}.example.com` },
+              { key: "token", label: "Access token", type: "password", placeholder: mask(f.token), hint: "Leave blank to keep the stored token." },
+            ],
+            values: { url: f.url, token: "" },
+          },
+        })),
+      ];
+      return {
+        sections: [{
+          id: "providers",
+          title: "Git providers",
+          description: "Where onboarded repositories are read from. Connect every provider your repositories live on.",
+          fields: [{ key: "rows", label: "Providers", type: "table", columns: PROVIDER_COLUMNS }],
+        }],
+        values: { providers: { rows } },
+      };
     },
-    // GitHub App manifest flow: the browser posts a manifest to GitHub, the user clicks Create once, GitHub returns a
-    // code to /github/manifest/callback, and the conversion gives us the client id + secret to store in PocketBase.
     actions: {
       ...Object.fromEntries(Object.entries(FORGE_CONNECTIONS).map(([id, connection]) => [`test${id}`, async () => ({ message: (await connection.test()).reply })])),
-      async connect(req, res, body) {
-        if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
-        const state = randomBytes(16).toString("hex");
-        setCookie(res, "pr_manifest", state, 600);
-        if (body?.returnTo) {
-          setCookie(res, "pr_manifest_return", body.returnTo, 600);
+      async testgithub() {
+        const login = (await ghAsync("api", "user", "--jq", ".login")).trim();
+        return { message: `Connected to GitHub as ${login}` };
+      },
+      ...Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [`app${id}`, async () => {
+        if (!PB_URL) throw new Error("Sign-in requires PocketBase (PB_URL)");
+        // the button is disabled then too; a stale page or a repeated request must not mint a second app and overwrite working credentials
+        if ((await store.getOAuth()).providers.some((p) => p.name === f.pb && p.clientId)) throw new Error(`${f.label} already has an OAuth app; turn sign-in off under Auth providers to replace it`);
+        let app;
+        try {
+          app = await forgeApi("user/applications/oauth2", { method: "POST", source: id, body: { name: "CodeOtter", redirect_uris: [`${APP_URL}/auth/callback`], confidential_client: true } });
+        } catch (e) {
+          if (e.status === 401 || e.status === 403) throw new Error(`The ${f.label} access token cannot create OAuth apps: give it the write:user scope, or create one under ${f.url}/user/settings/applications`);
+          throw e;
         }
-        const owner = ((await repos())[0] || "codeotter").split("/")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-");
-        const appPrefix = owner && owner !== "pr-scorer" && owner !== "codeotter" ? `codeotter-${owner}` : "codeotter";
-        const manifest = {
-          name: `${appPrefix}`.slice(0, 28) + "-" + Math.random().toString(36).slice(2, 6),
-          url: APP_URL,
-          redirect_url: `${APP_URL}/github/manifest/callback`,
-          callback_urls: [`${APP_URL}/auth/callback`],
-          setup_url: `${APP_URL}/onboarding?step=2&connected=github`,
-          public: false,
-          default_permissions: {
-            emails: "read",
-            contents: "read",
-            pull_requests: "write",
-            statuses: "write",
-            issues: "write",
-            metadata: "read",
-            administration: "read",
-          },
-          request_oauth_on_install: true,
-        };
-        return { submit: { url: `https://github.com/settings/apps/new?state=${state}`, fields: { manifest: JSON.stringify(manifest) } } };
+        if (!app?.client_id || !app?.client_secret) throw new Error(`${f.label} returned no OAuth client credentials`);
+        await SETTINGS_PAGES.oauth.save({ [`${id}oauth`]: { enabled: true, clientId: app.client_id, clientSecret: app.client_secret } });
+        return { message: `${f.label} OAuth app created. Sign-in with ${f.label} is on.` };
+      }])),
+      // GitHub App manifest flow: the browser posts a manifest to GitHub, the user clicks Create once, GitHub returns a
+      // code to /github/manifest/callback, and the conversion gives us the client id + secret to store in PocketBase.
+      async connect(req, res, body) {
+        return githubManifest(res, body);
       },
     },
     async save(body) {
+      // The table posts its rows with the edited one marked; it is applied in the { github | [forge]: { url?, token } } shape.
+      const edited = (body.providers?.rows || []).find((r) => r?.edited && (r.id === "github" || FORGES[r.id]));
+      if (edited) body = { [edited.id]: { url: edited.settings?.values?.url, token: edited.settings?.values?.token, clearToken: !!edited.settings?.values?.clearToken } };
+      const gh = String(body.github?.token || "").trim();
+      if (body.github?.clearToken) { await store.setSetting("githubToken", ""); applyGithubToken(""); }
+      else if (gh) { await store.setSetting("githubToken", gh); applyGithubToken(gh); }
       for (const connection of Object.values(FORGE_CONNECTIONS)) await connection.save(body);
+    },
+  },
+  oauth: {
+    title: "Auth providers",
+    group: "admin",
+    access: "admin",
+    // Sign-in: a table row per provider with a toggle. Turning one on asks for its client ID and secret; turning it off
+    // removes them. A self-hosted provider's toggle stays disabled until its server is set under Git providers.
+    async load() {
+      if (!PB_URL) return { sections: [{ id: "signin", title: "Sign-in", description: "Sign-in requires PocketBase (PB_URL).", fields: [] }], values: {} };
+      const o = await store.getOAuth();
+      const rows = Object.entries(LOGIN_PROVIDERS).map(([id, spec]) => {
+        const url = providerUrl(id);
+        const current = o.providers.find((p) => p.name === spec.pb) || {};
+        const on = !!o.enabled && !!current.clientId;
+        return providerRow(id, on ? { text: "Enabled", tone: "ok" } : { text: "Off", tone: "muted" }, {
+          toggle: on,
+          ...(url ? {} : { toggleDisabled: true }),
+          settings: {
+            title: `Sign in with ${spec.label}`,
+            fields: [
+              { key: "clientId", label: "Client ID", type: "text", link: { label: "Create OAuth app", url: id === "github" ? "https://github.com/settings/developers" : `${url}/user/settings/applications` } },
+              { key: "clientSecret", label: "Client secret", type: "password", placeholder: current.clientId ? "Saved" : "", hint: current.clientId ? "Leave blank to keep the stored secret." : "" },
+              { key: "callback", label: "Callback URL", type: "readonly" },
+            ],
+            values: { clientId: current.clientId || "", clientSecret: "", callback: `${APP_URL}/auth/callback` },
+          },
+        });
+      });
+      return {
+        sections: [{
+          id: "signin",
+          title: "Sign-in",
+          description: "Providers your team signs in with. Turning one off removes its saved client credentials.",
+          fields: [
+            { key: "rows", label: "Providers", type: "table", columns: PROVIDER_COLUMNS },
+          ],
+        }],
+        values: { signin: { rows } },
+      };
+    },
+    actions: {
+      async connect(req, res, body) {
+        return githubManifest(res, body);
+      },
+    },
+    async save(body) {
+      // The sign-in table posts its rows with the toggled one marked; it is applied in the per-provider
+      // { oauth | <forge>oauth: { enabled, clientId, clientSecret } } shape, which is also accepted directly.
+      const edited = (body.signin?.rows || []).find((r) => r?.edited && LOGIN_PROVIDERS[r.id]);
+      if (edited) {
+        const v = edited.settings?.values || {};
+        body = { [edited.id === "github" ? "oauth" : `${edited.id}oauth`]: { enabled: !!edited.toggle, clientId: v.clientId, clientSecret: v.clientSecret } };
+      }
       if (!Object.keys(LOGIN_PROVIDERS).some((id) => body[id === "github" ? "oauth" : `${id}oauth`])) return;
       if (!PB_URL) throw new Error("Sign-in requires PocketBase (PB_URL)");
       const o = await store.getOAuth();
@@ -3908,7 +4084,7 @@ const SETTINGS_PAGES = {
         const clientId = String(v.clientId || "").trim();
         if (!clientId) throw new Error(`${spec.label} client ID is required`);
         if (!current && !v.clientSecret) throw new Error(`${spec.label} client secret is required`);
-        if (id !== "github" && !FORGES[id].url) throw new Error(`Configure the server in Admin / OAuth / ${spec.label} connection first`);
+        if (id !== "github" && !FORGES[id].url) throw new Error(`Set the ${spec.label} server under Admin / Git providers first`);
         providers.push({ ...current, name: spec.pb, clientId,
           ...(v.clientSecret ? { clientSecret: String(v.clientSecret) } : {}),
           ...(id !== "github" ? { displayName: spec.label, pkce: true,
@@ -3920,33 +4096,143 @@ const SETTINGS_PAGES = {
     },
   },
 };
+// Manage accounts: a table row per account and per pending invite; the gear sets role and (developers) repositories.
+// The first sign-in creates the owner; every later account comes from an invite (settings "invites"), matched in admit().
+// Developer repositories live in settings "access" (user id -> repository ids).
+const INVITE_ROLES = ["developer", "admin"];
+const INVITE_LOGIN_RE = /^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$/;
+const INVITE_EMAIL_RE = /^[^\s@"\\]+@[^\s@"\\]+\.[^\s@"\\]+$/;
+// Sign-in providers that are enabled in PocketBase, as select options.
+async function signInOptions() {
+  try {
+    const m = await store.authMethods();
+    return Object.entries(LOGIN_PROVIDERS).filter(([, spec]) => m.oauth2?.enabled && m.oauth2.providers.some((p) => p.name === spec.pb)).map(([value, spec]) => ({ value, label: spec.label }));
+  } catch { return []; }
+}
+// Only onboarded repositories can be assigned; anything else in the request is dropped.
+const assignableRepos = async (list) => { const all = await repos(); return [...new Set((Array.isArray(list) ? list : []).map(String))].filter((r) => all.includes(r)); };
+const reposCell = (role, list = []) => (role !== "developer" ? "All" : list.length === 0 ? { text: "None", tone: "muted" } : list.length <= 2 ? list.map(repoLabel).join(", ") : `${list.length} repositories`);
 SETTINGS_PAGES.accounts = {
-  title: "Accounts",
-  group: "admin",
+  title: "Manage accounts",
+  group: "workspace",
   access: "owner",
   async load(_scope, user) {
     if (!PB_URL) return { sections: [{ id: "accounts", title: "Accounts", description: "Accounts are not available in file-storage mode (set PB_URL).", fields: [] }], values: {} };
-    const items = (await store.users()).map((u) => ({
-      id: u.id,
-      label: (u.name || u.email || u.id) + (user && u.id === user.id ? " (you)" : ""),
-      meta: `${u.role || "no role"} · ${u.email || ""}`,
-      settings: { title: u.name || u.email || u.id, fields: [{ key: "role", label: "Role", type: "select", options: ROLES.map((value) => ({ value, label: value })) }], values: { role: u.role || "admin" } },
-    }));
-    return { sections: [{ id: "accounts", title: "Accounts", fields: [{ key: "list", label: "Accounts", type: "list", removable: false, hint: "Gear sets the role. OAuth sign-in creates accounts; the first one is the owner." }], actions: [{ id: "save", label: "Save" }] }], values: { accounts: { list: items } } };
+    const ROLE_TONE = { owner: "ok", admin: "warn", developer: "muted" };
+    const [users, access, invites, providers] = [await store.users(), (await store.getSetting("access")) || {}, (await store.getSetting("invites")) || [], await signInOptions()];
+    const repoOpts = (await repos()).map((value) => ({ value, label: repoLabel(value) }));
+    const repoField = (hideFor) => ({ key: "repos", label: "Repositories", type: "multiselect", options: repoOpts, hideWhen: { field: "role", in: hideFor } });
+    const rows = users.map((u) => {
+      const v = userView(u);
+      const role = u.role || "none";
+      return {
+        id: u.id,
+        label: v.name,
+        cells: {
+          account: { text: v.name + (user && u.id === user.id ? " (you)" : ""), icon: v.avatar },
+          email: v.email ? { text: v.email, mono: true } : "",
+          role: { text: role, tone: ROLE_TONE[role] || "muted" },
+          repos: reposCell(role, access[u.id]),
+          status: { text: "Active", tone: "ok" },
+        },
+        settings: { title: v.name, fields: [{ key: "role", label: "Role", type: "select", options: ROLES.map((value) => ({ value, label: value })) }, repoField(["owner", "admin"])], values: { role: u.role || "", repos: access[u.id] || [] } },
+      };
+    });
+    for (const i of invites) {
+      const email = i.login.includes("@");
+      rows.push({
+        id: `invite:${i.id}`,
+        label: i.login,
+        cells: {
+          account: { text: email ? `${LOGIN_PROVIDERS[i.provider]?.label || i.provider} invite` : `${i.login} · ${LOGIN_PROVIDERS[i.provider]?.label || i.provider}`, icon: "" },
+          email: email ? { text: i.login, mono: true } : "",
+          role: { text: i.role, tone: ROLE_TONE[i.role] || "muted" },
+          repos: reposCell(i.role, i.repos),
+          status: { text: "Pending", tone: "warn" },
+        },
+        actions: [{ id: "uninvite", label: "Remove" }],
+      });
+    }
+    return {
+      sections: [
+        {
+          id: "accounts",
+          title: "Accounts",
+          description: "The first sign-in is the owner; later sign-ins need an invite. Owners manage accounts; admins everything else; developers see their repositories only.",
+          fields: [{ key: "rows", label: "Accounts", type: "table", columns: [{ key: "account", label: "Account" }, { key: "email", label: "Email" }, { key: "role", label: "Role" }, { key: "repos", label: "Repositories" }, { key: "status", label: "Status" }] }],
+        },
+        {
+          id: "invite",
+          title: "Invite",
+          description: providers.length ? "Matched on first sign-in by provider and username, or by verified GitHub email." : "No sign-in provider is enabled: Admin / Auth providers.",
+          fields: [
+            { key: "login", label: "Username or email", type: "text", placeholder: "octocat or name@example.com" },
+            { key: "provider", label: "Provider", type: "select", options: providers },
+            { key: "role", label: "Role", type: "select", options: INVITE_ROLES.map((value) => ({ value, label: value })) },
+            repoField(["admin"]),
+          ],
+          actions: providers.length ? [{ id: "save", label: "Invite" }] : [],
+        },
+      ],
+      values: { accounts: { rows }, invite: { login: "", provider: providers[0]?.value || "", role: "developer", repos: [] } },
+    };
   },
   async save(body) {
+    if (body.invite) return this.invite(body.invite);
     const v = body.accounts;
     if (!v) return;
-    const listed = (v.list || []).map((it) => (typeof it === "string" ? { id: it } : it));
     const users = await store.users();
     const next = new Map(users.map((u) => [u.id, u.role]));
-    for (const it of listed) if (it.settings?.values?.role) next.set(it.id, it.settings.values.role);
-    for (const u of users) if (!listed.some((it) => it.id === u.id)) throw new Error("Removing accounts is not supported yet; change the role instead");
+    // The table posts its rows with the edited one marked; the list shape ({ list: [{ id, settings }] }) is still accepted.
+    // Pending invite rows (id "invite:…") have no settings and are changed only through their Remove action.
+    const changed = (v.rows ? v.rows.filter((r) => r?.edited) : (v.list || []).map((it) => (typeof it === "string" ? { id: it } : it))).filter((it) => !String(it.id).startsWith("invite:"));
+    if (v.list) for (const u of users) if (!changed.some((it) => it.id === u.id)) throw new Error("Removing accounts is not supported yet; change the role instead");
+    const access = { ...((await store.getSetting("access")) || {}) };
+    let accessChanged = false;
+    for (const it of changed) {
+      const role = it.settings?.values?.role;
+      if (!role) continue;
+      if (!ROLES.includes(role)) throw new Error(`Unknown role ${role}`);
+      if (!next.has(it.id)) throw new Error("Unknown account");
+      next.set(it.id, role);
+      if (role === "developer") access[it.id] = await assignableRepos(it.settings.values.repos);
+      else delete access[it.id];
+      accessChanged = true;
+    }
     if (![...next.values()].includes("owner")) throw new Error("At least one owner is required");
+    if (accessChanged) await store.setSetting("access", access);
     for (const [id, role] of next) if (role !== users.find((u) => u.id === id)?.role) await store.setRole(id, role);
+  },
+  // A pending invite: provider + lowercased username, or a GitHub email (PocketBase keeps only GitHub's verified email).
+  async invite(v) {
+    const login = String(v.login || "").trim().toLowerCase();
+    const provider = String(v.provider || "");
+    const spec = Object.hasOwn(LOGIN_PROVIDERS, provider) && LOGIN_PROVIDERS[provider];
+    if (!spec || !(await signInOptions()).some((p) => p.value === provider)) throw new Error("Pick a provider with sign-in enabled");
+    if (!INVITE_ROLES.includes(v.role)) throw new Error(`Unknown role ${v.role}`);
+    const email = login.includes("@");
+    if (email ? !INVITE_EMAIL_RE.test(login) : !INVITE_LOGIN_RE.test(login)) throw new Error("Enter a username or an email address");
+    if (email && provider !== "github") throw new Error(`${spec.label} invites match by username`);
+    const invites = ((await store.getSetting("invites")) || []).filter((i) => !(i.pb === spec.pb && i.login === login));
+    invites.push({ id: randomBytes(8).toString("hex"), provider, pb: spec.pb, login, role: v.role, repos: v.role === "developer" ? await assignableRepos(v.repos) : [], at: new Date().toISOString() });
+    await store.setSetting("invites", invites);
+  },
+  actions: {
+    async uninvite(_req, _res, body) {
+      const id = String(body?.item || "").replace(/^invite:/, "");
+      const invites = (await store.getSetting("invites")) || [];
+      if (!invites.some((i) => i.id === id)) throw new Error("Unknown invite");
+      await store.setSetting("invites", invites.filter((i) => i.id !== id));
+      return { message: "Invite removed." };
+    },
   },
 };
 // Local models page: what is downloaded, what is available, one action per row. Nothing downloads by itself.
+// What a running sidecar reports as its device, as GPU or CPU: laya and llama.cpp say vulkan:N / VulkanN / cuda /
+// metal, the Python sidecar cuda or cpu.
+const deviceKind = (device) => (/cpu/i.test(device || "") ? "CPU" : /vulkan|cuda|metal|rocm|hip|gpu|sycl|opencl/i.test(device || "") ? "GPU" : "");
+// Display names; the catalog ids (laya, llama, codereviewer) stay internal. "laya" is the ggmlc runtime and serves every System One model.
+const RUNTIME_LABEL = { laya: "ggmlc", llama: "llama.cpp", codereviewer: "Python (PyTorch)" };
 SETTINGS_PAGES.models = {
   title: "Local models",
   group: "admin",
@@ -3954,56 +4240,94 @@ SETTINGS_PAGES.models = {
   async load() {
     const s1 = await s1Config();
     const llm = await llmConfig();
+    const lastDevices = (await store.getSetting("runtimeDevices")) || {};
+    // Where a runtime runs, whether or not it is loaded: the override env var, else the device it is on or last ran on,
+    // else the runtime's own choice (a discrete GPU when there is one).
+    const deviceOf = (runtime) => {
+      const override = runtime === "laya" ? process.env.S1_DEVICE : process.env.LLM_DEVICE;
+      const live = Object.values(sidecars).find((x) => x.proc && x.ready && LOCAL[x.id]?.runtime === runtime)?.device;
+      const dev = (override && override !== "auto" ? override : "") || live || lastDevices[runtime]?.device || "";
+      const kind = deviceKind(dev);
+      return dev ? { text: kind ? `${kind} · ${dev}` : dev, tone: kind === "CPU" ? "warn" : "ok" } : { text: "Auto (GPU if available)", tone: "muted" };
+    };
     const row = (m) => {
       const st = localStatus(m);
       const d = downloads.get(m.id);
       const active = m.kind === "s1" ? s1.provider === m.id : llm.provider === `local_${m.id}`;
-      const facts = [m.maker, `${m.sizeMB} MB`, m.license, `${m.contextTokens}-token context`, m.notes].join(" · ");
+      const label = m.label.replace(" (local)", "");
+      const pct = st.state === "downloading" && d?.total ? Math.round((d.done / d.total) * 100) : undefined;
+      // Table row: the same columns for both tables; license, notes and the context note sit in the model's info tooltip.
       return {
         id: m.id,
-        label: m.label.replace(" (local)", ""),
-        icon: m.icon || modelIcon(m.repo || m.modelId, m.id),
-        badge: active ? "Active" : st.state === "ready" ? "Downloaded" : undefined,
-        info: contextNote(m) || undefined,
-        meta: st.state === "ready" || st.state === "missing" ? facts : `${facts} · ${st.text}`,
-        progress: st.state === "downloading" && d?.total ? Math.round((d.done / d.total) * 100) : undefined,
-        actions: st.state === "ready" ? [...(active ? [] : [{ id: "use", label: "Use" }]), { id: "delete", label: "Delete", variant: "outline" }] : st.state === "downloading" ? [] : [{ id: "download", label: `Download ${m.sizeMB} MB` }],
+        label,
+        cells: {
+          model: { text: label, icon: m.icon || modelIcon(m.repo || m.modelId, m.id), info: [m.license, m.notes, contextNote(m)].filter(Boolean).join(" · ") || undefined },
+          maker: m.maker || "",
+          size: `${m.sizeMB} MB`,
+          context: m.contextTokens ? `${m.contextTokens} tokens` : "",
+          runtime: RUNTIME_LABEL[m.runtime] || m.runtime,
+          device: deviceOf(m.runtime),
+          status: active ? { text: "Active", tone: "ok" } : st.state === "ready" ? { text: "Downloaded", tone: "ok" } : st.state === "downloading" ? { text: st.text, tone: "warn", ...(pct !== undefined ? { progress: pct } : {}) } : st.state === "missing" ? { text: "Not downloaded", tone: "muted" } : { text: st.text, tone: "warn" },
+        },
+        // One main button that follows the state (Download until downloaded, then Use; disabled while downloading and on
+        // the active model), and Delete as an icon, disabled until there is something to delete.
+        actions: [
+          st.state === "ready"
+            ? { id: "use", label: "Use", icon: "check", variant: "default", ...(active ? { disabled: true } : {}) }
+            : { id: "download", label: "Download", icon: "download", variant: "default", ...(st.state === "downloading" ? { loading: true } : st.state === "missing" ? {} : { disabled: true }) },
+          { id: "delete", label: `Delete ${label}`, icon: "trash", iconOnly: true, danger: true, variant: "outline", ...(st.state === "ready" ? {} : { disabled: true }) },
+        ],
         state: st.state,
       };
     };
     const llmRows = LOCAL_LLM.map(row);
     const s1Rows = LOCAL_S1.map(row);
-    const runtime = Object.keys(RUNTIMES).map((name) => {
+    // One row per runtime: which engine uses it, whether it is installed, and the device of the model it is serving
+    // (or, while idle, the device it last ran on).
+    const runtimeRows = Object.keys(RUNTIMES).map((name) => {
       const sc = Object.values(sidecars).find((x) => x.proc && x.ready && LOCAL[x.id]?.runtime === name);
-      const assets = runtimeAssets(name);
-      const running = sc ? ` · running ${LOCAL[sc.id].label} on ${sc.device}` : "";
-      if (RUNTIMES[name].kind === "python") return existsSync(venvPython(name)) ? `${name} (Python venv) installed${running}` : findPython() ? `${name}: Python venv created with the first download` : `${name}: needs Python 3.10+ on PATH`;
-      return existsSync(runtimeBin(name)) ? `${name} ${RUNTIMES[name].version} installed${running}` : assets.length ? `${name} ${RUNTIMES[name].version} fetched with the first download` : `${name}: no build for ${process.platform}-${process.arch}`;
-    }).join(" · ");
+      const py = RUNTIMES[name].kind === "python";
+      const installed = py ? existsSync(venvPython(name)) : existsSync(runtimeBin(name));
+      const usedBy = [...new Set(Object.values(LOCAL).filter((m) => m.runtime === name).map((m) => (m.kind === "s1" ? "System One" : "Language model")))].join(", ");
+      return {
+        id: name,
+        label: name,
+        cells: {
+          runtime: { text: RUNTIME_LABEL[name] || name, info: py ? "Python venv built from the catalog's pip list; uses CUDA when available, else CPU." : `Prefers a discrete GPU via Vulkan; falls back to CPU. ${name === "laya" ? "S1_DEVICE" : "LLM_DEVICE"} overrides.` },
+          usedBy,
+          version: py ? "venv" : { text: RUNTIMES[name].version, mono: true },
+          status: installed ? { text: "Installed", tone: "ok" } : py ? (findPython() ? { text: "Created with the first download", tone: "muted" } : { text: "Needs Python 3.10+", tone: "warn" }) : runtimeAssets(name).length ? { text: "Fetched with the first download", tone: "muted" } : { text: `No build for ${process.platform}-${process.arch}`, tone: "bad" },
+          state: sc ? { text: `Running · ${LOCAL[sc.id].label.replace(" (local)", "")}`, tone: "ok" } : { text: "Idle", tone: "muted" },
+          device: deviceOf(name),
+        },
+      };
+    });
     const poll = (rows) => (rows.some((r) => r.state === "downloading") ? 2000 : 0);
     // Same two engines as Model provider: both are used together. Download / Use / Delete per row; nothing downloads by itself.
+    const columns = [{ key: "model", label: "Model" }, { key: "maker", label: "Maker" }, { key: "size", label: "Size" }, { key: "context", label: "Context" }, { key: "runtime", label: "Runtime" }, { key: "device", label: "Runs on" }, { key: "status", label: "Status" }];
     const sections = [
-      {
-        id: "llm",
-        title: "Language models",
-        description: "Writes the summary, walkthrough and findings. Use makes one the active language model.",
-        fields: [{ key: "list", label: "Models", type: "list", removable: false }],
-        poll: poll(llmRows),
-      },
       {
         id: "s1",
         title: "System One models",
         description: "Answers scores and gates. Use makes one the active System One model.",
-        fields: [{ key: "list", label: "Models", type: "list", removable: false }],
+        fields: [{ key: "rows", label: "Models", type: "table", columns }],
         poll: poll(s1Rows),
+      },
+      {
+        id: "llm",
+        title: "Language models",
+        description: "Writes the summary, walkthrough and findings. Use makes one the active language model.",
+        fields: [{ key: "rows", label: "Models", type: "table", columns }],
+        poll: poll(llmRows),
       },
       {
         id: "runtime",
         title: "Runtimes",
-        fields: [{ key: "runtime", label: "Runtime", type: "readonly", hint: `Data directory ${DATA_DIR}` }],
+        description: "Processes that serve local models. Each downloads with the first model that needs it.",
+        fields: [{ key: "rows", label: "Runtimes", type: "table", columns: [{ key: "runtime", label: "Runtime" }, { key: "usedBy", label: "Used by" }, { key: "version", label: "Version" }, { key: "status", label: "Status" }, { key: "state", label: "State" }, { key: "device", label: "Runs on" }] }],
       },
     ];
-    return { sections, values: { llm: { list: llmRows }, s1: { list: s1Rows }, runtime: { runtime } } };
+    return { sections, values: { llm: { rows: llmRows }, s1: { rows: s1Rows }, runtime: { rows: runtimeRows } } };
   },
   async save() {},
   actions: {
@@ -4048,9 +4372,11 @@ const settingsPages = async (user) => {
 // Home dashboard: sections of kind "stats", "table" or "links", drawn by the UI's generic report renderer.
 const avg = (xs) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : 0);
 const VERDICT_CELL = { approve: { text: "Approved", tone: "ok" }, comment: { text: "Commented", tone: "warn" }, request_changes: { text: "Changes requested", tone: "bad" } };
-async function homeData(org = "") {
-  const rs = (await repos()).filter((r) => !org || r.startsWith(`${org}/`));
-  const all = (await store.all()).filter((r) => !org || rs.includes(repoOf(r.pr)));
+// `g` is the viewer from gate(): a developer sees only assigned repositories and no settings links.
+async function homeData(org = "", g = { role: "owner" }) {
+  const admin = seesAll(g);
+  const rs = (await visibleRepos(g)).filter((r) => !org || r.startsWith(`${org}/`));
+  const all = (await store.all()).filter((r) => (admin && !org) || rs.includes(repoOf(r.pr)));
   const done = new Set(all.map((r) => r.pr.url));
   const open = (await Promise.all(rs.map(openPrs))).flat();
   const waiting = open.filter((p) => !done.has(p.url));
@@ -4064,18 +4390,18 @@ async function homeData(org = "") {
       { text: repoLabel(repo), path: `/repo/${repo}` },
       wait ? { text: `${wait} waiting`, tone: "warn" } : { text: "none waiting", tone: "muted" },
       mine.length,
-      mine.length ? avg(mine.map((r) => r.review.scores.quality)) : "",
-      mine.length ? avg(mine.map((r) => r.blast.score)) : "",
+      mine.length ? `${avg(mine.map((r) => r.review.scores.quality))}/100` : "",
+      mine.length ? `${avg(mine.map((r) => r.blast.score))}/100` : "",
       { text: "Open pull requests", path: `/repo/${repo}/open` },
     ];
   };
   const sections = [
     { id: "stats", kind: "stats", items: [
-      { label: "Waiting for review", value: waiting.length, unit: waiting.length === 1 ? "pull request" : "pull requests", hint: `Across ${rs.length} ${rs.length === 1 ? "repository" : "repositories"}`, action: rs[0] ? { label: "Open pull requests", path: `/repo/${rs[0]}/open` } : { label: "Add a repository", path: "/settings/repos" } },
+      { label: "Waiting for review", value: waiting.length, unit: waiting.length === 1 ? "pull request" : "pull requests", hint: `Across ${rs.length} ${rs.length === 1 ? "repository" : "repositories"}`, action: rs[0] ? { label: "Open pull requests", path: `/repo/${rs[0]}/open` } : admin ? { label: "Add a repository", path: "/settings/repos" } : undefined },
       { label: "Reviewed", value: all.length, unit: all.length === 1 ? "review" : "reviews", hint: `${week.length} in the last 7 days` },
       { label: "Average quality", value: all.length ? avg(all.map((r) => r.review.scores.quality)) : "–", unit: all.length ? "/ 100" : "", hint: all.length ? `${changes} with changes requested` : "No reviews yet" },
     ] },
-    { id: "repos", kind: "table", title: "Repositories", columns: ["Repository", "Waiting", "Reviewed", "Avg quality", "Avg blast", ""], rows: rs.map(perRepo), empty: "No repository yet. Use \"Add repository\" in the sidebar." },
+    { id: "repos", kind: "table", title: "Repositories", columns: ["Repository", "Waiting", "Reviewed", "Avg quality", "Avg blast", ""], rows: rs.map(perRepo), empty: admin ? "No repository yet. Use \"Add repository\" in the sidebar." : "No repository assigned to your account." },
     { id: "recent", kind: "table", title: "Recent reviews", columns: ["Pull request", "Repository", "Verdict", "Quality", "Blast", "Reviewed"],
       rows: all.slice(0, 8).map((r) => [
         { text: `#${r.pr.number} ${r.pr.title}`, path: `/review?pr=${encodeURIComponent(r.pr.url)}` },
@@ -4086,8 +4412,11 @@ async function homeData(org = "") {
         new Date(r.at).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
       ]) },
     { id: "links", kind: "links", title: "Quick links", items: [
-      { label: "Repositories", hint: "Add or remove onboarded repositories", path: "/settings/repos" },
-      { label: "Sign-in (OAuth)", hint: "GitHub, Forgejo and Gitea login", path: "/settings/oauth" },
+      ...(admin ? [
+        { label: "Manage repositories", hint: "Add or remove onboarded repositories", path: "/settings/repos" },
+        { label: "Git providers", hint: "GitHub, Forgejo and Gitea servers", path: "/settings/git" },
+        { label: "Auth providers", hint: "GitHub, Forgejo and Gitea sign-in", path: "/settings/oauth" },
+      ] : []),
       { label: "Documentation", hint: "README on GitHub", href: "https://github.com/dharmeshgurnani/CodeOtter#readme" },
     ] },
   ];
@@ -4103,6 +4432,10 @@ function checkRepoScope(repo, org) {
   if (!REPO_RE.test(repo) || (isForgeRepo(repo) && !forgeUrl(repo))) throw new Error("Invalid repository");
   if (org && !repo.startsWith(`${org}/`)) throw new Error("Repository is outside the active organization");
 }
+async function onboardedRepo(repo, org) {
+  checkRepoScope(String(repo || ""), org);
+  if (!(await repos()).includes(repo)) throw new Error("Repository is not onboarded");
+}
 // </scope>
 // Cookies: pr_oauth is an opaque key for server-held state/PKCE; pr_auth is the PocketBase user token.
 const cookies = (req) => Object.fromEntries((req.headers.cookie || "").split(";").map((c) => c.trim().split("=")).filter(([k]) => k).map(([k, ...v]) => { try { return [k, decodeURIComponent(v.join("="))]; } catch { return [k, ""]; } }));
@@ -4110,23 +4443,51 @@ const setCookie = (res, name, value, maxAge) => {
   const prev = res.getHeader("set-cookie") || [];
   res.setHeader("set-cookie", [...(Array.isArray(prev) ? prev : [prev]), `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${APP_URL.startsWith("https") ? "; Secure" : ""}`]);
 };
-// Account types. owner: everything. admin: everything except Accounts and sign-in configuration. developer: reserved.
-// The first account to sign in becomes owner; later ones admin. Until any account exists, an anonymous visitor
-// is treated as owner so the instance can be set up (bootstrap); once an owner exists, anonymous gets no settings.
+// Account types. owner: everything. admin: everything except Accounts. developer: Home and the repositories assigned on
+// Manage accounts (reviews, open pull requests, running reviews and PR tools); no Settings or Admin pages.
+// The first account to sign in becomes owner. After that a sign-in needs an invite: matched by provider + username, or
+// for GitHub by the verified primary email PocketBase takes from GitHub; anything else is refused and its account deleted.
+// Until any account exists, an anonymous visitor is treated as owner so the instance can be set up (bootstrap).
 // <roles>
-const ROLES = ["owner", "admin"];
+const ROLES = ["owner", "admin", "developer"];
+const NOT_INVITED = "Not invited: ask an owner for an invite";
 const userView = (rec) => ({ id: rec.id, name: rec.name || rec.username || rec.email?.split("@")[0] || "User", email: rec.email || "", role: rec.role || "", avatar: rec.avatar ? `/api/me/avatar?id=${rec.id}&f=${encodeURIComponent(rec.avatar)}` : "" });
+// Role for an account signing in without one: owner while no owner exists; else the matching invite's role (its
+// repositories are assigned and the invite is used up); else "" (refused). `providers` are PocketBase provider names.
+// Called only from /auth/callback, where `username` is the provider's own login (never the display name, which the user
+// controls). Admissions run one at a time so two first sign-ins cannot both become owner or both use one invite.
+let admitting = Promise.resolve();
+// The same queue serializes every other read-modify-write of "invites" and "access" (repository saves, Manage accounts).
+function accessQueue(fn) {
+  const run = admitting.then(fn);
+  admitting = run.catch(() => {});
+  return run;
+}
+const admit = (record, providers, username = "") => accessQueue(() => admitOne(record, providers, username));
+async function admitOne(record, providers, username) {
+  if (record.role) return record.role;
+  let role = "owner";
+  if ((await store.users()).some((u) => u.role === "owner")) {
+    const login = String(username || "").toLowerCase();
+    // Email matches only GitHub identities: PocketBase keeps GitHub's verified primary email; other providers may not verify.
+    const email = record.verified === true && record.email ? String(record.email).toLowerCase() : "";
+    const hit = ((await store.getSetting("invites")) || []).find((i) => providers.includes(i.pb) && (i.login.includes("@") ? i.pb === "github" && !!email && i.login === email : !!login && i.login === login));
+    if (!hit) return "";
+    role = hit.role;
+    if (role === "developer") await store.setSetting("access", { ...((await store.getSetting("access")) || {}), [record.id]: hit.repos || [] });
+    await store.setSetting("invites", ((await store.getSetting("invites")) || []).filter((i) => i.id !== hit.id));
+  }
+  await store.setRole(record.id, role);
+  record.role = role;
+  return role;
+}
 async function currentUser(req) {
   const token = cookies(req).pr_auth;
   if (!token || !PB_URL) return null;
   const r = await store.authRefresh(token);
   if (!r) return null;
-  if (!r.record.role) {
-    // first account becomes owner, later ones admin
-    const owners = (await store.users()).filter((u) => u.role === "owner").length;
-    r.record.role = owners ? "admin" : "owner";
-    await store.setRole(r.record.id, r.record.role);
-  }
+  // An account gets its role at sign-in (admit in /auth/callback); one without a role was refused and stays out.
+  if (!r.record.role) return null;
   return { ...userView(r.record), token: r.token };
 }
 const hasUsers = async () => (PB_URL ? (await store.users()).length > 0 : false);
@@ -4134,17 +4495,41 @@ const hasUsers = async () => (PB_URL ? (await store.users()).length > 0 : false)
 // yet (bootstrap) or when the operator sets PR_SCORER_RECOVERY=1 (locked out: restart with it, fix sign-in, unset it).
 const RECOVERY = process.env.PR_SCORER_RECOVERY === "1";
 const effectiveRole = async (user) => user?.role || (RECOVERY || !PB_URL || !(await hasUsers()) ? "owner" : "");
-const allowed = (role, access) => (access === "owner" ? role === "owner" : access === "admin" ? ROLES.includes(role) : true);
+// Access levels: "owner" (owner), "admin" (owner, admin), "review" (any role; developers then pass canSeeRepo per repository).
+const allowed = (role, access) => (access === "owner" ? role === "owner" : access === "admin" ? role === "owner" || role === "admin" : access === "review" ? ROLES.includes(role) : true);
 // Gate: every data endpoint needs at least the admin role (owner during bootstrap). 403 carries login:true when signed out.
 async function gate(req, res, access = "admin") {
   const user = await currentUser(req);
-  if (allowed(await effectiveRole(user), access)) return { user, ok: true };
+  const role = await effectiveRole(user);
+  if (allowed(role, access)) return { user, role, ok: true };
   res.statusCode = 403;
   res.setHeader("content-type", "application/json");
   res.end(JSON.stringify({ error: user ? `This needs the ${access} role` : "Sign in to continue", login: !user }));
-  return { user, ok: false };
+  return { user, role, ok: false };
 }
 // </roles>
+// What a viewer ({ user, role } from gate) may see: owners and admins every repository, a developer only the repositories
+// assigned to the account (settings key "access": user id -> repository ids). Every developer-reachable endpoint uses these.
+// <visibility>
+const seesAll = (g) => g.role === "owner" || g.role === "admin";
+const forbidden = (msg) => Object.assign(new Error(msg), { status: 403 });
+async function visibleRepos(g) {
+  const rs = await repos();
+  if (seesAll(g)) return rs;
+  if (g.role !== "developer" || !g.user) return [];
+  const mine = ((await store.getSetting("access")) || {})[g.user.id] || [];
+  return rs.filter((r) => mine.includes(r));
+}
+const canSeeRepo = async (g, repo) => seesAll(g) || (await visibleRepos(g)).includes(repo);
+async function assertRepo(g, repo) {
+  if (!(await canSeeRepo(g, repo))) throw forbidden("Repository is not assigned to your account");
+}
+// Link previews (og image, page meta) are public as before; a signed-in developer gets none for an unassigned repository.
+async function developerBlocked(req, repo) {
+  const user = await currentUser(req);
+  return user?.role === "developer" && !(await canSeeRepo({ user, role: user.role }, repo));
+}
+// </visibility>
 const readJson = (req) =>
   new Promise((ok, err) => {
     let b = "";
@@ -4157,6 +4542,7 @@ export function initializeCore() {
 }
 async function initializeStorage() {
 await store.init();
+applyGithubToken(await store.getSetting("githubToken"));
 for (const [id, f] of Object.entries(FORGES)) {
   const saved = await store.getSetting(id);
   if (saved) { f.url = forgeOrigin(saved.url); f.token = saved.token || ""; }
@@ -4245,15 +4631,16 @@ http
       // Cross-site requests never reach the API (defence in depth on top of SameSite=Lax cookies).
       if ((url.pathname.startsWith("/api/") || url.pathname === "/score") && req.headers["sec-fetch-site"] === "cross-site") { res.statusCode = 403; return json({ error: "Cross-site request refused" }); }
       if (url.pathname === "/api/reviews") {
-        const g = await gate(req, res);
+        const g = await gate(req, res, "review");
         if (!g.ok) return;
         const c = await llmConfig();
-        const rs = await repos();
+        const rs = await visibleRepos(g);
         const org = requestOrg(url);
         const scoped = rs.filter((r) => !org || r.startsWith(`${org}/`));
         const onboardingComplete = (await store.getSetting("onboardingComplete")) === true;
-        const onboardingNeeded = !onboardingComplete && rs.length === 0;
-        return json({ repo: scoped[0] || "", repos: rs, onboardingNeeded, forgejoUrl: FORGES.forgejo.url, forgeUrls: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, f.url])), model: `${c.provider}/${c.model}`, baseUrl: c.baseUrl, store: PB_URL ? "pocketbase" : "files", update: availableUpdate(), settingsPages: await settingsPages(g.user), reviewed: (await store.all()).filter((r) => !org || repoOf(r.pr).startsWith(`${org}/`)), open: (await Promise.all(scoped.map(openPrs))).flat() });
+        const onboardingNeeded = seesAll(g) && !onboardingComplete && rs.length === 0;
+        const reviewed = (await store.all()).filter((r) => (!org || repoOf(r.pr).startsWith(`${org}/`)) && (seesAll(g) || rs.includes(repoOf(r.pr))));
+        return json({ repo: scoped[0] || "", repos: rs, onboardingNeeded, forgejoUrl: FORGES.forgejo.url, forgeUrls: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, f.url])), model: `${c.provider}/${c.model}`, baseUrl: seesAll(g) ? c.baseUrl : "", store: PB_URL ? "pocketbase" : "files", update: availableUpdate(), settingsPages: await settingsPages(g.user), reviewed, open: (await Promise.all(scoped.map(openPrs))).flat() });
       }
       if (url.pathname.startsWith("/api/onboarding")) {
         const g = await gate(req, res, "admin");
@@ -4323,9 +4710,7 @@ http
           if (provider === "github" && body.token) {
             const tok = String(body.token).trim();
             await store.setSetting("githubToken", tok);
-            process.env.GITHUB_TOKEN = tok;
-            process.env.GH_TOKEN = tok;
-            ghReposCache = null;
+            applyGithubToken(tok);
           }
           if (provider === "forgejo" || provider === "gitea") {
             const nextUrl = forgeOrigin(body.url);
@@ -4399,10 +4784,11 @@ http
         }
       }
       if (url.pathname === "/api/home") {
-        if (!(await gate(req, res)).ok) return;
+        const g = await gate(req, res, "review");
+        if (!g.ok) return;
         const org = url.searchParams.get("org") || "";
         if (org && !OWNER_RE.test(org)) throw new Error("Bad organization");
-        return json(await homeData(org));
+        return json(await homeData(org, g));
       }
       if (url.pathname === "/api/login") {
         // Showcase content for the login page's right column: showcase.json next to the server, editable without code.
@@ -4439,7 +4825,7 @@ http
         const spec = Object.hasOwn(LOGIN_PROVIDERS, id) && LOGIN_PROVIDERS[id];
         if (!spec) throw new Error("Unsupported sign-in provider");
         const gh = m.oauth2?.enabled && m.oauth2.providers.find((p) => p.name === spec.pb);
-        if (!gh) throw new Error(`${spec.label} sign-in is not configured: open Admin / OAuth`);
+        if (!gh) throw new Error(`${spec.label} sign-in is not configured: open Admin / Auth providers`);
         const back = url.searchParams.get("back") || "/";
         for (const [key, flow] of oauthFlows) if (flow.expires < Date.now()) oauthFlows.delete(key);
         if (oauthFlows.size >= 1000) throw new Error("Too many pending sign-ins; try again later");
@@ -4459,6 +4845,11 @@ http
         let auth;
         try {
           auth = await store.authWithOAuth2({ provider: flow.provider, code: url.searchParams.get("code"), codeVerifier: flow.codeVerifier, redirectURL: `${APP_URL}/auth/callback` });
+          // First account: owner. Later ones need an invite; an uninvited account is deleted again, never left usable.
+          if (!(await admit(auth.record, [flow.provider], auth.meta?.username))) {
+            await store.deleteUser(auth.record.id).catch((e) => console.error(`Could not delete uninvited account ${auth.record.id}: ${e.message}`));
+            return fail(NOT_INVITED);
+          }
         } catch (e) {
           return fail(e.message);
         }
@@ -4473,7 +4864,7 @@ http
         return json({ ok: true });
       }
       if (url.pathname === "/github/manifest/callback") {
-        const returnTo = cookies(req).pr_manifest_return || "/settings/oauth";
+        const returnTo = cookies(req).pr_manifest_return || "/settings/git";
         const fail = (msg) => { res.statusCode = 302; res.setHeader("location", `${returnTo}?error=${encodeURIComponent(msg)}`); return res.end(); };
         if (!cookies(req).pr_manifest || cookies(req).pr_manifest !== url.searchParams.get("state")) return fail("GitHub app creation state mismatch, try again");
         const conv = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(url.searchParams.get("code"))}/conversions`, { method: "POST", headers: { accept: "application/vnd.github+json", "user-agent": "CodeOtter" } });
@@ -4509,7 +4900,7 @@ http
       if (m) {
         const page = SETTINGS_PAGES[m[1]];
         if (!page) throw new Error(`No settings page ${m[1]}`);
-        const g = await gate(req, res, page.access);
+        const g = await gate(req, res, page.access === "owner" ? "owner" : "admin"); // settings pages are never below admin
         if (!g.ok) return;
         const user = g.user;
         if (m[2] && req.method !== "POST") { res.statusCode = 405; return json({ error: "POST only" }); }
@@ -4519,19 +4910,21 @@ http
           if (!action) throw new Error(`No action ${m[2]} on ${m[1]}`);
           return json(await action(req, res, await readJson(req)));
         }
-        const scope = { org: url.searchParams.get("org") || "" };
+        const scope = { org: url.searchParams.get("org") || "", repo: url.searchParams.get("repo") || "" };
         if (scope.org && !OWNER_RE.test(scope.org)) throw new Error("Bad organization");
+        if (scope.repo) await onboardedRepo(scope.repo, scope.org);
         if (req.method === "POST") await page.save(await readJson(req), scope, user);
         return json(await page.load(scope, user));
       }
       if (url.pathname === "/api/learnings" && req.method === "POST") {
-        const g = await gate(req, res, "admin");
+        const g = await gate(req, res, "review");
         if (!g.ok) return;
         const body = await readJson(req);
         const prUrl = String(body.prUrl || "").trim();
         const repo = String(body.repo || (prUrl ? repoOf({ url: prUrl }) : "")).trim();
         checkRepoScope(repo, requestOrg(url));
         if (prUrl && repoOf({ url: prUrl }) !== repo) throw new Error("PR and repository mismatch");
+        await assertRepo(g, repo);
         const fileBit = String(body.file || "").trim();
         const titleBit = String(body.title || "").trim();
         const detailBit = String(body.detail || "").trim().split("\n")[0].slice(0, 140);
@@ -4579,17 +4972,18 @@ http
         return json({ ok: true, learnings, review: updatedReview });
       }
       if (url.pathname === "/api/tools") {
-        const g = await gate(req, res, "admin");
+        const g = await gate(req, res, "review");
         if (!g.ok) return;
         if (req.method !== "POST") return json(Object.entries(PR_TOOLS).map(([id, t]) => ({ id, label: t.label, input: t.input || null, apply: t.applyLabel || null })));
         const body = await readJson(req);
         const prUrl = String(body.prUrl || "").trim();
         if (!validPrUrl(prUrl)) throw new Error("Invalid pull request URL");
         checkRepoScope(repoOf({ url: prUrl }), requestOrg(url));
+        await assertRepo(g, repoOf({ url: prUrl }));
         return json(await runPrTool(prUrl, String(body.tool || ""), { question: body.question, action: String(body.action || "run") }));
       }
       if (url.pathname === "/api/review-suggestions" && req.method === "POST") {
-        const g = await gate(req, res, "admin");
+        const g = await gate(req, res, "review");
         if (!g.ok) return;
         const body = await readJson(req);
         const prUrl = String(body.prUrl || "").trim();
@@ -4597,6 +4991,7 @@ http
         const repo = String(body.repo || repoOf({ url: prUrl })).trim();
         checkRepoScope(repo, requestOrg(url));
         if (repoOf({ url: prUrl }) !== repo) throw new Error("PR and repository mismatch");
+        await assertRepo(g, repo);
         const prNum = parsePrUrl(prUrl).number;
         const stored = await store.get(prUrl).catch(() => null);
         const active = activeReviews.get(prUrl)?.state || null;
@@ -4649,24 +5044,31 @@ http
         return json({ ok: true, ...resInfo });
       }
       if (url.pathname === "/api/triage") {
-        if (!(await gate(req, res)).ok) return;
+        const g = await gate(req, res, "review");
+        if (!g.ok) return;
         const org = requestOrg(url);
         const results = (await store.getSetting("triageResults")) || {};
         const ref = (url.searchParams.get("pr") || "").trim();
-        if (!ref) return json(Object.values(results).filter((t) => { try { checkRepoScope(t.repo, org); return true; } catch { return false; } }));
+        if (!ref) {
+          const mine = seesAll(g) ? null : await visibleRepos(g);
+          return json(Object.values(results).filter((t) => { try { checkRepoScope(t.repo, org); return !mine || mine.includes(t.repo); } catch { return false; } }));
+        }
         const resolved = await resolvePr(ref, url.searchParams.get("repo") || "");
         checkRepoScope(parsePrUrl(resolved.urlGuess).repo, org);
+        await assertRepo(g, parsePrUrl(resolved.urlGuess).repo);
         if (req.method === "POST") return json(await triagePr(ref, url.searchParams.get("repo") || ""));
         return json(results[resolved.urlGuess] || null);
       }
       if (url.pathname === "/api/score" || (url.pathname === "/score" && url.searchParams.get("pr"))) {
-        if (!(await gate(req, res)).ok) return;
+        const g = await gate(req, res, "review");
+        if (!g.ok) return;
         const ref = (url.searchParams.get("pr") || "").trim();
         if (!ref) throw new Error("Missing pr");
         const force = url.searchParams.has("force");
         const repo = url.searchParams.get("repo") || "";
         const resolved = await resolvePr(ref, repo);
         checkRepoScope(parsePrUrl(resolved.urlGuess).repo, requestOrg(url));
+        await assertRepo(g, parsePrUrl(resolved.urlGuess).repo);
         const part = url.searchParams.get("part") || "";
         if (url.pathname === "/api/score" && url.searchParams.has("async")) {
           return json(await startOrPollReview(ref, force, repo, part));
@@ -4705,6 +5107,7 @@ http
       if (url.pathname === "/og.svg") {
         const prParam = (url.searchParams.get("pr") || "").trim();
         const cachedPr = validPrUrl(prParam) ? await store.get(prParam).catch(() => null) : null;
+        if (cachedPr && (await developerBlocked(req, repoOf(cachedPr.pr)))) { res.statusCode = 403; return json({ error: "Repository is not assigned to your account" }); }
         const ogTitle = cachedPr
           ? `#${cachedPr.pr.number} ${cachedPr.pr.title}`.slice(0, 72)
           : (url.searchParams.get("title") || "CodeOtter — AI Pull Request Review & Merge Gates").slice(0, 72);
@@ -4732,7 +5135,7 @@ http
         if (url.pathname === "/review" && url.searchParams.get("pr")) {
           const ref = (url.searchParams.get("pr") || "").trim();
           const cPr = validPrUrl(ref) ? await store.get(ref).catch(() => null) : null;
-          if (cPr?.pr) {
+          if (cPr?.pr && !(await developerBlocked(req, repoOf(cPr.pr)))) {
             const [vl] = VERDICT[cPr.review?.verdict] || ["Commented"];
             pageTitle = `PR #${cPr.pr.number}: ${cPr.pr.title} (${repoOf(cPr.pr)}) · CodeOtter`;
             pageDesc = `Verdict: ${vl} · Quality ${cPr.review?.scores?.quality ?? 0}/100 · Blast Radius ${cPr.blast?.score ?? 0}/100 · ${cPr.pr.changedFiles} files (+${cPr.pr.additions}/-${cPr.pr.deletions}) — ${String(cPr.review?.summary || "").slice(0, 160)}`;
@@ -4756,7 +5159,7 @@ http
           const sId = url.pathname.slice("/settings/".length);
           const sp = SETTINGS_PAGES[sId];
           if (sp) {
-            const sec = sp.group === "admin" ? "Admin" : "Settings";
+            const sec = sp.group === "workspace" ? "Workspace" : "System";
             pageTitle = `${sp.title} — ${sec} · CodeOtter`;
             pageDesc = `Configure ${sp.title.toLowerCase()} settings on CodeOtter.`;
           }
@@ -4783,7 +5186,7 @@ http
       res.setHeader("content-type", "text/html; charset=utf-8");
       res.end(await renderHome());
     } catch (e) {
-      res.statusCode = 500;
+      res.statusCode = e.status === 403 ? 403 : 500;
       const detail = e.cause ? ` (${e.cause.code || e.cause.message || e.cause})` : "";
       const msg = e.message === "fetch failed" ? `Fetch failed: connection error or endpoint unreachable${detail}` : `${e.message}${detail}`;
       console.error(`[API Error] ${req.method} ${url.pathname}:`, e.stack || e);

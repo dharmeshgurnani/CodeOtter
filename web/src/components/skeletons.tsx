@@ -1,6 +1,7 @@
 // Loading states that mirror the real layouts, so the page does not jump when data arrives.
 // One skeleton per generic renderer: report (home), form (settings), table (lists), review (report page).
 import { Skeleton } from "@/components/ui/skeleton";
+import { DataTable } from "@/components/data-table";
 
 const Line = ({ w = "w-full", h = "h-3.5", className = "" }: { w?: string; h?: string; className?: string }) => <Skeleton className={`${h} ${w} ${className}`} />;
 
@@ -13,18 +14,13 @@ const SectionHeading = ({ w = "w-28", sub = true }: { w?: string; sub?: boolean 
 
 export function TableSkeleton({ cols = 5, rows = 4, widths }: { cols?: number; rows?: number; widths?: string[] }) {
   const ws = widths ?? Array.from({ length: cols }, (_, i) => (i === 0 ? "w-3/4" : "w-16"));
+  // Drawn by the shared table, so the skeleton has exactly the real table's geometry.
   return (
-    <div className="overflow-x-auto rounded-[10px] border border-border">
-      <table className="w-full border-collapse">
-        <thead>
-          <tr>{ws.map((_, i) => <th key={i} className="bg-[#efefef] px-4 py-2.5 text-left"><Line w={i === 0 ? "w-28" : "w-14"} h="h-3" className="bg-neutral-300/60" /></th>)}</tr>
-        </thead>
-        <tbody>
-          {Array.from({ length: rows }, (_, r) => (
-            <tr key={r}>{ws.map((w, c) => <td key={c} className="border-t border-border px-4 py-3.5"><Line w={w} /></td>)}</tr>
-          ))}
-        </tbody>
-      </table>
+    <div aria-busy="true" aria-label="Loading">
+      <DataTable
+        columns={ws.map((_, i) => ({ key: String(i), label: "" }))}
+        rows={Array.from({ length: rows }, (_, r) => ({ id: String(r), cells: Object.fromEntries(ws.map((w, c) => [String(c), <Line w={w} />])) }))}
+      />
     </div>
   );
 }
@@ -64,7 +60,7 @@ export function ReportSkeleton() {
 // Settings: sections of label/control rows with an action row, like the JSON form.
 export function FormSkeleton({ sections = [4, 3] }: { sections?: number[] }) {
   return (
-    <div className="max-w-[820px] space-y-8" aria-busy="true" aria-label="Loading">
+    <div className="w-full space-y-8" aria-busy="true" aria-label="Loading">
       {sections.map((n, si) => (
         <section key={si}>
           <SectionHeading w={si === 0 ? "w-20" : "w-16"} />

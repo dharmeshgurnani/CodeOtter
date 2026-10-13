@@ -70,7 +70,7 @@ export type Review = {
   at: string;
 };
 export type User = { id: string; name: string; email: string; role: string; avatar: string };
-export type Board = { repo: string; repos: string[]; onboardingNeeded?: boolean; forgejoUrl?: string; forgeUrls?: Record<string, string>; model: string; baseUrl: string; store: string; update?: { version: string; url: string } | null; settingsPages: { id: string; title: string; group: "settings" | "admin" }[]; reviewed: Review[]; open: OpenPr[] };
+export type Board = { repo: string; repos: string[]; onboardingNeeded?: boolean; forgejoUrl?: string; forgeUrls?: Record<string, string>; model: string; baseUrl: string; store: string; update?: { version: string; url: string } | null; settingsPages: { id: string; title: string; group: "settings" | "admin" | "workspace" | "repo" }[]; reviewed: Review[]; open: OpenPr[] };
 
 export const repoFromUrl = (url: string, origins: Record<string, string> = {}) => {
   try {
@@ -93,3 +93,5 @@ export const effort = (score: number, lines: number) => {
   const n = score >= 80 ? 5 : score >= 60 ? 4 : score >= 40 ? 3 : score >= 20 ? 2 : 1;
   return { n, label: ["Trivial", "Simple", "Moderate", "Complex", "Critical"][n - 1], mins: Math.max(5, Math.round(lines / 8 / 5) * 5) };
 };
+// Badge tone for an effort level: 1-2 green, 3 amber, 4-5 red.
+export const effortTone = (n: number) => (n <= 2 ? "ok" : n === 3 ? "warn" : "bad");
