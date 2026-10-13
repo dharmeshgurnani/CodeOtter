@@ -4,7 +4,8 @@ test("home renders from the real server with file storage", async ({ page, reque
   expect((await request.get("/healthz")).ok()).toBe(true);
   await page.goto("/");
   await expect(page).toHaveTitle(/CodeOtter/);
-  await expect(page.getByText(/CodeOtter/).first()).toBeVisible();
+  // the sidebar brand reads "Code Otter"; titles and copy elsewhere say "CodeOtter"
+  await expect(page.getByText(/Code ?Otter/).first()).toBeVisible();
 });
 
 test("settings pages come from server JSON and render through the generic form", async ({ page }) => {
