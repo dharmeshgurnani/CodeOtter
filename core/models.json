@@ -150,7 +150,7 @@
       "kind": "llm",
       "runtime": "codereviewer",
       "api": "codereviewer",
-      "label": "CodeReviewer (Microsoft)",
+      "label": "CodeReviewer",
       "maker": "Microsoft Research",
       "repo": "microsoft/codereviewer",
       "icon": "https://cdn-avatars.huggingface.co/v1/production/uploads/1583646260758-5e64858c87403103f9f1055d.png",

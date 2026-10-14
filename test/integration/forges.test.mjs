@@ -171,15 +171,15 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   } });
   await ready(`${app}/api/me`);
   const api = (path, body) => json(`${app}${path}`, { ...(body !== undefined ? { method: "POST", body } : {}), headers: appCookie ? { cookie: appCookie } : {} });
-  await api(`/api/settings/oauth`, { [provider]: { url: `http://127.0.0.1:${mp}`, token: "redirect-test-token" } });
-  await assert.rejects(api(`/api/settings/oauth/test${provider}`, {})); assert.equal(redirectedTokenRequests, 0);
-  await api(`/api/settings/oauth`, { [provider]: { url: forge, token: token.sha1 } });
-  assert.match((await api(`/api/settings/oauth/test${provider}`, {})).message, /Connected/);
-  const connection = await api(`/api/settings/oauth`);
-  assert.equal(connection.values[provider].token, "");
+  await api(`/api/settings/git`, { [provider]: { url: `http://127.0.0.1:${mp}`, token: "redirect-test-token" } });
+  await assert.rejects(api(`/api/settings/git/test${provider}`, {})); assert.equal(redirectedTokenRequests, 0);
+  await api(`/api/settings/git`, { [provider]: { url: forge, token: token.sha1 } });
+  assert.match((await api(`/api/settings/git/test${provider}`, {})).message, /Connected/);
+  const connection = await api(`/api/settings/git`);
+  assert.equal(connection.values.providers.rows.find((r) => r.id === provider).settings.values.token, "");
   assert(!JSON.stringify(connection).includes(token.sha1));
-  await api(`/api/settings/oauth`, { [provider]: { url: forge, token: "" } });
-  await api(`/api/settings/oauth/test${provider}`, {});
+  await api(`/api/settings/git`, { [provider]: { url: forge, token: "" } });
+  await api(`/api/settings/git/test${provider}`, {});
   log("Forgejo connection save, masked token, blank-token preservation and redirect rejection");
 
   await api("/api/settings/oauth", { oauth: { enabled: true, clientId: "github-test-client", clientSecret: "github-test-secret" } });
@@ -188,14 +188,14 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   const login = await api("/api/login");
   assert.deepEqual(login.providers.map((p) => p.id), ["github", provider]);
   const settings = await api("/api/settings/oauth");
-  assert.equal(settings.values.oauth.clientId, "github-test-client");
+  assert.equal(settings.values.signin.rows.find((r) => r.id === "github").settings.values.clientId, "github-test-client");
   assert(!JSON.stringify(settings).includes(oauth.client_secret));
   const pages = (await api("/api/reviews")).settingsPages.map((p) => p.id);
-  assert(pages.includes("oauth"));
+  assert(pages.includes("oauth") && pages.includes("git"));
   assert(!pages.includes("forgejo") && !pages.includes("gitea"));
-  assert(settings.sections.some((s) => s.id === provider));
-  assert(settings.sections.some((s) => s.id === `${provider}oauth`));
-  log("One OAuth sidebar page contains connections and sign-in; provider saves preserve other secrets");
+  assert.equal(settings.values.signin.rows.find((r) => r.id === provider).toggle, true);
+  assert((await api("/api/settings/git")).values.providers.rows.some((r) => r.id === provider));
+  log("Git providers holds connections, Auth providers sign-in; provider saves preserve other secrets");
 
   const scope = `${provider}~reviewer`;
   await api("/api/settings/repos?org=reviewer", { repos: { list: ["reviewer/sample"], add: `${forge}/reviewer/sample` } });
@@ -204,8 +204,8 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   assert.equal(item.id, `${provider}~reviewer/sample`);
   assert.match(item.meta, /AGENTS.md/); assert.match(item.meta, /CLAUDE.md/);
   assert.equal(repositorySettings.sections[0].fields.find((f) => f.key === "add").options.length, 2);
-  item.settings.values.postScores = true; item.settings.values.postReview = true;
-  await api(`/api/settings/repos?org=${scope}`, { repos: { list: [item], add: "" } });
+  // per-repository review settings live on Repository settings; a save sends only what changes
+  await api(`/api/settings/repo?org=${scope}&repo=${encodeURIComponent(item.id)}`, { repo: { postScores: true, postReview: true } });
   const ghBoard = await api("/api/reviews?org=reviewer");
   assert.equal(ghBoard.open.length, 1); assert.equal(ghBoard.open[0].url, githubPr.url);
   const fjBoard = await api(`/api/reviews?org=${scope}`);
@@ -233,9 +233,9 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   assert.equal(comments.filter((c) => c.body.includes("<!-- codeotter:review -->")).length, 1);
   log("real PR review, paginated files/commits, linked issue, both guides, inline suggestion and comment upsert");
 
-  await api(`/api/settings/oauth`, { [provider]: { url: forge, token: "invalid-test-token" } });
+  await api(`/api/settings/git`, { [provider]: { url: forge, token: "invalid-test-token" } });
   await assert.rejects(api(`/api/reviews?org=${scope}`), /401/);
-  await api(`/api/settings/oauth`, { [provider]: { url: forge, token: token.sha1 } });
+  await api(`/api/settings/git`, { [provider]: { url: forge, token: token.sha1 } });
   const before = review.headSha;
   await file("fourth.js", "export const fourth = true;\n", { branch: "fix-arithmetic" });
   // Forgejo updates pull-request commit metadata asynchronously after a push.
@@ -269,8 +269,8 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   }
   const fixed = await api(`/api/score?pr=${encodeURIComponent(prUrl)}&org=${scope}&force=1`);
   assert.deepEqual(fixed.acceptedFixes, ["[math.js] Addition subtracts"]);
-  const repoAfterFix = (await api(`/api/settings/repos?org=${scope}`)).values.repos.list.find((x) => x.id === `${provider}~reviewer/sample`);
-  assert.deepEqual(repoAfterFix.settings.values.accepted, ["[math.js] Addition subtracts"]);
+  const repoAfterFix = await api(`/api/settings/repo?org=${scope}&repo=${encodeURIComponent(`${provider}~reviewer/sample`)}`);
+  assert.deepEqual(repoAfterFix.values.repo.accepted, ["[math.js] Addition subtracts"]);
   assert(prompts.at(-2).includes("Fixes this team accepted from earlier reviews") || prompts.at(-1).includes("Fixes this team accepted from earlier reviews"));
   log("self-check scores findings; an applied suggestion becomes an accepted fix used by later reviews");
 
@@ -337,7 +337,7 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   await assert.rejects(api(`/api/review-suggestions?org=${scope}`, { prUrl, repo: "reviewer/sample", findingIdx: 0 }));
   assert.equal((await api("/api/reviews?org=reviewer")).reviewed.length, 0);
   assert.equal((await api(`/api/reviews?org=${scope}`)).reviewed.length, 2);
-  await assert.rejects(api(`/api/settings/oauth`, { [provider]: { url: "http://127.0.0.1:1", token: "other" } }));
+  await assert.rejects(api(`/api/settings/git`, { [provider]: { url: "http://127.0.0.1:1", token: "other" } }));
   const cross = await fetch(`${app}/api/settings/oauth`, { headers: { "sec-fetch-site": "cross-site" } }); assert.equal(cross.status, 403);
   const invalid = await fetch(`${app}/api/auth/start?provider=__proto__`); assert(!invalid.ok);
   const start = await fetch(`${app}/api/auth/start?provider=${provider}&back=//evil.invalid`);
@@ -403,6 +403,8 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   // The real PocketBase GitHub provider talks to a local OAuth fixture, never GitHub.
   const collection = await json(`${pb}/api/collections/users`, { headers: { authorization: adminAuth.token } });
   await json(`${pb}/api/collections/users`, { method: "PATCH", headers: { authorization: adminAuth.token }, body: { oauth2: { ...collection.oauth2, providers: collection.oauth2.providers.map((p) => p.name === "github" ? { ...p, authURL: `http://127.0.0.1:${mp}/github/authorize`, tokenURL: `http://127.0.0.1:${mp}/github/token`, userInfoURL: `http://127.0.0.1:${mp}/github/user` } : p) } } });
+  // After the owner, a sign-in needs an invite (Manage accounts).
+  await api("/api/settings/accounts", { invite: { login: "github-reviewer", provider: "github", role: "admin" } });
   const githubFlow = await visit(`${app}/api/auth/start?provider=github`);
   await visit(JSON.parse(githubFlow.text).url);
   const ownerCookie = appCookie;
@@ -436,10 +438,10 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
     const otherPr = await otherApi("repos/reviewer/sample/pulls", { method: "POST", body: { title: "Separate Forgejo review", head: "fix", base: "main" } });
     assert.equal(otherPr.number, pr.number);
     const otherUrl = `${other}/reviewer/sample/pulls/${otherPr.number}`;
-    await assert.rejects(api("/api/settings/oauth", { forgejo: { url: forge, token: otherToken.sha1 } }), /separate server origin/);
-    await api("/api/settings/oauth", { forgejo: { url: other, token: otherToken.sha1 } });
-    await api("/api/settings/oauth/testforgejo", {});
-    await api("/api/settings/oauth/testgitea", {});
+    await assert.rejects(api("/api/settings/git", { forgejo: { url: forge, token: otherToken.sha1 } }), /separate server origin/);
+    await api("/api/settings/git", { forgejo: { url: other, token: otherToken.sha1 } });
+    await api("/api/settings/git/testforgejo", {});
+    await api("/api/settings/git/testgitea", {});
     await api(`/api/settings/repos?org=${scope}`, { repos: { list: [`${provider}~reviewer/sample`], add: `${other}/reviewer/sample` } });
     assert.equal((await api(`/api/score?pr=${encodeURIComponent(otherUrl)}&org=forgejo~reviewer`)).pr.title, "Separate Forgejo review");
     const allRepos = (await api(`/api/reviews?org=${scope}`)).repos;
@@ -450,6 +452,8 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
     const otherOAuth = await otherApi("user/applications/oauth2", { method: "POST", body: { name: "Independent Forgejo login", redirect_uris: [`${app}/auth/callback`], confidential_client: true } });
     await api("/api/settings/oauth", { forgejooauth: { enabled: true, clientId: otherOAuth.client_id, clientSecret: otherOAuth.client_secret } });
     assert.deepEqual((await api("/api/login")).providers.map((p) => p.id), ["github", "forgejo", "gitea"]);
+    // a later sign-in needs an invite for that provider and username
+    await api("/api/settings/accounts", { invite: { login: "reviewer", provider: "forgejo", role: "admin" } });
     appCookie = await oauthLogin("forgejo", other);
     const otherMe = await api("/api/me");
     assert.notEqual(otherMe.user.id, me.user.id, "Same usernames on different providers must not link identities");
@@ -457,7 +461,7 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
     assert.equal((await api(`/api/score?pr=${encodeURIComponent(prUrl)}&org=${scope}`)).pr.url, prUrl);
     appCookie = ownerCookie;
     await api("/api/settings/oauth", { forgejooauth: { enabled: false } });
-    await assert.rejects(api("/api/settings/oauth", { forgejo: { url: "http://127.0.0.1:1" } }));
+    await assert.rejects(api("/api/settings/git", { forgejo: { url: "http://127.0.0.1:1" } }));
     assert.deepEqual((await api("/api/login")).providers.map((p) => p.id), ["github", "gitea"]);
     // Leave all providers enabled for optional browser QA.
     await api("/api/settings/oauth", { forgejooauth: { enabled: true, clientId: otherOAuth.client_id, clientSecret: otherOAuth.client_secret } });

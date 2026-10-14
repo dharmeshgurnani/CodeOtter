@@ -76,6 +76,9 @@ const loadRoles = ({ pbUrl, users = [], refresh = null, recovery = false }) => {
   const calls = { setRole: [] };
   const store = {
     authRefresh: async () => refresh,
+    identities: async () => ["github"],
+    getSetting: async () => null,
+    setSetting: async () => {},
     users: async () => users,
     setRole: async (id, role) => { calls.setRole.push([id, role]); },
   };
@@ -129,12 +132,14 @@ ctx.diagnostic("owner may do everything, admin everything but owner pages, nobod
   assert.equal((await gate(req("pr_auth=t2"), fakeRes(), "admin")).ok, true);
 }
 {
-  // the first account to sign in becomes owner, later ones admin
+  // roles are given only at sign-in (/auth/callback; the first account becomes owner there, see accounts.test.mjs):
+  // a request with a role-less session is anonymous and never admits, even before any owner exists
   const first = loadRoles({ pbUrl: "http://pb", users: [], refresh: { token: "t1", record: { id: "u1", role: "" } } });
-  assert.equal((await first.currentUser(req("pr_auth=t1"))).role, "owner");
-  assert.deepEqual(first.calls.setRole, [["u1", "owner"]]);
+  assert.equal(await first.currentUser(req("pr_auth=t1")), null);
+  assert.deepEqual(first.calls.setRole, []);
   const second = loadRoles({ pbUrl: "http://pb", users: [{ id: "u1", role: "owner" }], refresh: { token: "t2", record: { id: "u2", role: "" } } });
-  assert.equal((await second.currentUser(req("pr_auth=t2"))).role, "admin");
+  assert.equal(await second.currentUser(req("pr_auth=t2")), null);
+  assert.deepEqual(second.calls.setRole, []);
 }
 {
   // an expired token is anonymous; recovery mode makes anonymous owner again

@@ -1,9 +1,8 @@
 // One renderer for every read-only dashboard/report. The server sends sections; nothing here is page-specific.
 // Kinds: "stats" (cards: label, value, unit, hint, optional action), "table" (columns + rows, cells may link), "links".
-import { Pill } from "@/App";
-import { Link } from "@/components/link";
+import { CellView, DataTable, type Cell } from "@/components/data-table";
 
-export type Cell = string | number | { text: string; path?: string; href?: string; tone?: "ok" | "warn" | "bad" | "muted" };
+export type { Cell } from "@/components/data-table";
 export type StatItem = { label: string; value: string | number; unit?: string; hint?: string; action?: { label: string; path: string } };
 export type ReportSection =
   | { id: string; kind: "stats"; title?: string; description?: string; items: StatItem[] }
@@ -12,15 +11,6 @@ export type ReportSection =
 
 // Server JSON is trusted for shape but not for completeness: a missing list renders as empty, never as a crash.
 const list = <T,>(v: T[] | undefined | null): T[] => (Array.isArray(v) ? v : []);
-
-const CellView = ({ c, go }: { c: Cell; go: (p: string) => void }) => {
-  if (c === null || c === undefined) return <span />;
-  if (typeof c !== "object") return <span className={typeof c === "number" ? "tabular-nums" : ""}>{c}</span>;
-  if (c.tone) return <Pill tone={c.tone === "muted" ? undefined : c.tone}>{c.text}</Pill>;
-  if (c.path) return <Link className="text-brand" path={c.path} go={go}>{c.text}</Link>;
-  if (c.href) return <a className="text-brand hover:underline" href={c.href} target="_blank" rel="noreferrer">{c.text}</a>;
-  return <span>{c.text}</span>;
-};
 
 const Heading = ({ s }: { s: ReportSection }) =>
   s.title ? (
@@ -70,25 +60,11 @@ export function JsonReport({ sections, go }: { sections: ReportSection[]; go: (p
             </div>
           )}
           {s.kind === "table" && (
-            <div className="overflow-x-auto rounded-[10px] border border-border">
-              <table className="responsive-table w-full border-collapse text-sm">
-                <thead>
-                  <tr>{columns.map((c, i) => <th key={i} className="bg-[#efefef] px-4 py-2 text-left font-medium text-neutral-700">{c}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 && <tr><td colSpan={Math.max(1, columns.length)} className="px-4 py-3 text-muted-foreground">{s.empty ?? "Nothing yet."}</td></tr>}
-                  {rows.map((r, i) => (
-                    <tr key={i}>
-                      {list(r).map((c, j) => (
-                        <td key={j} data-label={j > 0 ? columns[j] || undefined : undefined} className="border-t border-border px-4 py-2 align-top">
-                          <CellView c={c} go={go} />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={columns.map((label, i) => ({ key: String(i), label }))}
+              rows={rows.map((row, i) => ({ id: String(i), cells: Object.fromEntries(list(row).map((c, j) => [String(j), <CellView c={c} go={go} />])) }))}
+              empty={s.empty ?? "Nothing yet."}
+            />
           )}
           {s.kind === "links" && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

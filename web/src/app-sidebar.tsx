@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, ChevronRight, CircleArrowUp, ChevronsUpDown, ExternalLink, FolderGit2, House, LogIn, LogOut, Plus, Settings2, ShieldCheck } from "lucide-react";
+import { ChevronRight, CircleArrowUp, ChevronsUpDown, FolderGit2, Users, House, LogIn, LogOut, Plus, Settings2 } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -27,7 +27,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/animate-ui/components/radix/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { type User, forgeId, forgeLabel, repoLabel } from "./types";
+import { type User, forgeId, repoLabel } from "./types";
+import { Badge } from "@/components/data-table";
 
 type Page = { title: string; path: string };
 type Props = {
@@ -36,7 +37,7 @@ type Props = {
   repos: string[];
   route: string;
   openCounts: Record<string, number>;
-  settingsPages: { id: string; title: string; group: "settings" | "admin" }[];
+  settingsPages: { id: string; title: string; group: "settings" | "admin" | "workspace" | "repo" }[];
   org: string;
   setOrg: (o: string) => void;
   user: User | null;
@@ -64,7 +65,7 @@ function NavGroup({ title, icon: Icon, pages, route, go, badge, landing }: { tit
           <SidebarMenuButton tooltip={title} isActive={active} onClick={() => { if (!open && landing) go(landing); }}>
             <Icon />
             <span className="truncate">{title}</span>
-            {badge ? <span className="ml-auto rounded-md bg-neutral-200 px-1.5 text-xs tabular-nums">{badge}</span> : null}
+            {badge ? <Badge className="ml-auto tabular-nums">{badge}</Badge> : null}
             <ChevronRight className={`${badge ? "" : "ml-auto"} transition-transform duration-300 group-data-[state=open]/collapsible:rotate-90`} />
           </SidebarMenuButton>
         </CollapsibleTrigger>
@@ -95,16 +96,16 @@ function OrgSwitcher({ repos, orgs, active, setActive, canAddRepo, go }: { repos
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
               {active ? (
-                <Avatar className="size-8 rounded-lg">
+                <Avatar className="size-8 rounded-md">
                   {!forgeId(active) && <AvatarImage src={`https://github.com/${active}.png?size=64`} alt={active} />}
-                  <AvatarFallback className="rounded-lg bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground">{initials(active)}</AvatarFallback>
+                  <AvatarFallback className="rounded-md bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground">{initials(active)}</AvatarFallback>
                 </Avatar>
               ) : (
-                <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-8 rounded-lg shadow-xs shrink-0" />
+                <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-8 rounded-md shadow-xs shrink-0" />
               )}
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">{repoLabel(active) || "No organization"}</span>
-                <span className="truncate text-xs">{active ? `Organization · ${count} ${count === 1 ? "repository" : "repositories"}` : "Add a repository to begin"}</span>
+                <span className="truncate text-xs">{active ? `Organization · ${count} ${count === 1 ? "repository" : "repositories"}` : canAddRepo ? "Add a repository to begin" : "No repositories assigned"}</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
             </SidebarMenuButton>
@@ -192,7 +193,7 @@ function NavUser({ user, signInAvailable, onLogin, onLogout }: { user: User | nu
   );
 }
 
-export function AppSidebar({ repositoriesLoaded = true, forgeUrls = {}, repos, route, openCounts, settingsPages, org, setOrg, user, signInAvailable, onLogin, onLogout, go: rawGo, update }: Props) {
+export function AppSidebar({ repositoriesLoaded = true, repos, route, openCounts, settingsPages, org, setOrg, user, signInAvailable, onLogin, onLogout, go: rawGo, update }: Props) {
   const { isMobile, setOpenMobile } = useSidebar();
   const go = (path: string) => {
     if (isMobile) setOpenMobile(false);
@@ -214,20 +215,15 @@ export function AppSidebar({ repositoriesLoaded = true, forgeUrls = {}, repos, r
   }, [routeOrg, repos.join(","), repositoriesLoaded]);
   const visible = repos.filter((r) => r.startsWith(`${org}/`));
   const canAddRepo = settingsPages.some((p) => p.id === "repos");
+  const canRepoSettings = settingsPages.some((p) => p.id === "repo");
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="gap-2">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" tooltip="CodeOtter" onClick={() => go("/")} className="hover:bg-sidebar-accent cursor-pointer">
-              <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-8 rounded-lg shadow-xs shrink-0" />
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold tracking-tight text-sidebar-foreground">CodeOtter</span>
-                <span className="truncate text-xs text-muted-foreground">AI PR Review &amp; Merge Gates</span>
-              </div>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        {/* Brand as a slim row; the organization switcher below is the header's one prominent control */}
+        <button type="button" aria-label="Code Otter home" onClick={() => go("/")} className="flex h-8 items-center gap-2 rounded-md px-2 text-sm font-semibold tracking-tight text-sidebar-foreground hover:bg-sidebar-accent group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+          <img src="/codeotter-icon.svg" alt="" className="size-6 rounded-sm shrink-0" />
+          <span className="truncate group-data-[collapsible=icon]:hidden">Code Otter</span>
+        </button>
         <OrgSwitcher repos={repos} orgs={orgs} active={org} setActive={setOrg} canAddRepo={canAddRepo} go={go} />
       </SidebarHeader>
       <SidebarContent>
@@ -247,7 +243,7 @@ export function AppSidebar({ repositoriesLoaded = true, forgeUrls = {}, repos, r
             {visible.map((r) => (
               <NavGroup
                 key={r}
-                title={repoLabel(r)}
+                title={r.split("/")[1] ?? repoLabel(r)} // the organization is already picked above
                 icon={FolderGit2}
                 route={route}
                 go={go}
@@ -256,12 +252,13 @@ export function AppSidebar({ repositoriesLoaded = true, forgeUrls = {}, repos, r
                 pages={[
                   { title: "Reviews", path: `/repo/${r}` },
                   { title: "Open pull requests", path: `/repo/${r}/open` },
+                  ...(canRepoSettings ? [{ title: "Repository settings", path: `/repo/${r}/settings` }] : []),
                 ]}
               />
             ))}
             {canAddRepo && (
               <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Add repository" className="text-muted-foreground" isActive={route === "/settings/repos"} onClick={() => go("/settings/repos")}>
+                <SidebarMenuButton tooltip="Add repository" className="text-muted-foreground" onClick={() => go("/settings/repos")}>
                   <Plus />
                   <span>Add repository</span>
                 </SidebarMenuButton>
@@ -269,20 +266,15 @@ export function AppSidebar({ repositoriesLoaded = true, forgeUrls = {}, repos, r
             )}
           </SidebarMenu>
         </SidebarGroup>
-        {settingsPages.some((p) => p.group === "settings") && (
+        {settingsPages.some((p) => p.group !== "repo") && (
           <SidebarGroup>
-            <SidebarGroupLabel>General</SidebarGroupLabel>
+            <SidebarGroupLabel>Settings</SidebarGroupLabel>
             <SidebarMenu>
-              <NavGroup title="Settings" icon={Settings2} route={route} go={go} pages={settingsPages.filter((p) => p.group === "settings").map((p) => ({ title: p.title, path: `/settings/${p.id}` }))} />
-            </SidebarMenu>
-          </SidebarGroup>
-        )}
-        {/* Platform-wide pages, independent of the organization: shown to admins and owners everywhere */}
-        {settingsPages.some((p) => p.group === "admin") && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Admin</SidebarGroupLabel>
-            <SidebarMenu>
-              <NavGroup title="Admin" icon={ShieldCheck} route={route} go={go} pages={[...settingsPages.filter((p) => p.group === "admin").map((p) => ({ title: p.title, path: `/settings/${p.id}` })), { title: "Setup wizard", path: "/onboarding" }]} />
+              {/* Workspace: who and what (repositories, accounts). System: how CodeOtter runs (models, providers, sign-in). */}
+              {settingsPages.some((p) => p.group === "workspace") && (
+                <NavGroup title="Workspace" icon={Users} route={route} go={go} pages={settingsPages.filter((p) => p.group === "workspace").map((p) => ({ title: p.title, path: `/settings/${p.id}` }))} />
+              )}
+              <NavGroup title="System" icon={Settings2} route={route} go={go} pages={settingsPages.filter((p) => p.group === "settings" || p.group === "admin").map((p) => ({ title: p.title, path: `/settings/${p.id}` }))} />
             </SidebarMenu>
           </SidebarGroup>
         )}
@@ -299,22 +291,6 @@ export function AppSidebar({ repositoriesLoaded = true, forgeUrls = {}, repos, r
               </SidebarMenuButton>
             </SidebarMenuItem>
           )}
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip={forgeLabel(org)}>
-              <a href={forgeId(org) ? `${forgeUrls[forgeId(org)]}/${org.split("~")[1]}` : org ? `https://github.com/${org}` : "https://github.com"} target="_blank" rel="noreferrer">
-                <ExternalLink />
-                <span>{forgeLabel(org)}</span>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip="Documentation">
-              <a href="https://github.com/dharmeshgurnani/CodeOtter#readme" target="_blank" rel="noreferrer">
-                <BookOpen />
-                <span>Documentation</span>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
         </SidebarMenu>
         <NavUser user={user} signInAvailable={signInAvailable} onLogin={handleLogin} onLogout={onLogout} />
       </SidebarFooter>

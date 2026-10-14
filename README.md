@@ -83,7 +83,7 @@ Standard LLM prompts hallucinate numbers. CodeOtter pairs your language model wi
 
 ### 100% Offline Local Models
 
-Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face inside **Admin → Local models**. CodeOtter automatically manages `llama-server` (`llama.cpp`), `laya` (`ggmlc`), and Python sidecars with discrete Vulkan/Metal GPU detection.
+Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face inside **Settings → System → Local models**. CodeOtter automatically manages `llama-server` (`llama.cpp`), `laya` (`ggmlc`), and Python sidecars with discrete Vulkan/Metal GPU detection.
 
 [Offline Mode →](#-100-offline-mode-zero-cloud)
 
@@ -97,7 +97,7 @@ Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face insi
 
 ### `AGENTS.md` / `CLAUDE.md`, Repo Learnings, Inline `suggestion` Fixes, Incremental Delta Reviews &amp; GitHub PR Sync
 
-Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository to enforce team rules on every diff hunk. Features **Smart Context Outside-Diff Call Graph Impact Slicing** (automatically extracts modified function, method, and class symbols across the diff and scans repository files outside the diff for callers/importers, ensuring changes never silently break un-modified call sites in production). **Dynamic context**: each code hunk is extended upward to its enclosing function, method or class (up to 16 lines, read from the PR head; Admin → Model provider → Review → Context above a change) and trailing context is cut to one line, so models see the signature a change lives in without paying for lines below it. **Large pull requests** are not cut at a character count: when the diff exceeds the budget, files in the main language go first, then other code, then docs and config, then lockfiles and generated output; a file too big to fit shows its leading hunks (at most half the budget), hunks that only delete lines are dropped, and every file left out is still named with its line counts. **Self-check**: after a language model review, a second pass of the same model scores each finding 0-10 against the diff and drops those below the configured minimum (default 5; Admin → Model provider → Review → Self-check); the score shows on each finding. **Tools** (card under the review): **Describe** writes the PR title, type, summary and per-file changes; post it as a comment or apply it to the PR description (CodeOtter's block is replaced on each run, the author's text is kept). **Ask** answers a question about the PR from its diff, naming files and lines, and says what is missing rather than guessing. **Improve** returns ranked code suggestions (each replacing a line range, labelled possible issue, security, performance…), filtered by the self-check, and posts them as committable inline suggestions, multi-line on GitHub. **Docs** suggests doc comments for new or changed functions and classes in the language's convention, as committable suggestions. **Changelog** drafts an entry in the format of the repository's own CHANGELOG.md, CHANGES.md or HISTORY.md. **PR comment commands** (off by default; Admin → Model provider → Review): a comment starting with `/review`, `/describe`, `/improve`, `/ask <question>`, `/docs` or `/changelog` from the repository's owner, members or collaborators runs it within a minute and replies on the pull request. **Accepted fixes**: when a re-review finds that the author applied a CodeOtter suggestion since the last review, the fix is remembered for the repository (Settings → Repositories → ⚙️) and later reviews look for the same kinds of problems. Findings include line-level `:L<line>` anchors and exact `suggestion` code replacements rendered as interactive **Suggested Fix** cards with 1-click **"Copy fix"** and **"Post inline suggestion to GitHub"** (`POST /api/review-suggestions`), posting committable ` ```suggestion ` blocks directly onto the pull request diff line so authors can click **"Commit suggestion"** on GitHub. Dismiss any review finding with **1-click ("Dismiss & remember rule")** to persist a repository team learning that is automatically injected into future LLM and System 1 review prompts (and managed under **Settings → Repositories → ⚙️**). Re-reviewing a pull request performs an **incremental commit-by-commit delta review** (`prevSha → headSha`), inspecting new commits and tracking resolved prior findings. Enable **Post scores on PR**, **Add PR review as a comment**, and **Post inline suggestions** to publish and **update in-place (upsert)** formatted scorecards, review summaries, and inline committable fixes on GitHub pull requests.
+Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository to enforce team rules on every diff hunk. Features **Smart Context Outside-Diff Call Graph Impact Slicing** (automatically extracts modified function, method, and class symbols across the diff and scans repository files outside the diff for callers/importers, ensuring changes never silently break un-modified call sites in production). **Dynamic context**: each code hunk is extended upward to its enclosing function, method or class (up to 16 lines, read from the PR head; Repository settings → Review → Context above a change) and trailing context is cut to one line, so models see the signature a change lives in without paying for lines below it. **Large pull requests** are not cut at a character count: when the diff exceeds the budget, files in the main language go first, then other code, then docs and config, then lockfiles and generated output; a file too big to fit shows its leading hunks (at most half the budget), hunks that only delete lines are dropped, and every file left out is still named with its line counts. **Self-check**: after a language model review, a second pass of the same model scores each finding 0-10 against the diff and drops those below the configured minimum (default 5; Repository settings → Review → Self-check); the score shows on each finding. **Tools** (card under the review): **Describe** writes the PR title, type, summary and per-file changes; post it as a comment or apply it to the PR description (CodeOtter's block is replaced on each run, the author's text is kept). **Ask** answers a question about the PR from its diff, naming files and lines, and says what is missing rather than guessing. **Improve** returns ranked code suggestions (each replacing a line range, labelled possible issue, security, performance…), filtered by the self-check, and posts them as committable inline suggestions, multi-line on GitHub. **Docs** suggests doc comments for new or changed functions and classes in the language's convention, as committable suggestions. **Changelog** drafts an entry in the format of the repository's own CHANGELOG.md, CHANGES.md or HISTORY.md. **PR comment commands** (off by default; Repository settings → Review): a comment starting with `/review`, `/describe`, `/improve`, `/ask <question>`, `/docs` or `/changelog` from the repository's owner, members or collaborators runs it within a minute and replies on the pull request. **Accepted fixes**: when a re-review finds that the author applied a CodeOtter suggestion since the last review, the fix is remembered for the repository (Settings → Manage repositories → ⚙️) and later reviews look for the same kinds of problems. Findings include line-level `:L<line>` anchors and exact `suggestion` code replacements rendered as interactive **Suggested Fix** cards with 1-click **"Copy fix"** and **"Post inline suggestion to GitHub"** (`POST /api/review-suggestions`), posting committable ` ```suggestion ` blocks directly onto the pull request diff line so authors can click **"Commit suggestion"** on GitHub. Dismiss any review finding with **1-click ("Dismiss & remember rule")** to persist a repository team learning that is automatically injected into future LLM and System 1 review prompts (and managed under **Settings → Manage repositories → ⚙️**). Re-reviewing a pull request performs an **incremental commit-by-commit delta review** (`prevSha → headSha`), inspecting new commits and tracking resolved prior findings. Enable **Post scores on PR**, **Add PR review as a comment**, and **Post inline suggestions** to publish and **update in-place (upsert)** formatted scorecards, review summaries, and inline committable fixes on GitHub pull requests.
 
 [Security &amp; Privacy →](#-security--privacy)
 
@@ -164,7 +164,7 @@ pnpm co:start # Production with PocketBase started by bin/start.sh (what the Doc
 
 Open **`http://localhost:5173`** (dev mode) or **`http://localhost:4747`** (production) in your browser:
 1. Paste a GitHub or configured Forgejo/Gitea PR URL or select from your active repositories in the sidebar.
-2. Select your AI provider under **Settings → Model provider** (or download a 100% offline local model under **Admin → Local models**).
+2. Select your AI provider under **Settings → System → Model provider** (or download a 100% offline local model under **Settings → System → Local models**).
 3. Get a calibrated review report in seconds—or query `/api/score?pr=<url|number>` for JSON.
 
 > **Zero-Config Storage**: PocketBase is auto-detected and started locally for authentication and persistent storage. To customize superuser credentials or model keys, create a `.env` file (see `.env.example`).
@@ -173,9 +173,9 @@ Open **`http://localhost:5173`** (dev mode) or **`http://localhost:4747`** (prod
 
 GitHub and one Forgejo server can coexist in the same installation. Sign-in and repository credentials are independent: GitHub-only teams, Forgejo-only teams, and teams signing in with GitHub while reviewing Forgejo repositories are supported.
 
-1. Open **Admin → OAuth → Forgejo connection**. Save the server origin (for example `https://forgejo.example.com`) and an access token; select **Test connection**. Use a repository-scoped token with `read:repository` and `read:issue` to review, or `read:user`, `write:repository` and `write:issue` to also publish review comments/suggestions. The token account must have access to the repositories. Environment defaults are `FORGEJO_URL` and `FORGEJO_TOKEN`.
-2. For Forgejo sign-in, create an OAuth2 application in your Forgejo **Settings → Applications**. Register the callback displayed in **CodeOtter Admin → OAuth**, typically `https://codeotter.example.com/auth/callback`. Save its client ID and secret in the **Forgejo** section and enable it. Set `APP_URL` to CodeOtter's public address. GitHub OAuth can remain enabled or be disabled independently. PocketBase is required for sign-in.
-3. Add the full Forgejo repository URL in **Settings → Repositories**. Within a Forgejo organization, plain `owner/name` also selects Forgejo. Discovery uses the saved access token; OAuth login by itself does not grant the shared review service repository access. GitHub repository credentials still come from `gh`/`GH_TOKEN`.
+1. Open **Settings → System → Git providers** and use the gear on the **Forgejo** row. Save the server origin (for example `https://forgejo.example.com`) and an access token; select **Test**. Use a repository-scoped token with `read:repository` and `read:issue` to review, or `read:user`, `write:repository` and `write:issue` to also publish review comments/suggestions. The token account must have access to the repositories. Environment defaults are `FORGEJO_URL` and `FORGEJO_TOKEN`.
+2. For Forgejo sign-in, select **Create app** on the Forgejo row of **Settings → System → Git providers** (the access token needs the `write:user` scope), or create an OAuth2 application in your Forgejo **Settings → Applications**. Register the callback displayed in **CodeOtter Settings → System → Auth providers**, typically `https://codeotter.example.com/auth/callback`. Save its client ID and secret in the **Forgejo** section and enable it. Set `APP_URL` to CodeOtter's public address. GitHub OAuth can remain enabled or be disabled independently. PocketBase is required for sign-in.
+3. Add the full Forgejo repository URL in **Settings → Manage repositories**. Within a Forgejo organization, plain `owner/name` also selects Forgejo. Discovery uses the saved access token; OAuth login by itself does not grant the shared review service repository access. GitHub repository credentials still come from `gh`/`GH_TOKEN`.
 4. Select the organization marked **Forgejo**, open a PR, and review it with the same models and controls used for GitHub. Score/review comment posting and inline suggestions use the configured Forgejo token account.
 
 Existing GitHub repository IDs and review data are unchanged. Forgejo repository IDs use `forgejo~owner/name` internally, and API organization scopes use `?org=forgejo~owner`. PR URLs retain the real Forgejo host and `/pulls/123` path. Repository settings and learned rules remain separate even when both platforms have an `owner/name` with the same spelling.
@@ -188,9 +188,9 @@ This first integration targets Forgejo 15. Server origins with subpaths are not 
 
 GitHub, Forgejo and Gitea can all coexist. Each self-hosted provider supports one server origin; Forgejo and Gitea must have distinct origins, access tokens and OAuth applications. Existing Forgejo IDs and OAuth identities remain unchanged.
 
-1. In **Admin / OAuth / Gitea connection**, save the server origin and repository access token, then select **Test connection**. Environment defaults are `GITEA_URL` and `GITEA_TOKEN`. Use `read:repository` and `read:issue` for reviews; add `read:user`, `write:repository` and `write:issue` for posting comments and suggestions.
-2. Create a Gitea OAuth2 application under **Settings / Applications**, using the callback shown in **CodeOtter Admin / OAuth**. Save its client ID and secret in the **Gitea** section and enable it. PocketBase's dedicated Gitea provider uses PKCE and requests `read:user` and `user:email`; only verified primary email is used for account linking.
-3. Add the full Gitea repository URL under **Settings / Repositories**. Select the organization marked **Gitea**. Internal IDs use `gitea~owner/name`; sign-in provider and repository access remain independent.
+1. In **Settings / System / Git providers**, use the gear on the **Gitea** row to save the server origin and repository access token, then select **Test**. Environment defaults are `GITEA_URL` and `GITEA_TOKEN`. Use `read:repository` and `read:issue` for reviews; add `read:user`, `write:repository` and `write:issue` for posting comments and suggestions.
+2. Select **Create app** on the Gitea row of **Settings / System / Git providers** (the access token needs the `write:user` scope), or create a Gitea OAuth2 application under **Settings / Applications**, using the callback shown in **CodeOtter Settings / System / Auth providers**. Turn on **Sign in with Gitea** there and save its client ID and secret. PocketBase's dedicated Gitea provider uses PKCE and requests `read:user` and `user:email`; only verified primary email is used for account linking.
+3. Add the full Gitea repository URL under **Settings / Manage repositories**. Select the organization marked **Gitea**. Internal IDs use `gitea~owner/name`; sign-in provider and repository access remain independent.
 
 Validated against Gitea 1.24.6. The same full-diff re-review and outside-diff analysis limits described for Forgejo apply. Server URLs with subpaths are unsupported. Changing a server origin is blocked while repositories, reviews, OAuth configuration or saved OAuth identities depend on it.
 
@@ -303,10 +303,10 @@ Evaluates structured rubrics and merge-policy criteria in a single lightning-fas
 *Both engines run in parallel; reviews take only as long as the slowest pass. Either engine can also operate standalone.*
 
 ### Auto-review
-Turn on **Auto-review** under **Admin / Model provider / Review** and every new or updated pull request in an onboarded repository gets a full review with scores and the review comment posted, one PR at a time, on the same poll as triage. Drafts and PRs labelled `codeotter:skip` are skipped; each head commit is reviewed once.
+Turn on **Auto-review** in a repository's **Repository settings** (under the repository in the sidebar) and every new or updated pull request in that repository gets a full review with scores and the review comment posted, one PR at a time, on the same poll as triage. Drafts and PRs labelled `codeotter:skip` are skipped; each head commit is reviewed once.
 
 ### Fast triage: stop the pipeline early
-System One rates each new or updated pull request's correctness risk and blast radius from a digest of the whole change and sets the `codeotter/triage` commit status, about 80 seconds on CPU with Kev 0.8B. A GitHub Actions job waits for it: red stops the long build, green lets it run. Turn it on under **Admin / Model provider / Fast triage**; workflow in [docs/ci-triage.md](docs/ci-triage.md). If System One fails, the status is `error` with the reason, never a guessed score.
+System One rates each new or updated pull request's correctness risk and blast radius from a digest of the whole change and sets the `codeotter/triage` commit status, about 80 seconds on CPU with Kev 0.8B. A GitHub Actions job waits for it: red stops the long build, green lets it run. Turn it on under **Settings / Model provider**, in the System One row's settings (Fast triage); workflow in [docs/ci-triage.md](docs/ci-triage.md). If System One fails, the status is `error` with the reason, never a guessed score.
 
 ---
 
@@ -318,7 +318,7 @@ System One rates each new or updated pull request's correctness risk and blast r
 
 Review proprietary code on an airplane or within an air-gapped data center with **zero network requests leaving your machine**.
 
-With 1-click downloads directly from **Admin → Local models**, open-weight models download with optimized local runtimes:
+With 1-click downloads directly from **Settings → System → Local models**, open-weight models download with optimized local runtimes:
 
 | Model | Engine Role | Ideal For | Hugging Face |
 | :--- | :--- | :--- | :--- |
@@ -371,6 +371,16 @@ The same line works as cloud-init user data when creating the server. It install
 - **Render** needs a paid instance type, because only paid instances keep a disk. Render does not follow `:latest`, so redeploy to update.
 - Sign in right after deploying: the first account becomes the owner.
 
+### Accounts and roles
+
+| Role | Can |
+| :--- | :--- |
+| owner | Everything, including **Settings → Workspace → Manage accounts** |
+| admin | Everything except Manage accounts |
+| developer | Home, and for the repositories assigned to the account: reviews, open pull requests, review pages, (re-)running reviews and PR tools. No Settings or Admin pages |
+
+The first sign-in becomes the owner. Every later account needs an invite: **Settings → Workspace → Manage accounts → Invite** takes a username (or, for GitHub, an email), the provider (only providers with sign-in enabled), the role and, for developers, the repositories. On first sign-in the account is matched by provider + username, or by the verified primary email PocketBase takes from GitHub; the invite's role and repositories are applied and the invite is used up. Forgejo and Gitea invites match by username only. A sign-in that matches no invite is refused ("Not invited: ask an owner for an invite") and its account is deleted. Pending invites are rows marked **Pending** with a Remove button. A developer row's gear sets its repositories; owners and admins see all. Access is enforced server-side: a developer's board, home, organization switcher and triage list hold only assigned repositories, and any request naming another repository or pull request returns 403. Background jobs (auto-review, triage, comment commands) are not affected. With `PR_SCORER_RECOVERY=1` an anonymous visitor is owner again, as before. File-storage mode (no `PB_URL`) has no accounts: the single operator is owner.
+
 ### Compose
 
 ```bash
@@ -394,7 +404,7 @@ docker build -t codeotter .
 docker run -d -p 4747:4747 -p 8090:8090 --env-file .env -v codeotter-data:/app/pb_data codeotter
 ```
 
-- `GH_TOKEN` authenticates `gh` inside the container without interactive prompts.
+- `GH_TOKEN` authenticates `gh` inside the container without interactive prompts. A token saved under **Settings → System → Git providers → GitHub** takes precedence over it.
 - Mount `/app/pb_data` as a volume to persist reviews, settings, and downloaded local models across upgrades.
 
 ---
@@ -403,8 +413,8 @@ docker run -d -p 4747:4747 -p 8090:8090 --env-file .env -v codeotter-data:/app/p
 
 <table>
 <tr><td width="30%"><b>Organization Scoping</b></td><td>Switch between teams and organizations seamlessly from the header dropdown. All dashboards, open PR queues, and settings remain isolated.</td></tr>
-<tr><td><b>1-Click GitHub App Setup</b></td><td>Under <b>Admin → OAuth</b>, click <i>"Create GitHub app for me"</i> to configure OAuth credentials automatically in one step.</td></tr>
-<tr><td><b>Role-Based Access (RBAC)</b></td><td>Owner, Admin, and Developer tiers safeguard sensitive model keys and organization settings. The first user to sign in automatically becomes the instance Owner.</td></tr>
+<tr><td><b>1-Click GitHub App Setup</b></td><td>Under <b>Settings → System → Git providers</b>, click <i>Create app</i> on the GitHub row: one step creates the app, its sign-in credentials and repository discovery. Forgejo and Gitea rows create their OAuth app the same way through their API (the access token needs the <code>write:user</code> scope).</td></tr>
+<tr><td><b>Role-Based Access (RBAC)</b></td><td>Owner, Admin, and Developer tiers safeguard sensitive model keys and organization settings. The first user to sign in automatically becomes the instance Owner; everyone else joins by invite, and developers see only the repositories assigned to them.</td></tr>
 <tr><td><b>Zero-Restart Configuration</b></td><td>All provider keys, local models, and repository settings update live through the dashboard without restarting services.</td></tr>
 </table>
 

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { DitherCanvas } from "@/components/dither-canvas";
+import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
 
 // Split login: the left column is the only way in (GitHub), the right column is showcase real estate whose content
 // comes from the server (showcase.json) so sponsors, community and case studies change without a code change.
@@ -31,7 +33,9 @@ export const GiteaMark = () => (
 export function LoginPage({ error, onLogin, go }: { error: string; onLogin: (provider: string) => Promise<void> | void; go: (p: string) => void }) {
   const [d, setD] = useState<LoginData | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(""); // provider whose sign-in is starting
+  useEffect(() => { if (error) toast.error(error, { id: error }); }, [error]);
+  useEffect(() => { if (loadError) toast.error(loadError, { id: loadError }); }, [loadError]);
   useEffect(() => {
     let alive = true;
     // Same shape as App's api(): JSON on success, {error} on failure.
@@ -53,7 +57,7 @@ export function LoginPage({ error, onLogin, go }: { error: string; onLogin: (pro
       {/* Left: the only way in */}
       <div className="flex flex-col px-5 py-6 sm:px-14 sm:py-8">
         <a className="flex items-center gap-2.5 no-underline cursor-pointer" onClick={() => go("/")}>
-          <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-7 rounded-lg shadow-xs" />
+          <img src="/codeotter-icon.svg" alt="CodeOtter" className="size-7 rounded-[7px] shadow-xs" />
           <span className="text-[15px] font-semibold text-neutral-900">CodeOtter</span>
         </a>
         <div className="flex flex-1 flex-col justify-center py-10 sm:py-16">
@@ -61,23 +65,22 @@ export function LoginPage({ error, onLogin, go }: { error: string; onLogin: (pro
             <h1 className="text-[28px] font-semibold tracking-tight text-neutral-900">Sign in</h1>
             <p className="mt-2 text-[15px] text-neutral-600">Review pull requests for quality, blast radius and actionable comments.</p>
             {!d && !loadError && <div className="mt-8 h-12 w-full animate-pulse rounded-lg bg-neutral-200" />}
-            {loadError && <p className="mt-8 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{loadError}</p>}
             {(d?.providers ?? []).map((provider) => <button
               key={provider.id}
               type="button"
-              disabled={!canLogin || busy}
-              onClick={() => { setBusy(true); Promise.resolve(onLogin(provider.id)).finally(() => setBusy(false)); }}
+              disabled={!canLogin || !!busy}
+              aria-busy={busy === provider.id || undefined}
+              onClick={() => { setBusy(provider.id); Promise.resolve(onLogin(provider.id)).finally(() => setBusy("")); }}
               className="mt-8 flex h-12 w-full items-center justify-center gap-3 rounded-lg bg-neutral-900 px-4 text-[15px] font-medium text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {provider.id === "github" && <GitHubMark />}
-              {provider.id === "forgejo" && <ForgejoMark />}
-              {provider.id === "gitea" && <GiteaMark />}
+              {busy === provider.id ? <Loader2 className="size-5 animate-spin" /> : provider.id === "github" && <GitHubMark />}
+              {busy !== provider.id && provider.id === "forgejo" && <ForgejoMark />}
+              {busy !== provider.id && provider.id === "gitea" && <GiteaMark />}
               {`Continue with ${provider.label}`}
             </button>)}
-            {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
-            {reason && !error && (
+            {reason && (
               <p className="mt-4 text-sm text-neutral-500">
-                {reason}{!d?.configured && d?.signInAvailable && <> Set it up under <a className="text-brand" onClick={() => go("/settings/oauth")}>Settings / OAuth</a>.</>}
+                {reason}{!d?.configured && d?.signInAvailable && <> Set it up under <a className="text-brand" onClick={() => go("/settings/oauth")}>Settings / System / Auth providers</a>.</>}
               </p>
             )}
             <p className="mt-8 text-xs leading-relaxed text-neutral-500">Only your public profile and email are requested. Reviews run on the model you configure; nothing is sent anywhere else.</p>

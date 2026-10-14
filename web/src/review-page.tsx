@@ -16,7 +16,8 @@ import { MarkdownView } from "@/components/markdown";
 import { PrTools } from "@/components/pr-tools";
 import { updateSeo } from "@/lib/seo";
 import { Pill } from "./App";
-import { type Finding, type Review, repoFromUrl, repoLabel, VERDICT, effort, tone } from "./types";
+import { Badge, DataTable } from "@/components/data-table";
+import { type Finding, type Review, repoFromUrl, repoLabel, VERDICT, effort, effortTone, tone } from "./types";
 import { ReviewSkeleton } from "@/components/skeletons";
 
 const InlineCode = ({ children }: { children: React.ReactNode }) => <code className="rounded-[5px] bg-neutral-100 px-1.5 py-px font-mono text-[12.5px]">{children}</code>;
@@ -51,7 +52,7 @@ function ClaudeThinkingBar({ guide, commitsCount }: { guide?: string | null; com
   return (
     <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-800 bg-[#161b22] px-4 py-2.5 text-xs text-neutral-300">
       <div className="flex items-center gap-2.5">
-        <img src="/codeotter-icon.svg" alt="" className="size-5 rounded-sm inline-block animate-pulse select-none shrink-0" aria-hidden="true" />
+        <img src="/codeotter-icon.svg" alt="" className="size-5 rounded-[5px] inline-block animate-pulse select-none shrink-0" aria-hidden="true" />
         <span className="font-mono font-medium text-neutral-100">{THINKING_STEPS[step]}</span>
       </div>
       <div className="flex items-center gap-2 text-neutral-400">
@@ -63,12 +64,10 @@ function ClaudeThinkingBar({ guide, commitsCount }: { guide?: string | null; com
   );
 }
 
+// Small in-report tables (pre-merge checks) use the shared table.
 const Md = ({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) => (
-  <div className="my-1.5 overflow-x-auto">
-    <table className="w-full border-collapse text-sm">
-      <thead><tr>{head.map((h) => <th key={h} className="border border-border bg-neutral-50 px-2.5 py-1.5 text-left font-semibold">{h}</th>)}</tr></thead>
-      <tbody>{rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j} className="border border-border px-2.5 py-1.5 align-top">{c}</td>)}</tr>)}</tbody>
-    </table>
+  <div className="my-1.5">
+    <DataTable columns={head.map((label, i) => ({ key: String(i), label }))} rows={rows.map((r, i) => ({ id: String(i), cells: Object.fromEntries(r.map((c, j) => [String(j), c])) }))} />
   </div>
 );
 
@@ -657,33 +656,22 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
           <span>{repoLabel(repo)} · {p.author.login} wants to merge <InlineCode>{p.headRefName}</InlineCode> into <InlineCode>{p.baseRefName}</InlineCode></span>
           <span>· {p.changedFiles} files changed <span className="text-green-700">+{p.additions}</span> <span className="text-red-700">-{p.deletions}</span></span>
           {r.incremental ? (
-            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 text-xs font-medium text-emerald-900">
+            <Badge tone="ok">
               <span>
                 ⚡ Incremental delta: <code className="font-mono">{r.incremental.prevSha.slice(0, 7)}</code> → <code className="font-mono">{r.incremental.headSha.slice(0, 7)}</code> ({r.incremental.newCommits.length} new commit{r.incremental.newCommits.length === 1 ? "" : "s"}){r.incremental.resolvedFindings?.length ? ` · ✅ ${r.incremental.resolvedFindings.length} resolved` : ""}
               </span>
-            </span>
+            </Badge>
           ) : reviewedSha ? (
-            <span className="inline-flex items-center gap-1 rounded-md bg-neutral-100 border border-neutral-200/80 px-2 py-0.5 text-xs font-medium text-neutral-800">
-              <span>commit <code className="font-mono">{reviewedSha}</code></span>
-            </span>
+            <Badge>commit <code className="font-mono">{reviewedSha}</code></Badge>
           ) : null}
           {r.guide && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-orange-50 border border-orange-200/70 px-2 py-0.5 text-xs font-medium text-orange-900">
-              <BookOpen className="size-3" /> Guidelines: {r.guide}
-            </span>
+            <Badge tone="warn"><BookOpen className="size-3" /> Guidelines: {r.guide}</Badge>
           )}
           {activeLearnings.length > 0 && (
-            <span
-              title={activeLearnings.join("\n")}
-              className="inline-flex items-center gap-1 rounded-md bg-purple-50 border border-purple-200/80 px-2 py-0.5 text-xs font-medium text-purple-900"
-            >
-              <span>🧠 {activeLearnings.length} team learning{activeLearnings.length === 1 ? "" : "s"} active</span>
-            </span>
+            <Badge tone="accent" title={activeLearnings.join("\n")}>🧠 {activeLearnings.length} team learning{activeLearnings.length === 1 ? "" : "s"} active</Badge>
           )}
           {prCommits.length > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-700">
-              <GitCommitHorizontal className="size-3" /> {prCommits.length} commit{prCommits.length === 1 ? "" : "s"} in PR
-            </span>
+            <Badge><GitCommitHorizontal className="size-3" /> {prCommits.length} commit{prCommits.length === 1 ? "" : "s"} in PR</Badge>
           )}
           {(r.linkedIssues ?? []).map((iss) => (
             <a
@@ -692,10 +680,9 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
               target="_blank"
               rel="noreferrer"
               title={iss.body ? `#${iss.number} ${iss.title}\n\n${iss.body.slice(0, 300)}` : `#${iss.number} ${iss.title}`}
-              className="inline-flex items-center gap-1 rounded-md bg-blue-50 border border-blue-200/80 px-2 py-0.5 text-xs font-medium text-blue-900 hover:bg-blue-100/80 hover:underline"
+              className="hover:underline"
             >
-              <span>#{iss.number}</span>
-              <span className="max-w-[220px] truncate">{iss.title}</span>
+              <Badge tone="info"><span>#{iss.number}</span><span className="max-w-[220px] truncate">{iss.title}</span></Badge>
             </a>
           ))}
           <button
@@ -708,7 +695,7 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
               setRerunReq({ id: Date.now(), part: "all" });
             }}
             title="Re-run incremental delta review against latest PR commits"
-            className="inline-flex items-center gap-1 rounded-md border border-amber-300/80 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-100/80 disabled:opacity-50"
+            className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-background px-2 text-xs font-medium shadow-xs hover:bg-accent disabled:opacity-50"
           >
             <RotateCw className={`size-3 ${pending?.scores || pending?.narrative ? "animate-spin text-brand" : ""}`} />
             <span>Re-run delta review</span>
@@ -783,13 +770,9 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
             <div className="flex items-center gap-2">
               <span aria-hidden="true">🧠</span>
               <b className="font-semibold text-neutral-900">Actionable Findings & Team Learnings</b>
-              <span className="rounded-md bg-neutral-200/90 px-2 py-0.5 text-xs font-medium text-neutral-800">
-                {activeFindings.length} active finding{activeFindings.length === 1 ? "" : "s"}
-              </span>
+              <Badge>{activeFindings.length} active finding{activeFindings.length === 1 ? "" : "s"}</Badge>
               {activeLearnings.length > 0 && (
-                <span className="rounded-md bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-900">
-                  {activeLearnings.length} persistent rule{activeLearnings.length === 1 ? "" : "s"}
-                </span>
+                <Badge tone="accent">{activeLearnings.length} persistent rule{activeLearnings.length === 1 ? "" : "s"}</Badge>
               )}
             </div>
             <a href="/settings/repos" className="text-xs font-medium text-brand hover:underline">
@@ -812,24 +795,18 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
                 const postingSug = postingSuggestionKey === fKey;
                 const postedSug = !!postedSuggestionKeys[fKey];
                 const copiedFix = copiedFixKey === fKey;
-                const sevTone = f.severity === "high" ? "bg-red-100 text-red-900" : f.severity === "medium" ? "bg-amber-100 text-amber-900" : f.severity === "low" ? "bg-blue-100 text-blue-900" : "bg-neutral-100 text-neutral-700";
+                const sevTone = f.severity === "high" ? "bad" : f.severity === "medium" ? "warn" : f.severity === "low" ? "info" : "muted";
                 return (
                   <li key={fKey} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-2.5 text-sm">
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase ${sevTone}`}>
-                          {f.severity}
-                        </span>
+                        <Badge tone={sevTone} className="uppercase">{f.severity}</Badge>
                         <InlineCode>{f.file}</InlineCode>
                         {f.line ? (
-                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-emerald-900">
-                            L{f.line}
-                          </span>
+                          <Badge tone="ok" mono>L{f.line}</Badge>
                         ) : null}
                         {typeof f.confidence === "number" ? (
-                          <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[11px] text-neutral-700" title="Self-check score">
-                            {Math.round(f.confidence * 10)}/10
-                          </span>
+                          <Badge mono title="Self-check score">{Math.round(f.confidence * 10)}/10</Badge>
                         ) : null}
                         <span className="font-medium text-neutral-900">{f.title}</span>
                       </div>
@@ -940,9 +917,11 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
           <div className="flex-1 min-h-0 lg:overflow-y-auto px-4 py-3.5 text-[15px]">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-1 rounded-md bg-neutral-100/80 px-3 py-1.5 text-xs text-muted-foreground">
               <span>Review effort</span>
-              <span className="font-medium text-neutral-800">
-                {isScoreLoading("blast_radius") && r.engines?.s1 ? "Calculating effort…" : `🎯 Effort ${e.n} (${e.label}) · ⏱️ ~${e.mins} min`}
-              </span>
+              {isScoreLoading("blast_radius") && r.engines?.s1 ? (
+                <span className="font-medium text-neutral-800">Calculating effort…</span>
+              ) : (
+                <span className="inline-flex items-center gap-2"><Badge tone={effortTone(e.n)} title={e.label}>{e.n}/5</Badge><span className="text-neutral-700">~{e.mins} min</span></span>
+              )}
             </div>
             <div className="my-1.5 grid grid-cols-3 gap-x-2 gap-y-3.5 justify-items-center">
               <Ring label="Quality" value={v.scores.quality} loading={isScoreLoading("quality")} />
@@ -957,7 +936,7 @@ export function ReviewPage({ forgeUrls = {}, org = "", pr, repo: repoHint, force
                 {b.files} files · {b.lines} lines · {b.dirs} areas · {b.testFiles} test files
                 {b.outsideCallers ? ` · 🌐 ${b.outsideCallers} outside caller(s) across ${b.outsideFiles || 1} un-modified file(s)` : ""}
               </p>
-              {b.hotspots.length ? b.hotspots.map((h) => <span key={h} className="mr-1.5 inline-block rounded-full bg-orange-100 px-2.5 py-0.5 text-xs text-orange-900">{h}</span>) : <span className="text-sm text-muted-foreground">No hotspots touched.</span>}
+              {b.hotspots.length ? b.hotspots.map((h) => <Badge key={h} tone="warn" className="mr-1.5">{h}</Badge>) : <span className="text-sm text-muted-foreground">No hotspots touched.</span>}
             </details>
             <details className="my-2.5"><summary className="cursor-pointer text-sm font-semibold">Pre-merge checks</summary>
               <Md head={["Check", "Status"]} rows={[
