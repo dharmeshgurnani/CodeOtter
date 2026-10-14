@@ -6,7 +6,7 @@
 
 # 🦦 CodeOtter
 
-### Autonomous, self-hosted AI code reviews, calibrated scoring gauges, and merge gates — running on your own hardware with any open model.
+### CodeOtter is the self-hosted AI pull request reviewer with 6 calibrated 0–100 gauges (`Quality`, `Blast Radius`, `Risk`, `Tests`, `Readability`, `PR Hygiene`), 9 binary merge gates (`Title`, `Description`, `Security`, `Complexity`, `Tests`, `Docs`, `Scope`, `Guidelines`, `Issue Requirements`), and a `POST /v1/systemone` deterministic System 1 engine — free to self-host under AGPL-3.0.
 
 <p align="center">
   <a href="https://codeotter.io"><strong>Website</strong></a> &middot;
@@ -69,7 +69,7 @@ Inspect calibrated **0–100 score gauges** (`Quality`, `Blast Radius`, `Risk`, 
 
 ### Deterministic System 1 Scores &amp; Merge Gates
 
-Standard LLM prompts hallucinate numbers. CodeOtter pairs your language model with a **System 1 decision engine** (`POST /v1/systemone`) that evaluates **6 rubric scores** and **8 yes/no pre-merge gates** (`Title`, `Description`, `Security`, `Complexity`, `Tests`, `Docs`, `Scope`, `Guidelines`) in a single fast pass.
+Standard LLM prompts hallucinate numbers. CodeOtter pairs your language model with a **System 1 decision engine** (`POST /v1/systemone`) that evaluates **6 rubric scores** and **9 yes/no pre-merge gates** (`Title`, `Description`, `Security`, `Complexity`, `Tests`, `Docs`, `Scope`, `Guidelines`) in a single fast pass.
 
 [Dual Engine Architecture →](#-how-it-works-the-dual-engine)
 
@@ -265,7 +265,7 @@ node tui/codeotter.mjs mcp
 - **Same engines as the web app**: `codeotter review`, `pr`, `ci` and the MCP server run the installation's configured language and System One models through `core/server.mjs`. A configured System One model owns every score and gate; `--provider`/`--model` flags override the language model only. Findings go through the same self-check pass.
 - **Smart Context**: Scans for outside callers and evaluates cross-file contract safety.
 - **Pre-Merge Gates**: title, description, security, complexity, tests, documentation, scope and `AGENTS.md` / `CLAUDE.md` guidelines, answered by the System One model (none without one).
-- **Offline or BYOK**: Works with local `llama.cpp` / Ollama or hosted API keys (Anthropic, OpenAI, Gemini, MiniMax, Groq, OpenRouter).
+- **Offline or BYOK**: Works with local `llama.cpp` / Ollama or hosted API keys (Claude, OpenAI, MiniMax, OpenRouter).
 
 ---
 
