@@ -422,7 +422,7 @@ docker run -d -p 4747:4747 -p 8090:8090 --env-file .env -v codeotter-data:/app/p
 
 ## 🔒 Security & Privacy
 
-- **Zero Telemetry / No Middleman**: Code diffs and metadata never leave your network unless you explicitly configure a hosted AI provider. Zero analytics, zero phone-home calls.
+- **Zero Telemetry / No Middleman**: Code diffs and metadata never leave your network unless you explicitly configure a hosted AI provider. No telemetry. CodeOtter makes one optional request to GitHub Releases every 6 hours to check for updates; set `CODEOTTER_UPDATE_CHECK=0` to disable.
 - **Calibrated & Sanitized Outputs**: Model responses are validated, normalized, and sanitized before display, eliminating prompt injections and hallucinated scores.
 - **Hardened Access**: Enterprise-grade session security, strict cross-origin protections, and masked credential management protect your infrastructure and repositories.
 
