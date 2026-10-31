@@ -316,7 +316,7 @@ System One rates each new or updated pull request's correctness risk and blast r
   <img src="assets/banners/offline-vault.jpg" alt="CodeOtter Offline Vault" width="100%" />
 </p>
 
-Review proprietary code on an airplane or within an air-gapped data center with **zero network requests leaving your machine**.
+Review proprietary code on an airplane or within an air-gapped data center. Once a local model is downloaded and `CODEOTTER_UPDATE_CHECK=0` is set, **your code and diffs never leave your network**.
 
 With 1-click downloads directly from **Settings → System → Local models**, open-weight models download with optimized local runtimes:
 
