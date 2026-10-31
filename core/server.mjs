@@ -1057,9 +1057,14 @@ async function askModel(prompt, c) {
   const res = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) },
-    // Claude 5 models behind OpenAI-compatible proxies (OpenRouter, VoyageAge) refuse sampling parameters and
-    // default to an 8192-token cap that cuts reviews off; give them the same budget as the Anthropic path.
-    body: JSON.stringify({ model: c.model, ...(/(^|\/)claude-[a-z]+-5(-|$)/.test(c.model) ? { max_tokens: 16000 } : { temperature: c.temperature ?? 0.2 }), messages: [{ role: "user", content: prompt }] }),
+    // Claude behind OpenAI-compatible proxies (OpenRouter, VoyageAge) defaults to an 8192-token cap that cuts reviews
+    // off, so it gets the Anthropic path's budget; Claude 5 also refuses sampling parameters.
+    body: JSON.stringify({
+      model: c.model,
+      ...(/(^|\/)claude-/.test(c.model) ? { max_tokens: 16000 } : {}),
+      ...(/(^|\/)claude-[a-z]+-5(-|$)/.test(c.model) ? {} : { temperature: c.temperature ?? 0.2 }),
+      messages: [{ role: "user", content: prompt }],
+    }),
     signal: withAbort(c.signal, c.local ? 900000 : 180000),
   });
   if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`);
