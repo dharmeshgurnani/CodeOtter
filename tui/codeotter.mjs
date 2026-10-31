@@ -231,6 +231,7 @@ function resolveProvider(flags = {}) {
   if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini";
   if (process.env.MINIMAX_API_KEY) return "minimax";
   if (process.env.OPENROUTER_API_KEY) return "openrouter";
+  if (process.env.VOYAGEAGE_API_KEY) return "voyageage";
   if (process.env.GROQ_API_KEY) return "groq";
   if (process.env.DEEPSEEK_API_KEY) return "deepseek";
   return "ollama";
@@ -262,6 +263,11 @@ function resolveModelConfig(flags = {}) {
       baseUrl = baseUrl || "https://openrouter.ai/api/v1";
       apiKey = apiKey || process.env.OPENROUTER_API_KEY || "";
       model = model || "anthropic/claude-3.5-sonnet";
+      break;
+    case "voyageage":
+      baseUrl = baseUrl || "https://api.voyageage.com/v1";
+      apiKey = apiKey || process.env.VOYAGEAGE_API_KEY || "";
+      model = model || "gpt-6-astra";
       break;
     case "minimax":
       baseUrl = baseUrl || "https://api.minimax.io/v1";

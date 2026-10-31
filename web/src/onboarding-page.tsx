@@ -970,6 +970,7 @@ export function OnboardingPage({
                           <option value="openai">OpenAI (GPT-4o/5)</option>
                           <option value="minimax">MiniMax</option>
                           <option value="openrouter">OpenRouter</option>
+                          <option value="voyageage">VoyageAge</option>
                           <option value="ollama">Ollama (Local Server)</option>
                         </select>
                       </div>

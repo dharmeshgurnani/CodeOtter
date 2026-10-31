@@ -39,7 +39,7 @@
 
 **CodeOtter** is a free-to-self-host pull request review platform built for engineering teams who want calibrated code intelligence without sending private code to third-party SaaS clouds or paying **$24–$30/developer/month**.
 
-Run it **100% offline** on your workstation with open-weight Hugging Face models (`llama.cpp` + `ggmlc` sidecars), or connect your own keys for Claude, OpenAI, MiniMax, or OpenRouter.
+Run it **100% offline** on your workstation with open-weight Hugging Face models (`llama.cpp` + `ggmlc` sidecars), or connect your own keys for Claude, OpenAI, MiniMax, OpenRouter, or VoyageAge.
 
 <p align="center">
   <a href="assets/videos/codeotter-cinematic-film-silent.mp4"><picture><source srcset="assets/videos/hero-showcase.gif" type="image/gif"><img src="assets/videos/hero-showcase.jpg" alt="CodeOtter AI Code Review Dashboard" width="960" /></picture></a>
@@ -265,7 +265,7 @@ node tui/codeotter.mjs mcp
 - **Same engines as the web app**: `codeotter review`, `pr`, `ci` and the MCP server run the installation's configured language and System One models through `core/server.mjs`. A configured System One model owns every score and gate; `--provider`/`--model` flags override the language model only. Findings go through the same self-check pass.
 - **Smart Context**: Scans for outside callers and evaluates cross-file contract safety.
 - **Pre-Merge Gates**: title, description, security, complexity, tests, documentation, scope and `AGENTS.md` / `CLAUDE.md` guidelines, answered by the System One model (none without one).
-- **Offline or BYOK**: Works with local `llama.cpp` / Ollama or hosted API keys (Claude, OpenAI, MiniMax, OpenRouter).
+- **Offline or BYOK**: Works with local `llama.cpp` / Ollama or hosted API keys (Claude, OpenAI, MiniMax, OpenRouter, VoyageAge).
 
 ---
 

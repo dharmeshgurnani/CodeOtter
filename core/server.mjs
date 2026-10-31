@@ -143,6 +143,7 @@ const PROVIDERS = {
   openai: { label: "OpenAI (ChatGPT)", api: "openai", baseUrl: "https://api.openai.com/v1", models: ["gpt-5", "gpt-5-mini", "gpt-4.1"], keyEnv: "OPENAI_API_KEY", keyUrl: "https://platform.openai.com/api-keys" },
   minimax: { label: "MiniMax", api: "openai", baseUrl: "https://api.minimax.io/v1", models: ["MiniMax-M3", "MiniMax-M2.5"], keyEnv: "MINIMAX_API_KEY", keyUrl: "https://platform.minimax.io/user-center/basic-information/interface-key" },
   openrouter: { label: "OpenRouter", api: "openai", baseUrl: "https://openrouter.ai/api/v1", models: ["typesafe/jev-router", "anthropic/claude-sonnet-5", "openai/gpt-5", "qwen/qwen3-coder", "deepseek/deepseek-chat"], keyEnv: "OPENROUTER_API_KEY", keyUrl: "https://openrouter.ai/keys" },
+  voyageage: { label: "VoyageAge", api: "openai", baseUrl: "https://api.voyageage.com/v1", models: ["gpt-6-astra", "claude-sonnet-5-5", "claude-haiku-5-5"], keyEnv: "VOYAGEAGE_API_KEY", keyUrl: "https://www.voyageage.com/" },
   ollama: { label: "Ollama (local)", api: "openai", baseUrl: "http://localhost:11434/v1", models: ["qwen2.5-coder:latest", "deepseek-coder-v2:latest", "llama3.1:latest"], noKey: true },
   custom: { label: "Custom OpenAI-compatible", api: "openai", baseUrl: "", models: [] },
 };
@@ -1056,7 +1057,9 @@ async function askModel(prompt, c) {
   const res = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) },
-    body: JSON.stringify({ model: c.model, temperature: c.temperature ?? 0.2, messages: [{ role: "user", content: prompt }] }),
+    // Claude 5 models behind OpenAI-compatible proxies (OpenRouter, VoyageAge) refuse sampling parameters and
+    // default to an 8192-token cap that cuts reviews off; give them the same budget as the Anthropic path.
+    body: JSON.stringify({ model: c.model, ...(/(^|\/)claude-[a-z]+-5(-|$)/.test(c.model) ? { max_tokens: 16000 } : { temperature: c.temperature ?? 0.2 }), messages: [{ role: "user", content: prompt }] }),
     signal: withAbort(c.signal, c.local ? 900000 : 180000),
   });
   if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`);
@@ -3766,7 +3769,7 @@ const SETTINGS_PAGES = {
             { key: "diffChars", label: "Diff sent to the model", type: "select", options: [30000, 60000, 90000, 150000, 300000].map((v) => ({ value: v, label: `${v / 1000}k characters` })), hint: "Larger diffs cost more and may exceed the model's context." },
             { key: "contextLines", label: "Context above a change", type: "select", options: [0, 8, 16, 32].map((v) => ({ value: v, label: v ? `Up to ${v} lines, to the enclosing declaration` : "Off: git's 3 lines" })) },
             { key: "reflectMin", label: "Self-check", type: "select", options: [0, 3, 5, 7].map((v) => ({ value: v, label: v ? `Second pass drops findings scored below ${v}/10` : "Off" })) },
-            { key: "temperature", label: "Temperature", type: "range", min: 0, max: 1, step: 0.1, hint: "Ignored by Anthropic models, which do not take sampling parameters." },
+            { key: "temperature", label: "Temperature", type: "range", min: 0, max: 1, step: 0.1, hint: "Ignored by Claude 5 models, which do not take sampling parameters." },
             { key: "postScores", label: "Post scores on PR", type: "checkbox", text: "Add a PR comment with all System One scores after review" },
             { key: "postReview", label: "Add PR review as a comment", type: "checkbox", text: "Add a PR comment with the review summary and link to the full report" },
             { key: "postInlineSuggestions", label: "Post inline suggestions", type: "checkbox", text: "Post inline committable suggestion comments on PR diff lines" },
