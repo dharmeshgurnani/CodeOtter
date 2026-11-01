@@ -397,8 +397,8 @@
           },
           {
             "label": "Documentation",
-            "hint": "README on GitHub",
-            "href": "https://github.com/dharmeshgurnani/CodeOtter#readme"
+            "hint": "docs.codeotter.io",
+            "href": "https://docs.codeotter.io/docs"
           }
         ]
       }

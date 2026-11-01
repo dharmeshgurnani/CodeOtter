@@ -10,24 +10,25 @@
 
 <p align="center">
   <a href="https://codeotter.io"><strong>Website</strong></a> &middot;
-  <a href="https://codeotter.io/docs/"><strong>Docs</strong></a> &middot;
+  <a href="https://docs.codeotter.io/docs"><strong>Docs</strong></a> &middot;
   <a href="#-quickstart"><strong>Quickstart</strong></a> &middot;
   <a href="#what-is-codeotter"><strong>What is CodeOtter</strong></a> &middot;
-  <a href="#-how-it-works-the-dual-engine"><strong>Dual Engine</strong></a> &middot;
-  <a href="#-100-offline-mode-zero-cloud"><strong>Offline Mode</strong></a> &middot;
-  <a href="#-docker-deployment"><strong>Docker</strong></a> &middot;
-  <a href="#-security--privacy"><strong>Security & Privacy</strong></a> &middot;
+  <a href="https://docs.codeotter.io/docs/dual-engine"><strong>Dual Engine</strong></a> &middot;
+  <a href="https://docs.codeotter.io/docs/local-gguf-sidecar"><strong>Offline Mode</strong></a> &middot;
+  <a href="https://docs.codeotter.io/docs/docker-quickstart"><strong>Docker</strong></a> &middot;
+  <a href="https://docs.codeotter.io/docs/security"><strong>Security & Privacy</strong></a> &middot;
   <a href="#-star-history"><strong>Star History</strong></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/dharmeshgurnani/CodeOtter/actions/workflows/ci.yml"><img src="https://github.com/dharmeshgurnani/CodeOtter/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://codeotter.io"><img src="https://img.shields.io/badge/Website-codeotter.io-b45309.svg" alt="Website" /></a>
+  <a href="https://docs.codeotter.io/docs"><img src="https://img.shields.io/badge/Docs-docs.codeotter.io-b45309.svg" alt="Docs" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-c2410c.svg" alt="AGPL-3.0" /></a>
   <a href="package.json"><img src="https://img.shields.io/badge/Node-%3E%3D22-111111.svg" alt="Node Version" /></a>
-  <a href="#-security--privacy"><img src="https://img.shields.io/badge/Privacy-Zero_Telemetry-15803d.svg" alt="Zero Telemetry" /></a>
+  <a href="https://docs.codeotter.io/docs/security"><img src="https://img.shields.io/badge/Privacy-Zero_Telemetry-15803d.svg" alt="Zero Telemetry" /></a>
   <a href="#what-is-codeotter"><img src="https://img.shields.io/badge/Deployment-100%25_Self--Hosted-15803d.svg" alt="100% Self Hosted" /></a>
-  <a href="#-100-offline-mode-zero-cloud"><img src="https://img.shields.io/badge/Models-Local_GGUF_%7C_BYOK-b45309.svg" alt="Local or BYOK" /></a>
+  <a href="https://docs.codeotter.io/docs/local-gguf-sidecar"><img src="https://img.shields.io/badge/Models-Local_GGUF_%7C_BYOK-b45309.svg" alt="Local or BYOK" /></a>
   <a href="https://star-history.com/#dharmeshgurnani/CodeOtter&Date"><img src="https://img.shields.io/github/stars/dharmeshgurnani/CodeOtter?style=flat&color=eab308" alt="GitHub Stars" /></a>
 </p>
 
@@ -71,7 +72,7 @@ Inspect calibrated **0–100 score gauges** (`Quality`, `Blast Radius`, `Risk`, 
 
 Standard LLM prompts hallucinate numbers. CodeOtter pairs your language model with a **System 1 decision engine** (`POST /v1/systemone`) that evaluates **6 rubric scores** and **9 yes/no pre-merge gates** (`Title`, `Description`, `Security`, `Complexity`, `Tests`, `Docs`, `Scope`, `Guidelines`) in a single fast pass.
 
-[Dual Engine Architecture →](#-how-it-works-the-dual-engine)
+[Dual Engine Architecture →](https://docs.codeotter.io/docs/dual-engine)
 
 </td>
 <td width="50%">
@@ -85,7 +86,7 @@ Standard LLM prompts hallucinate numbers. CodeOtter pairs your language model wi
 
 Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face inside **Settings → System → Local models**. CodeOtter automatically manages `llama-server` (`llama.cpp`), `laya` (`ggmlc`), and Python sidecars with discrete Vulkan/Metal GPU detection.
 
-[Offline Mode →](#-100-offline-mode-zero-cloud)
+[Offline Mode →](https://docs.codeotter.io/docs/local-gguf-sidecar)
 
 </td>
 <td width="50%">
@@ -97,9 +98,10 @@ Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face insi
 
 ### `AGENTS.md` / `CLAUDE.md`, Repo Learnings, Inline `suggestion` Fixes, Incremental Delta Reviews &amp; GitHub PR Sync
 
-Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository to enforce team rules on every diff hunk. Features **Smart Context Outside-Diff Call Graph Impact Slicing** (automatically extracts modified function, method, and class symbols across the diff and scans repository files outside the diff for callers/importers, ensuring changes never silently break un-modified call sites in production). **Dynamic context**: each code hunk is extended upward to its enclosing function, method or class (up to 16 lines, read from the PR head; Repository settings → Review → Context above a change) and trailing context is cut to one line, so models see the signature a change lives in without paying for lines below it. **Large pull requests** are not cut at a character count: when the diff exceeds the budget, files in the main language go first, then other code, then docs and config, then lockfiles and generated output; a file too big to fit shows its leading hunks (at most half the budget), hunks that only delete lines are dropped, and every file left out is still named with its line counts. **Self-check**: after a language model review, a second pass of the same model scores each finding 0-10 against the diff and drops those below the configured minimum (default 5; Repository settings → Review → Self-check); the score shows on each finding. **Tools** (card under the review): **Describe** writes the PR title, type, summary and per-file changes; post it as a comment or apply it to the PR description (CodeOtter's block is replaced on each run, the author's text is kept). **Ask** answers a question about the PR from its diff, naming files and lines, and says what is missing rather than guessing. **Improve** returns ranked code suggestions (each replacing a line range, labelled possible issue, security, performance…), filtered by the self-check, and posts them as committable inline suggestions, multi-line on GitHub. **Docs** suggests doc comments for new or changed functions and classes in the language's convention, as committable suggestions. **Changelog** drafts an entry in the format of the repository's own CHANGELOG.md, CHANGES.md or HISTORY.md. **PR comment commands** (off by default; Repository settings → Review): a comment starting with `/review`, `/describe`, `/improve`, `/ask <question>`, `/docs` or `/changelog` from the repository's owner, members or collaborators runs it within a minute and replies on the pull request. **Accepted fixes**: when a re-review finds that the author applied a CodeOtter suggestion since the last review, the fix is remembered for the repository (Settings → Manage repositories → ⚙️) and later reviews look for the same kinds of problems. Findings include line-level `:L<line>` anchors and exact `suggestion` code replacements rendered as interactive **Suggested Fix** cards with 1-click **"Copy fix"** and **"Post inline suggestion to GitHub"** (`POST /api/review-suggestions`), posting committable ` ```suggestion ` blocks directly onto the pull request diff line so authors can click **"Commit suggestion"** on GitHub. Dismiss any review finding with **1-click ("Dismiss & remember rule")** to persist a repository team learning that is automatically injected into future LLM and System 1 review prompts (and managed under **Settings → Manage repositories → ⚙️**). Re-reviewing a pull request performs an **incremental commit-by-commit delta review** (`prevSha → headSha`), inspecting new commits and tracking resolved prior findings. Enable **Post scores on PR**, **Add PR review as a comment**, and **Post inline suggestions** to publish and **update in-place (upsert)** formatted scorecards, review summaries, and inline committable fixes on GitHub pull requests.
+Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository and enforces them at the merge gate. Smart outside-diff context, a self-check pass on every finding, PR tools (Describe, Ask, Improve, Docs, Changelog), `/review`-style PR comment commands, team learnings, accepted fixes, incremental delta reviews, and committable inline `suggestion` fixes posted to the pull request and updated in place.
 
-[Security &amp; Privacy →](#-security--privacy)
+[Review features →](https://docs.codeotter.io/docs/review-features)
+
 
 </td>
 <td width="50%">
@@ -146,147 +148,18 @@ Works with **any local open-weight model or hosted API** — mix and match Syste
 
 ## ⚡ Quickstart
 
-### Local Setup (Requires Node 22+ & pnpm)
-
-For GitHub repositories, authenticate the **GitHub CLI (`gh`)** (`gh auth status`). Forgejo uses its REST API and does not require `gh`:
+Requires Node 22+ and pnpm. For GitHub repositories, authenticate the GitHub CLI (`gh auth status`).
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/dharmeshgurnani/CodeOtter.git
 cd CodeOtter
-
-# 2. Launch with a single command
-pnpm dev      # Development: starts Backend, PocketBase, and Vite dev server with HMR (:5173 -> :4747)
-# or
-pnpm start    # Production: auto-builds frontend if needed and runs CodeOtter on http://localhost:4747
-pnpm co:start # Production with PocketBase started by bin/start.sh (what the Docker image runs)
+pnpm dev      # http://localhost:5173 (or pnpm start for production on :4747)
 ```
 
-Open **`http://localhost:5173`** (dev mode) or **`http://localhost:4747`** (production) in your browser:
-1. Paste a GitHub or configured Forgejo/Gitea PR URL or select from your active repositories in the sidebar.
-2. Select your AI provider under **Settings → System → Model provider** (or download a 100% offline local model under **Settings → System → Local models**).
-3. Get a calibrated review report in seconds—or query `/api/score?pr=<url|number>` for JSON.
-
-> **Zero-Config Storage**: PocketBase is auto-detected and started locally for authentication and persistent storage. To customize superuser credentials or model keys, create a `.env` file (see `.env.example`).
-
-### Forgejo repositories and sign-in
-
-GitHub and one Forgejo server can coexist in the same installation. Sign-in and repository credentials are independent: GitHub-only teams, Forgejo-only teams, and teams signing in with GitHub while reviewing Forgejo repositories are supported.
-
-1. Open **Settings → System → Git providers** and use the gear on the **Forgejo** row. Save the server origin (for example `https://forgejo.example.com`) and an access token; select **Test**. Use a repository-scoped token with `read:repository` and `read:issue` to review, or `read:user`, `write:repository` and `write:issue` to also publish review comments/suggestions. The token account must have access to the repositories. Environment defaults are `FORGEJO_URL` and `FORGEJO_TOKEN`.
-2. For Forgejo sign-in, select **Create app** on the Forgejo row of **Settings → System → Git providers** (the access token needs the `write:user` scope), or create an OAuth2 application in your Forgejo **Settings → Applications**. Register the callback displayed in **CodeOtter Settings → System → Auth providers**, typically `https://codeotter.example.com/auth/callback`. Save its client ID and secret in the **Forgejo** section and enable it. Set `APP_URL` to CodeOtter's public address. GitHub OAuth can remain enabled or be disabled independently. PocketBase is required for sign-in.
-3. Add the full Forgejo repository URL in **Settings → Manage repositories**. Within a Forgejo organization, plain `owner/name` also selects Forgejo. Discovery uses the saved access token; OAuth login by itself does not grant the shared review service repository access. GitHub repository credentials still come from `gh`/`GH_TOKEN`.
-4. Select the organization marked **Forgejo**, open a PR, and review it with the same models and controls used for GitHub. Score/review comment posting and inline suggestions use the configured Forgejo token account.
-
-Existing GitHub repository IDs and review data are unchanged. Forgejo repository IDs use `forgejo~owner/name` internally, and API organization scopes use `?org=forgejo~owner`. PR URLs retain the real Forgejo host and `/pulls/123` path. Repository settings and learned rules remain separate even when both platforms have an `owner/name` with the same spelling.
-
-OAuth uses PKCE and single-use, expiring server-side state. Accounts without a provider-verified email are identified by their OAuth provider and subject. Password sign-in and public password-based account creation are disabled. Blank secrets preserve saved values; disabling an OAuth provider removes its credentials without changing the other provider. Changing the Forgejo origin is blocked while repository/review or OAuth configuration is linked.
-
-This first integration targets Forgejo 15. Server origins with subpaths are not supported. Forgejo reviews use the full PR diff plus commit history for re-reviews; they do not claim an incremental patch when the API does not supply one. Outside-diff GitHub code search/local-checkout analysis is not run against Forgejo repositories. Gitea uses the same review adapter with separate credentials and identities; see below.
-
-### Gitea repositories and sign-in
-
-GitHub, Forgejo and Gitea can all coexist. Each self-hosted provider supports one server origin; Forgejo and Gitea must have distinct origins, access tokens and OAuth applications. Existing Forgejo IDs and OAuth identities remain unchanged.
-
-1. In **Settings / System / Git providers**, use the gear on the **Gitea** row to save the server origin and repository access token, then select **Test**. Environment defaults are `GITEA_URL` and `GITEA_TOKEN`. Use `read:repository` and `read:issue` for reviews; add `read:user`, `write:repository` and `write:issue` for posting comments and suggestions.
-2. Select **Create app** on the Gitea row of **Settings / System / Git providers** (the access token needs the `write:user` scope), or create a Gitea OAuth2 application under **Settings / Applications**, using the callback shown in **CodeOtter Settings / System / Auth providers**. Turn on **Sign in with Gitea** there and save its client ID and secret. PocketBase's dedicated Gitea provider uses PKCE and requests `read:user` and `user:email`; only verified primary email is used for account linking.
-3. Add the full Gitea repository URL under **Settings / Manage repositories**. Select the organization marked **Gitea**. Internal IDs use `gitea~owner/name`; sign-in provider and repository access remain independent.
-
-Validated against Gitea 1.24.6. The same full-diff re-review and outside-diff analysis limits described for Forgejo apply. Server URLs with subpaths are unsupported. Changing a server origin is blocked while repositories, reviews, OAuth configuration or saved OAuth identities depend on it.
-
-
-### Integration tests
+Or deploy with Docker on any Linux server:
 
 ```bash
-pnpm -C web build
-pnpm test:forgejo
-pnpm test:gitea
-# Keep a disposable installation running for browser QA:
-node test/integration/forges.test.mjs --gitea --serve
-```
-
-The suite requires Docker and `.pb/pocketbase` (`.pb/pocketbase.exe` on Windows), or `TEST_PB_BIN`. The suites start Forgejo 15, Gitea 1.24.6 and PocketBase with disposable data, use a deterministic local model, and never write to the running CodeOtter installation. They cover each provider separately and all three together, including real self-hosted OAuth, token isolation, identical repository names, fork PRs, comment upserts and both storage modes. GitHub CLI and OAuth responses are fixtures; real GitHub OAuth credentials are not used.
-
----
-
-## 📟 Native `codeotter` CLI &amp; CI Runner
-
-CodeOtter has one CLI with an interactive Blessed TUI and scriptable review, CI, JSON and MCP modes. Requires Node 22 or later. Run `pnpm install --frozen-lockfile`, then `pnpm tui`. With no arguments, `codeotter` opens the TUI in an interactive terminal; `codeotter review --json` remains suitable for coding agents.
-
-The default TUI groups all connected repositories under expandable organizations. Selecting a repository scopes its PRs; moving between PRs immediately updates scores, summary and full details. Saved reviews appear immediately, and missing reviews calculate sequentially using the web app's configured engines. Reviews share the same storage. The TUI does not publish comments or suggestions.
-
-**No running web server is required.** The TUI imports shared services from `core/server.mjs` without binding a port, building the frontend or starting scheduled automation. Forge APIs and hosted models still require network access. PocketBase is auto-managed where configured; locally started storage survives terminal closure and retries refused reads once, without replaying writes. Web authentication, permissions and organization scoping are unchanged.
-
-Configuration defaults to the repository that holds `core/server.mjs`. Set `CODEOTTER_HOME` to an existing installation to use its `.env`, `config.json`, `scores/`, `.pb`, `pb_data` and default `.local` directory. Explicit `PB_URL` and `PR_SCORER_DATA` take precedence.
-
-Scores use the web app's green/amber/red thresholds, inverted for risk and blast radius. Full details contains gates, findings and a folder-tree walkthrough. The underlined orange PR link opens in your browser; **Copy as prompt** copies plain text without added instructions. Clipboard copying uses OS tools, with OSC 52 forwarding as a sandbox fallback where supported.
-
-The **Changes** tab uses optional [Delta](https://github.com/dandavison/delta) for real PR diffs, syntax highlighting, old/new line numbers and gutter-preserving wrapping. Install `git-delta` separately (Windows: `winget install dandavison.delta`; macOS: `brew install git-delta`), or set `CODEOTTER_DELTA` to its executable. Nothing downloads automatically; the rest of the TUI works without Delta.
-
-The header uses `web/public/favicon.svg` on SIXEL-capable terminals, with an emoji fallback. Set `CODEOTTER_IMAGE=off` to disable images; run `pnpm build:tui-icon` after changing the SVG. Brand orange accents and borders stay consistent; yellow marks active selection and focus. Ordinary review views omit model/provider identities.
-
-| Key | Action |
-| --- | --- |
-| `Tab` / `Shift+Tab` | Cycle repositories, PRs, Review and Changes forward/backward |
-| Arrows / `Enter` | Navigate and select; expand/collapse organizations |
-| Left / Right in details | Switch Review/Changes tabs |
-| `PgUp` / `PgDn` | Scroll full details or changes |
-| `c` / `o` | Copy content / open the PR |
-| `g` / `r` | Refresh / recalculate the selected PR |
-| `Esc` | Return from Changes or stop the review queue |
-| `q` / `Ctrl-C` | Quit |
-
-Use `codeotter tui --local` for staged/unstaged/base/patch review, Ask, description/improvement/docs/changelog drafts, session settings, history and JSON export. Press `?` for local-mode keys. It uses provider environment variables or `--provider`, `--model`, `--base-url` and `--key`, with a 35,000-character diff context. Use a terminal at least 60 columns wide and 20 rows tall. Onboarding, accounts/OAuth, model downloads and publishing controls remain in the web app.
-
-```bash
-# Browse connected repositories using the shared local backend
-node tui/codeotter.mjs tui
-
-# Print a one-shot review with color gauges & walkthrough
-node tui/codeotter.mjs review
-
-# Review staged changes before git commit
-node tui/codeotter.mjs --staged
-
-# Review PR and post scorecard comment
-node tui/codeotter.mjs pr 42 --post-comment
-
-# Run in CI as a merge blocker (exits with code 1 if gates fail or score < 60; 2 on a bad flag or unknown command)
-node tui/codeotter.mjs ci --fail-on-gate --min-score 60
-
-# Limit a review to some paths
-node tui/codeotter.mjs review --files src/cart.js,src/tax.js
-
-# Run Model Context Protocol (MCP) server for Cursor / Claude Desktop / IDEs
-node tui/codeotter.mjs mcp
-```
-
-### Key CLI Features:
-- **Same engines as the web app**: `codeotter review`, `pr`, `ci` and the MCP server run the installation's configured language and System One models through `core/server.mjs`. A configured System One model owns every score and gate; `--provider`/`--model` flags override the language model only. Findings go through the same self-check pass.
-- **Smart Context**: Scans for outside callers and evaluates cross-file contract safety.
-- **Pre-Merge Gates**: title, description, security, complexity, tests, documentation, scope and `AGENTS.md` / `CLAUDE.md` guidelines, answered by the System One model (none without one).
-- **Offline or BYOK**: Works with local `llama.cpp` / Ollama or hosted API keys (Claude, OpenAI, MiniMax, OpenRouter).
-
----
-
-## 🧠 How It Works: The Dual Engine
-
-<p align="center">
-  <img src="assets/banners/dual-engine.jpg" alt="CodeOtter Dual Engine Architecture" width="100%" />
-</p>
-
-Asking a single chat LLM to both generate nuanced code critiques *and* output calibrated numeric scores fails in practice: chat models cluster every score between `75` and `85` and significantly slow down generation.
-
-CodeOtter separates review into **two specialized engines that run concurrently**:
-
-```mermaid
-flowchart LR
-  PR["GitHub PR Diff + Metadata\n+ Auto-detected AGENTS.md / CLAUDE.md"] --> Facts["Deterministic Blast Radius\nFiles · Lines · Areas · Hotspots"]
-  PR --> LLM["Engine 1: Language Model (System 2)\nWalkthrough · File Cohorts · Actionable Findings"]
-  PR --> S1["Engine 2: System One Model (System 1)\n6 Calibrated Rubric Scores + 8 Pre-Merge Gates"]
-  Facts --> Report["Unified PR Review Report\nScores · Gates · Effort · Findings"]
-  LLM --> Report
-  S1 --> Report
+curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh | bash
 ```
 
 ### 1. Language Model (System 2 — Prose & Cohorts)
@@ -357,74 +230,26 @@ A production-ready Docker container packages the complete CodeOtter platform—i
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fdharmeshgurnani%2FCodeOtter%2Fmain%2Fbin%2Fdeploy%2Fazure.json)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dharmeshgurnani/CodeOtter)
 
-Any Linux VPS (DigitalOcean, Hetzner, Vultr, Linode, EC2, your own hardware), as root:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh | bash
-# With HTTPS: point a DNS A record at the server first
-curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh | CODEOTTER_DOMAIN=review.example.com bash
-```
-
-The same line works as cloud-init user data when creating the server. It installs Docker, writes `/opt/codeotter/.env` with a generated PocketBase password, and starts CodeOtter with Watchtower updates. With `CODEOTTER_DOMAIN` it also runs [Caddy](https://caddyserver.com) with a Let's Encrypt certificate and keeps ports 4747 and 8090 on loopback. Re-running it keeps `.env`.
-
-- **Azure** creates an Ubuntu VM with HTTPS on `https://<label>.<region>.cloudapp.azure.com`. Only an SSH public key is required.
-- **Render** needs a paid instance type, because only paid instances keep a disk. Render does not follow `:latest`, so redeploy to update.
-- Sign in right after deploying: the first account becomes the owner.
-
-### Accounts and roles
-
-| Role | Can |
-| :--- | :--- |
-| owner | Everything, including **Settings → Workspace → Manage accounts** |
-| admin | Everything except Manage accounts |
-| developer | Home, and for the repositories assigned to the account: reviews, open pull requests, review pages, (re-)running reviews and PR tools. No Settings or Admin pages |
-
-The first sign-in becomes the owner. Every later account needs an invite: **Settings → Workspace → Manage accounts → Invite** takes a username (or, for GitHub, an email), the provider (only providers with sign-in enabled), the role and, for developers, the repositories. On first sign-in the account is matched by provider + username, or by the verified primary email PocketBase takes from GitHub; the invite's role and repositories are applied and the invite is used up. Forgejo and Gitea invites match by username only. A sign-in that matches no invite is refused ("Not invited: ask an owner for an invite") and its account is deleted. Pending invites are rows marked **Pending** with a Remove button. A developer row's gear sets its repositories; owners and admins see all. Access is enforced server-side: a developer's board, home, organization switcher and triage list hold only assigned repositories, and any request naming another repository or pull request returns 403. Background jobs (auto-review, triage, comment commands) are not affected. With `PR_SCORER_RECOVERY=1` an anonymous visitor is owner again, as before. File-storage mode (no `PB_URL`) has no accounts: the single operator is owner.
-
-### Compose
-
-```bash
-# 1. Prepare environment
-cp .env.example .env       # Set GH_TOKEN and optional model keys
-
-# 2. Launch with Compose (pulls ghcr.io/dharmeshgurnani/codeotter)
-docker compose up -d       # Dashboard available on http://localhost:4747
-```
-
-**Updates are automatic.** Every release tag publishes `ghcr.io/dharmeshgurnani/codeotter` as `:latest`, `:X.Y.Z` and `:X.Y` (amd64 and arm64). The Compose file runs [Watchtower](https://github.com/nicholas-fedor/watchtower) next to CodeOtter: it checks hourly, pulls a newer image and restarts only the CodeOtter container. `pb_data` stays on its volume and PocketBase applies new migrations on start.
-
-- Hold back: pin `image: ghcr.io/dharmeshgurnani/codeotter:0.6` (patch releases only) or `:0.6.0` (frozen). Roll back the same way.
-- Update by hand instead: delete the `watchtower` service, then `docker compose pull && docker compose up -d`.
-- Admins see **vX.Y.Z available** in the sidebar when a newer release exists (checked against GitHub Releases every 6 hours). `CODEOTTER_UPDATE_CHECK=0` turns the check off.
-
-Or build and run standalone:
-
-```bash
-docker build -t codeotter .
-docker run -d -p 4747:4747 -p 8090:8090 --env-file .env -v codeotter-data:/app/pb_data codeotter
-```
-
-- `GH_TOKEN` authenticates `gh` inside the container without interactive prompts. A token saved under **Settings → System → Git providers → GitHub** takes precedence over it.
-- Mount `/app/pb_data` as a volume to persist reviews, settings, and downloaded local models across upgrades.
+The full setup guides are in the **[Quickstart](https://docs.codeotter.io/docs/quickstart)** and **[Docker quickstart](https://docs.codeotter.io/docs/docker-quickstart)**.
 
 ---
 
-## 🏢 Multi-Organization & Team Management
+## 📚 Documentation
 
-<table>
-<tr><td width="30%"><b>Organization Scoping</b></td><td>Switch between teams and organizations seamlessly from the header dropdown. All dashboards, open PR queues, and settings remain isolated.</td></tr>
-<tr><td><b>1-Click GitHub App Setup</b></td><td>Under <b>Settings → System → Git providers</b>, click <i>Create app</i> on the GitHub row: one step creates the app, its sign-in credentials and repository discovery. Forgejo and Gitea rows create their OAuth app the same way through their API (the access token needs the <code>write:user</code> scope).</td></tr>
-<tr><td><b>Role-Based Access (RBAC)</b></td><td>Owner, Admin, and Developer tiers safeguard sensitive model keys and organization settings. The first user to sign in automatically becomes the instance Owner; everyone else joins by invite, and developers see only the repositories assigned to them.</td></tr>
-<tr><td><b>Zero-Restart Configuration</b></td><td>All provider keys, local models, and repository settings update live through the dashboard without restarting services.</td></tr>
-</table>
-
----
-
-## 🔒 Security & Privacy
+All documentation lives at **[docs.codeotter.io](https://docs.codeotter.io/docs)** ([source](https://github.com/dharmeshgurnani/codeotter-docs)).
 
 - **Zero Telemetry / No Middleman**: Code diffs and metadata never leave your network unless you explicitly configure a hosted AI provider. No telemetry. CodeOtter makes one optional request to GitHub Releases every 6 hours to check for updates; set `CODEOTTER_UPDATE_CHECK=0` to disable.
 - **Calibrated & Sanitized Outputs**: Model responses are validated, normalized, and sanitized before display, eliminating prompt injections and hallucinated scores.
 - **Hardened Access**: Enterprise-grade session security, strict cross-origin protections, and masked credential management protect your infrastructure and repositories.
+| Topic | Guide |
+| :--- | :--- |
+| Run locally | [Quickstart](https://docs.codeotter.io/docs/quickstart) |
+| Deploy | [Docker quickstart](https://docs.codeotter.io/docs/docker-quickstart) · [Accounts and roles](https://docs.codeotter.io/docs/accounts-and-roles) |
+| Models | [BYOK provider config](https://docs.codeotter.io/docs/byok-config) · [Local GGUF & sidecars (100% offline)](https://docs.codeotter.io/docs/local-gguf-sidecar) |
+| Git providers | [Forgejo](https://docs.codeotter.io/docs/forgejo) · [Gitea](https://docs.codeotter.io/docs/gitea) |
+| Reviews | [Dual engine](https://docs.codeotter.io/docs/dual-engine) · [Review features](https://docs.codeotter.io/docs/review-features) · [`AGENTS.md` / `CLAUDE.md`](https://docs.codeotter.io/docs/repository-guidelines) · [Fast triage in CI](https://docs.codeotter.io/docs/ci-triage) |
+| Terminal | [CLI, TUI & MCP server](https://docs.codeotter.io/docs/cli) |
+| Reference | [Security & privacy](https://docs.codeotter.io/docs/security) · [Development & integration tests](https://docs.codeotter.io/docs/development) |
 
 ---
 

@@ -5,7 +5,7 @@ import { JsonReport, type ReportSection } from "./json-report";
 const sections: ReportSection[] = [
   { id: "stats", kind: "stats", title: "This week", items: [{ label: "Reviews", value: 12, unit: "PRs", hint: "last 7 days", action: { label: "Open", path: "/reviews" } }] },
   { id: "table", kind: "table", title: "Open pull requests", columns: ["PR", "Verdict"], rows: [[{ text: "#7 fix totals", path: "/review?pr=7" }, { text: "Approved", tone: "ok" }]] },
-  { id: "links", kind: "links", title: "More", items: [{ label: "Docs", href: "https://codeotter.io/docs/" }] },
+  { id: "links", kind: "links", title: "More", items: [{ label: "Docs", href: "https://docs.codeotter.io/docs" }] },
 ];
 
 describe("JsonReport", () => {
@@ -15,7 +15,7 @@ describe("JsonReport", () => {
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("Open pull requests")).toBeInTheDocument();
     expect(screen.getByText("Approved")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "https://codeotter.io/docs/");
+    expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "https://docs.codeotter.io/docs");
   });
 
   it("routes in-app paths through go()", () => {
