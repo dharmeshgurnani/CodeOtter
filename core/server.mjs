@@ -3631,7 +3631,7 @@ async function githubManifest(res, body) {
     setCookie(res, "pr_manifest_return", body.returnTo, 600);
   }
   const owner = ((await repos())[0] || "codeotter").split("/")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-");
-  const appPrefix = owner && owner !== "pr-scorer" && owner !== "codeotter" ? `codeotter-${owner}` : "codeotter";
+  const appPrefix = owner && owner !== "pr-scorer" && owner !== "code-otter" && owner !== "codeotter" ? `codeotter-${owner}` : "codeotter";
   const manifest = {
     name: `${appPrefix}`.slice(0, 28) + "-" + Math.random().toString(36).slice(2, 6),
     url: APP_URL,
@@ -4793,7 +4793,7 @@ http
       if (url.pathname === "/api/login") {
         // Showcase content for the login page's right column: showcase.json next to the server, editable without code.
         const file = join(import.meta.dirname, "showcase.json");
-        const showcase = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { headline: "PR Scorer", sub: "", groups: [] };
+        const showcase = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { headline: "Code Otter", sub: "", groups: [] };
         let providers = [];
         if (PB_URL) { try { const m = await store.authMethods(); providers = Object.entries(LOGIN_PROVIDERS).filter(([, spec]) => m.oauth2?.enabled && m.oauth2.providers.some((p) => p.name === spec.pb)).map(([id, spec]) => ({ id, label: spec.label })); } catch {} }
         return json({ showcase, signInAvailable: !!PB_URL, configured: providers.length > 0, providers });
