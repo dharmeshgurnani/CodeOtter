@@ -87,7 +87,7 @@ export function LoginPage({ error, onLogin, go }: { error: string; onLogin: (pro
           </div>
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-500">
-          <a className="no-underline hover:underline" href="https://github.com/dharmeshgurnani/CodeOtter#readme" target="_blank" rel="noreferrer">Documentation</a>
+          <a className="no-underline hover:underline" href="https://docs.codeotter.io/docs" target="_blank" rel="noreferrer">Documentation</a>
           <a className="no-underline hover:underline" href="https://github.com/dharmeshgurnani/CodeOtter" target="_blank" rel="noreferrer">Source</a>
           <a className="no-underline hover:underline" href="/" onClick={(e) => { e.preventDefault(); go("/"); }}>Continue without signing in</a>
         </div>
