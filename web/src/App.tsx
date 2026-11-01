@@ -189,7 +189,7 @@ export default function App() {
               <Tooltip side="bottom">
                 <TooltipTrigger asChild>
                   <Button asChild variant="ghost" size="icon" className="sm:size-9 size-8">
-                    <a href="https://github.com/dharmeshgurnani/CodeOtter#readme" target="_blank" rel="noreferrer" aria-label="Documentation"><BookOpen /></a>
+                    <a href="https://docs.codeotter.io/docs" target="_blank" rel="noreferrer" aria-label="Documentation"><BookOpen /></a>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Documentation</TooltipContent>

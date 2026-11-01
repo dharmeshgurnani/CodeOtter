@@ -29,7 +29,7 @@
 | [ ] | DigitalOcean and Vultr: apply as marketplace vendors for 1-Click apps | |
 | [ ] | Coolify and Dokploy: submit one-click templates | |
 | [x] | Automatic Docker updates: release tags publish a multi-arch image to GHCR, Compose runs Watchtower, sidebar shows a newer release to admins | 2026-10-02 |
-| [x] | Fast triage: System One rates correctness risk and blast radius of each new or updated PR from a whole-change digest, sets the `codeotter/triage` commit status and an updatable PR comment, polled every 2 minutes; GitHub Actions wait job in docs/ci-triage.md | 2026-10-02 |
+| [x] | Fast triage: System One rates correctness risk and blast radius of each new or updated PR from a whole-change digest, sets the `codeotter/triage` commit status and an updatable PR comment, polled every 2 minutes; GitHub Actions wait job in the [CI triage docs](https://docs.codeotter.io/docs/ci-triage) | 2026-10-02 |
 | [ ] | Validate System One triage on past pull requests with known outcomes and set the default stop threshold from the results | |
 | [x] | Full-Stack Setup & Onboarding Wizard (first-time deployment detection, primary Git/OAuth provider selection for GitHub/Forgejo/Gitea, dual-engine AI model configuration with non-blocking local background downloads, multi-org searchable repository onboarding, and direct dashboard landing) | 2026-10-01 |
 | [x] | Native CodeOtter CLI & CI Review Engine (`bin/codeotter.mjs`, `codeotter review`, `codeotter pr`, `codeotter ci --fail-on-gate`, `codeotter mcp` stdio server, multi-agent critique pass, rich ANSI terminal scorecard) | 2026-10-01 |

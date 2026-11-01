@@ -4417,7 +4417,7 @@ async function homeData(org = "", g = { role: "owner" }) {
         { label: "Git providers", hint: "GitHub, Forgejo and Gitea servers", path: "/settings/git" },
         { label: "Auth providers", hint: "GitHub, Forgejo and Gitea sign-in", path: "/settings/oauth" },
       ] : []),
-      { label: "Documentation", hint: "README on GitHub", href: "https://github.com/dharmeshgurnani/CodeOtter#readme" },
+      { label: "Documentation", hint: "docs.codeotter.io", href: "https://docs.codeotter.io/docs" },
     ] },
   ];
   return { sections };
