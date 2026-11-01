@@ -12,7 +12,8 @@
 | [x] | Cloudflare Clef (`cloudflare/clef`, `cloudflare/clef-flash`) as a hosted System One provider via OpenRouter | 2026-10-08 |
 | [x] | Accepted fixes: suggestions authors applied are remembered per repository and guide later reviews (PR-Agent-inspired) | 2026-10-04 |
 | [x] | PR comment commands: /review, /describe, /improve, /ask, /docs, /changelog (PR-Agent-inspired) | 2026-10-04 |
-| [ ] | PR events and comment commands via webhooks (GitHub App, Forgejo/Gitea) instead of polling; post as a GitHub App bot | |
+| [x] | PR events and comment commands via webhooks (GitHub App manifest with `hook_attributes`, Forgejo/Gitea repository hooks), one review queue with retries, catch-up poll, failed-delivery redelivery after restart, `gh webhook forward` for localhost | 2026-11-01 |
+| [ ] | Post comments, reviews and statuses as the GitHub App bot (installation tokens) instead of the operator's `gh` login | |
 | [x] | Docs and Changelog tools (PR-Agent-inspired) | 2026-10-04 |
 | [x] | Improve: ranked, self-checked code suggestions posted as multi-line committable suggestions (PR-Agent-inspired) | 2026-10-04 |
 | [x] | Ask: free-form questions about a PR (PR-Agent-inspired) | 2026-10-04 |

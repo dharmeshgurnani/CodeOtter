@@ -98,7 +98,7 @@ Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face insi
 
 ### `AGENTS.md` / `CLAUDE.md`, Repo Learnings, Inline `suggestion` Fixes, Incremental Delta Reviews &amp; GitHub PR Sync
 
-Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository and enforces them at the merge gate. Smart outside-diff context, a self-check pass on every finding, PR tools (Describe, Ask, Improve, Docs, Changelog), `/review`-style PR comment commands, team learnings, accepted fixes, incremental delta reviews, and committable inline `suggestion` fixes posted to the pull request and updated in place.
+Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository and enforces them at the merge gate. Smart outside-diff context, a self-check pass on every finding, PR tools (Describe, Ask, Improve, Docs, Changelog), `/review`-style PR comment commands, team learnings, accepted fixes, incremental delta reviews, and committable inline `suggestion` fixes posted to the pull request and updated in place. Pull requests and commands arrive by **webhook** from your own GitHub App or Forgejo/Gitea repository hooks (HMAC-checked, with a catch-up poll and `gh webhook forward` for localhost); auto-reviews run from one queue and retry on model failures.
 
 [Review features →](https://docs.codeotter.io/docs/review-features)
 
