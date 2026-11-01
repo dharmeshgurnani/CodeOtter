@@ -306,7 +306,7 @@ export function OnboardingPage({
 
       const compRes = await fetch("/api/onboarding/complete", { method: "POST" });
       const data = await readJson(compRes);
-      storageSet("pr-scorer.onboarding_done", "true");
+      storageSet("code-otter.onboarding_done", "true");
       onComplete(data.org || selectedRepos[0]?.split("/")[0] || "");
     } catch (err: unknown) {
       setError(errMsg(err) || "Failed to complete setup");

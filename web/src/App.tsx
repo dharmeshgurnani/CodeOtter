@@ -55,10 +55,10 @@ export default function App() {
   const [error, setError] = useState("");
   const [version, setVersion] = useState(0);
   // Active organization scopes the pages (home, sidebar). Remembered across refreshes.
-  const [org, setOrgState] = useState(() => storageGet("pr-scorer.org") ?? "");
+  const [org, setOrgState] = useState(() => storageGet("code-otter.org") ?? "");
   const orgRef = useRef(org);
   orgRef.current = org;
-  const setOrg = (o: string) => { setOrgState(o); storageSet("pr-scorer.org", o); };
+  const setOrg = (o: string) => { setOrgState(o); storageSet("code-otter.org", o); };
   // Signed-in user (session cookie). Login goes through the server's OAuth start endpoint.
   const [me, setMe] = useState<{ user: User | null; signInAvailable: boolean }>({ user: null, signInAvailable: false });
   const loadMe = () => api("/api/me").then(setMe).catch(() => {});
@@ -71,8 +71,8 @@ export default function App() {
   // Signed in and on the login page: nothing to do there.
   useEffect(() => { if (path === "/login" && me.user) go("/", true); }, [path, me.user]);
   const login = (provider = "github") => {
-    const back = sessionGet("pr-scorer.back") || "/";
-    sessionSet("pr-scorer.back", null);
+    const back = sessionGet("code-otter.back") || "/";
+    sessionSet("code-otter.back", null);
     return api(`/api/auth/start?provider=${encodeURIComponent(provider)}&back=${encodeURIComponent(back)}`)
       .then((d) => { location.href = d.url; })
       .catch((e) => setLoginError(e.message));
@@ -111,7 +111,7 @@ export default function App() {
   useEffect(() => { if (!known) go("/", true); }, [known]);
 
   useEffect(() => {
-    if (board?.onboardingNeeded && path !== "/onboarding" && path !== "/login" && !storageGet("pr-scorer.onboarding_done")) {
+    if (board?.onboardingNeeded && path !== "/onboarding" && path !== "/login" && !storageGet("code-otter.onboarding_done")) {
       go("/onboarding", true);
     }
   }, [board?.onboardingNeeded, path]);
@@ -173,7 +173,7 @@ export default function App() {
   if (path === "/onboarding") return <ErrorBoundary><Suspense fallback={<div className="p-8"><FormSkeleton sections={[3]} /></div>}><OnboardingPage onComplete={(targetOrg) => { if (targetOrg) setOrg(targetOrg); go("/"); load(); }} go={go} /></Suspense></ErrorBoundary>;
   return (
     <SidebarProvider defaultOpen={sidebarDefaultOpen()}>
-      <AppSidebar update={board?.update} repositoriesLoaded={!!board} forgeUrls={board?.forgeUrls ?? {}} repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(scopedBoard)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionSet("pr-scorer.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
+      <AppSidebar update={board?.update} repositoriesLoaded={!!board} forgeUrls={board?.forgeUrls ?? {}} repos={board?.repos ?? []} org={org} setOrg={setOrg} route={path} settingsPages={board?.settingsPages ?? []} openCounts={openCounts(scopedBoard)} user={me.user} signInAvailable={me.signInAvailable} onLogin={() => { sessionSet("code-otter.back", location.pathname); go("/login"); }} onLogout={logout} go={go} />
       <SidebarInset className="min-w-0">
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3 text-base sm:px-6">
           <span className="flex min-w-0 items-center gap-2.5">
@@ -207,13 +207,13 @@ export default function App() {
           {path === "/review" ? (
             <ErrorBoundary><Suspense fallback={<ReviewSkeleton />}><ReviewPage forgeUrls={board?.forgeUrls} org={org} pr={prRef} repo={prRepo} force={query.get("force") ?? ""} onDone={load} /></Suspense></ErrorBoundary>
           ) : settingsPage ? (
-            <SettingsPage forgeUrls={board?.forgeUrls ?? {}} page={settingsPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionSet("pr-scorer.back", location.pathname); go("/login"); }} onSaved={load} />
+            <SettingsPage forgeUrls={board?.forgeUrls ?? {}} page={settingsPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionSet("code-otter.back", location.pathname); go("/login"); }} onSaved={load} />
           ) : (
             <>
               {!repoPage ? (
                 <HomePage go={go} version={version} org={org} />
               ) : repoView === "settings" ? (
-                <SettingsPage key={repoPage} forgeUrls={board?.forgeUrls ?? {}} page="repo" repo={repoPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionSet("pr-scorer.back", location.pathname); go("/login"); }} onSaved={load} />
+                <SettingsPage key={repoPage} forgeUrls={board?.forgeUrls ?? {}} page="repo" repo={repoPage} org={org} setOrg={setOrg} user={me.user} onLogin={() => { sessionSet("code-otter.back", location.pathname); go("/login"); }} onSaved={load} />
               ) : repoView === "open" ? (
                 <OpenList board={scopedBoard} go={go} reviewUrl={reviewUrl} repo={repoPage} />
               ) : (

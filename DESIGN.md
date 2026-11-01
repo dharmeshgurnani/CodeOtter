@@ -1,6 +1,6 @@
 ---
 version: alpha
-name: PR Scorer
+name: Code Otter
 description: Self-hosted pull request code review and scoring platform. Combines high-density technical daylight dashboards and GitHub-native review reports with an animated ordered-dither WebGL login showcase.
 colors:
   background: "#ffffff"
@@ -202,13 +202,13 @@ components:
     padding: 4px
 ---
 
-# PR Scorer
+# Code Otter
 
-Specification of the visual identity, token system, and component patterns across **PR Scorer** ([`web/src/`](./web/src) and [`core/server.mjs`](./core/server.mjs)), structured according to the open [Google Stitch `DESIGN.md`](https://github.com/google-labs-code/design.md) specification.
+Specification of the visual identity, token system, and component patterns across **Code Otter** ([`web/src/`](./web/src) and [`core/server.mjs`](./core/server.mjs)), structured according to the open [Google Stitch `DESIGN.md`](https://github.com/google-labs-code/design.md) specification.
 
 ## Overview
 
-**Technical Utilitarianism meets Retro-Compute Precision.** PR Scorer is an engineering tool that evaluates GitHub pull requests for code quality, blast radius, correctness risk, test coverage, readability, and PR hygiene using open-weight or hosted models.
+**Technical Utilitarianism meets Retro-Compute Precision.** Code Otter is an engineering tool that evaluates GitHub pull requests for code quality, blast radius, correctness risk, test coverage, readability, and PR hygiene using open-weight or hosted models.
 
 The visual identity balances two distinct moods:
 1. **High-Contrast Daylight Workspace** (Home Dashboard, Repository Queues, PR Review Reports, and Settings): Crisp white canvases (`#ffffff`), stone-grey table and comment headers (`#efefef`), soft off-white sidebar and card shells (`#f7f7f7` / `#fafafa`), 1px structural hairlines (`#e6e6e6`), and zero decorative chrome. It reads like a fast, information-dense developer console blended with GitHub's native PR timeline.
@@ -231,7 +231,7 @@ The color system is built on neutral monochrome surfaces punctuated by a single 
 - **Brand Orange (`#c2410c`)**: Interactive links (`text-brand`), active sidebar submenu indicator bars (`bg-brand`), range/checkbox input `accent-brand`, bot comment avatar dots, download progress bars, and focus rings (`--ring`).
 - **Brand Gradient (`#fbbf24` → `#c2410c`)**: `bg-gradient-to-br from-amber-400 to-brand` used on the `28px` circular mark on the Login page and fallback header.
 - **Sidebar Surface (`#f7f7f7`) & Accent (`#e9e9e9`)**: Separates navigation from the `#ffffff` workspace via a `1px` `#e6e6e6` border; active/open dropdown triggers switch to `#e9e9e9`.
-- **Table & Bot Header Surface (`#efefef`)**: Used exclusively on `<thead>` rows and the top bar of `pr-scorer` bot comment boxes (`Comment`) to anchor tabular and timeline sections.
+- **Table & Bot Header Surface (`#efefef`)**: Used exclusively on `<thead>` rows and the top bar of `code-otter` bot comment boxes (`Comment`) to anchor tabular and timeline sections.
 - **Nested Card Shell (`#fafafa` / `bg-neutral-50`)**: Outer frame of dashboard KPI stat cards and file-path headers on `FindingCard` blocks.
 - **Showcase Dark (`#0a0a0b`)**: Background of the right-hand `/login` showcase column and bottom gradient scrim (`from-[#0a0a0b] via-[#0a0a0b]/70 to-transparent`).
 
@@ -284,7 +284,7 @@ Scores (`0–100`) pass through `tone(value, invert)` in [`web/src/types.ts`](./
 
 ## Elevation & Depth
 
-PR Scorer eschews heavy drop shadows in favor of **structural 1px borders** (`#e6e6e6`) and **two-layer nested surface framing**:
+Code Otter eschews heavy drop shadows in favor of **structural 1px borders** (`#e6e6e6`) and **two-layer nested surface framing**:
 - **Nested KPI Stat Card Depth**: Each dashboard stat card ([`web/src/components/json-report.tsx`](./web/src/components/json-report.tsx#L41-L60)) uses an off-white outer shell (`bg-neutral-50 border-neutral-200/90 shadow-[0_1px_2px_rgba(0,0,0,0.03)]`) with the metric label in the top rail (`px-5 pt-3.5 pb-3`), and an inset white card (`mx-1.5 mb-1.5 rounded-lg border border-neutral-200 bg-white px-4 py-4`) holding the value, hint, and CTA button.
 - **Button Micro-Shadows**:
   - Primary dark CTA (`Continue with GitHub`): `shadow-[0_1px_2px_rgba(0,0,0,0.12)]`.
@@ -319,7 +319,7 @@ PR Scorer eschews heavy drop shadows in favor of **structural 1px borders** (`#e
 - **Quick Links (`kind: "links"`)**: 3-column grid of `rounded-[10px] border border-border px-4 py-3 hover:bg-neutral-50` cards linking to *Model provider*, *Repositories*, *Sign-in (OAuth)*, and *Documentation*.
 
 ### 4. PR Review Report (`ReviewPage`, [`web/src/review-page.tsx`](./web/src/review-page.tsx))
-- **Bot Comment Box (`<Comment>`)**: `rounded-[10px] border border-border` with a `bg-[#efefef] px-4 py-2 text-sm` header containing a `size-5 rounded-full bg-brand` avatar dot, bold `pr-scorer`, and `bot commented <when>` / `bot reviewed <when>`.
+- **Bot Comment Box (`<Comment>`)**: `rounded-[10px] border border-border` with a `bg-[#efefef] px-4 py-2 text-sm` header containing a `size-5 rounded-full bg-brand` avatar dot, bold `code-otter`, and `bot commented <when>` / `bot reviewed <when>`.
 - **Score Gauges (`<Ring>`)**: Six `88px × 88px` circular gauges (**Quality**, **Blast radius** [inverted], **Risk** [inverted], **Tests**, **Readability**, **PR hygiene**) rendered with `conic-gradient(<color> <value>%, #e9e9e9 0)` and an `inset-[7px] rounded-full bg-white` mask.
 - **Cohort Walkthrough & Pre-Merge Checks (`<Md>`)**: Compact bordered tables (`bg-neutral-50` headers) grouping file changes by 3-segment directory cohort and listing deterministic + System One (`S1_GATES`) merge checks (`✅ Passed` / `⚠️ Warning` with `(% yes)`).
 - **Finding Cards (`<FindingCard>`)**: `rounded-lg border border-border` with a `bg-neutral-50 px-3 py-1.5` file header (`<Code>{f.file}</Code>`) and a body showing severity (`⚠️ Potential issue | 🔴 Major`, `⚠️ Potential issue | 🔴 Minor`, `🛠️ Refactor suggestion`, or `🧹 Nitpick`), bold title, and explanation.
