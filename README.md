@@ -162,6 +162,71 @@ Or deploy with Docker on any Linux server:
 curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh | bash
 ```
 
+### 1. Language Model (System 2 — Prose & Cohorts)
+Produces the human-readable review narrative:
+- **Executive Walkthrough**: High-level context of what changed, commit progression, and linked issue requirement validation (`Closes #123`, `Fixes #456`).
+- **File Cohorts**: Groups related file modifications into logical review units.
+- **Actionable Findings**: Severity-ranked issues (`⚠️ High / Major`, `⚠️ Medium / Minor`, `🛠️ Low / Refactor`, `🧹 Nitpick`).
+
+### 2. System One Model (System 1 — Typed Scores & Merge Gates)
+Evaluates structured rubrics and merge-policy criteria in a single lightning-fast pass:
+- **6 Calibrated Scores (`0–100`)**: `Quality`, `Blast Radius`, `Correctness Risk`, `Test Coverage`, `Readability`, and `PR Hygiene`.
+- **9 Pre-Merge Policy Gates**: `Title check`, `Description check`, `Security` (injection, auth bypass, secrets, SSRF, XSS), `Complexity`, `Tests`, `Documentation`, `Scope`, `Repository guidelines` (`AGENTS.md` / `CLAUDE.md` compliance), and `Issue requirements` (validates diff against linked GitHub issue acceptance criteria).
+
+*Both engines run in parallel; reviews take only as long as the slowest pass. Either engine can also operate standalone.*
+
+### Auto-review
+Turn on **Auto-review** in a repository's **Repository settings** (under the repository in the sidebar) and every new or updated pull request in that repository gets a full review with scores and the review comment posted, one PR at a time, on the same poll as triage. Drafts and PRs labelled `codeotter:skip` are skipped; each head commit is reviewed once.
+
+### Fast triage: stop the pipeline early
+System One rates each new or updated pull request's correctness risk and blast radius from a digest of the whole change and sets the `codeotter/triage` commit status, about 80 seconds on CPU with Kev 0.8B. A GitHub Actions job waits for it: red stops the long build, green lets it run. Turn it on under **Settings / Model provider**, in the System One row's settings (Fast triage); workflow in [docs/ci-triage.md](docs/ci-triage.md). If System One fails, the status is `error` with the reason, never a guessed score.
+
+---
+
+## 💻 100% Offline Mode (Zero Cloud)
+
+<p align="center">
+  <img src="assets/banners/offline-vault.jpg" alt="CodeOtter Offline Vault" width="100%" />
+</p>
+
+Review proprietary code on an airplane or within an air-gapped data center. Once a local model is downloaded and `CODEOTTER_UPDATE_CHECK=0` is set, **your code and diffs never leave your network**.
+
+With 1-click downloads directly from **Settings → System → Local models**, open-weight models download with optimized local runtimes:
+
+| Model | Engine Role | Ideal For | Hugging Face |
+| :--- | :--- | :--- | :--- |
+| **Laya Typed-Decisions** | System 1 (Scores & Gates) | Instant rubric scoring & gate checks | [`mys/laya-typed-decisions-GGUF`](https://huggingface.co/mys/laya-typed-decisions-GGUF) |
+| **Kev** | System 1 (Scores & Gates) | High-confidence decision calibration | [`mys/kev-0.8b-GGUF`](https://huggingface.co/mys/kev-0.8b-GGUF) |
+| **Kev 4B** | System 1 (Scores & Gates) | Most accurate local scoring, best with a GPU | [`mys/kev-4b-GGUF`](https://huggingface.co/mys/kev-4b-GGUF) |
+| **Qwen2.5-Coder (Compact)** | System 2 (Prose & Walkthrough) | Fast local walkthroughs on laptops | [`Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF`](https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF) |
+| **Qwen2.5-Coder (Standard)** | System 2 (Prose & Walkthrough) | In-depth code critiques & findings | [`Qwen/Qwen2.5-Coder-7B-Instruct-GGUF`](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF) |
+| **Microsoft CodeReviewer** | System 2 (Hunk Findings) | Specialized diff-hunk comment generation | [`microsoft/codereviewer`](https://huggingface.co/microsoft/codereviewer) |
+
+- **Smart Resource Management**: Local model runtimes spin up on-demand on the first review and automatically shut down after **15 idle minutes** to conserve memory and battery.
+- **Hardware Acceleration**: Automatic GPU detection with seamless CPU fallback ensures smooth execution on everything from developer laptops to dedicated servers.
+- **Intelligent Context Optimization**: Diffs and questions are dynamically formatted to match model context windows for high-speed, reliable local inference.
+
+---
+
+## 🛡️ Auto-Detected `AGENTS.md` & `CLAUDE.md` Enforcement
+
+<p align="center">
+  <img src="assets/banners/merge-gate-agents.jpg" alt="CodeOtter Spot-Checking AI Agents at the Merge Gate" width="100%" />
+</p>
+
+Every repository onboarded in CodeOtter is automatically inspected at its root via its forge API for `AGENTS.md` and/or `CLAUDE.md`.
+- **Zero Configuration**: When either (or both) files exist, team guidelines are automatically injected into the review context.
+- **Enforced at the Merge Gate**: Violations of architecture conventions, file structures, or coding guidelines trigger warnings in the `Repository guidelines` merge gate.
+- **Per-Repository Controls**: Toggle guideline enforcement per repository anytime with a single click.
+
+---
+
+## 🐳 Docker Deployment
+
+A production-ready Docker container packages the complete CodeOtter platform—including persistent storage, team auth, and model runners. Deploy anywhere that runs a container (Docker Compose, Railway, Fly.io, Render, Coolify, or a bare VPS).
+
+### One-click deploy
+
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fdharmeshgurnani%2FCodeOtter%2Fmain%2Fbin%2Fdeploy%2Fazure.json)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dharmeshgurnani/CodeOtter)
 
@@ -173,6 +238,9 @@ The full setup guides are in the **[Quickstart](https://docs.codeotter.io/docs/q
 
 All documentation lives at **[docs.codeotter.io](https://docs.codeotter.io/docs)** ([source](https://github.com/dharmeshgurnani/codeotter-docs)).
 
+- **Zero Telemetry / No Middleman**: Code diffs and metadata never leave your network unless you explicitly configure a hosted AI provider. No telemetry. CodeOtter makes one optional request to GitHub Releases every 6 hours to check for updates; set `CODEOTTER_UPDATE_CHECK=0` to disable.
+- **Calibrated & Sanitized Outputs**: Model responses are validated, normalized, and sanitized before display, eliminating prompt injections and hallucinated scores.
+- **Hardened Access**: Enterprise-grade session security, strict cross-origin protections, and masked credential management protect your infrastructure and repositories.
 | Topic | Guide |
 | :--- | :--- |
 | Run locally | [Quickstart](https://docs.codeotter.io/docs/quickstart) |
