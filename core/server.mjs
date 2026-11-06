@@ -1308,10 +1308,14 @@ async function askModel(prompt, c) {
     if (!Array.isArray(msg.content)) throw new Error(`Anthropic returned no content: ${JSON.stringify(msg).slice(0, 300)}`);
     return msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   }
+  // Claude 4 and later ids get the 16000-token output budget the Messages route uses; Claude 5 ids refuse sampling parameters.
+  // Claude 3.x ids put the version first (claude-3-5-sonnet), so they match neither test and keep the body they had.
+  const claude4Plus = /(^|\/)claude-(opus|sonnet|haiku|fable)-\d/.test(c.model);
+  const claude5 = /(^|\/)claude-(opus|sonnet|haiku|fable)-5([-.]|$)/.test(c.model);
   const res = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) },
-    body: JSON.stringify({ model: c.model, temperature: c.temperature ?? 0.2, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: c.model, ...(claude4Plus ? { max_tokens: 16000 } : {}), ...(claude5 ? {} : { temperature: c.temperature ?? 0.2 }), messages: [{ role: "user", content: prompt }] }),
     signal: withAbort(c.signal, c.local ? 900000 : 180000),
   });
   if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`);
