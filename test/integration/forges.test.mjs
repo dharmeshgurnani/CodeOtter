@@ -5,12 +5,20 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, mkdirSync, cpSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, cpSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes, createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
+
+// A separate installation root for the server under test: core/ and package.json copied, dependencies linked.
+function installCopy(to) {
+  const root = resolve(import.meta.dirname, "..", "..");
+  cpSync(join(root, "core"), join(to, "core"), { recursive: true });
+  cpSync(join(root, "package.json"), join(to, "package.json"));
+  symlinkSync(join(root, "node_modules"), join(to, "node_modules"), "junction");
+}
 
 test("Forgejo / Gitea end to end", { timeout: 20 * 60e3 }, async (ctx) => {
 
@@ -145,8 +153,7 @@ try {
   execFileSync(pbBin, ["superuser", "upsert", "admin@example.test", pbPassword, `--dir=${pbDir}`, `--migrationsDir=${migrations}`], { stdio: "pipe", windowsHide: true });
   child(pbBin, ["serve", `--http=127.0.0.1:${pp}`, `--dir=${pbDir}`, `--migrationsDir=${migrations}`]);
   await ready(`${pb}/api/health`);
-  mkdirSync(join(dir, "core"), { recursive: true }); cpSync(join(root, "package.json"), join(dir, "package.json"));
-  for (const f of readdirSync(join(root, "core")).filter((f) => /\.(mjs|json)$/.test(f))) cpSync(join(root, "core", f), join(dir, "core", f));
+  installCopy(dir);
   cpSync(join(root, "web", "dist"), join(dir, "web", "dist"), { recursive: true });
   // Never invoke the real GitHub CLI or inspect a real checkout during this suite.
   const preload = join(dir, "github-fixture.mjs");
@@ -471,8 +478,7 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
 
   const fileDir = join(dir, "file-storage");
   mkdirSync(join(fileDir, "scores"), { recursive: true });
-  mkdirSync(join(fileDir, "core"), { recursive: true }); cpSync(join(root, "package.json"), join(fileDir, "package.json"));
-  for (const f of readdirSync(join(root, "core")).filter((f) => /\.(mjs|json)$/.test(f))) cpSync(join(root, "core", f), join(fileDir, "core", f));
+  installCopy(fileDir);
   writeFileSync(join(fileDir, "config.json"), JSON.stringify({
     [provider]: { url: forge, token: token.sha1 },
     repos: ["reviewer/sample", `${provider}~reviewer/sample`],

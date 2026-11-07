@@ -28,8 +28,10 @@
     "test:e2e": "pnpm -C web test:e2e"
   },
   "dependencies": {
+    "@hono/node-server": "2.1.6",
     "ansi-regex": "^6.4.0",
     "blessed": "0.1.81",
+    "hono": "4.13.17",
     "slice-ansi": "^9.0.1",
     "wrap-ansi": "^10.0.2"
   },

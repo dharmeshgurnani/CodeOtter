@@ -8,7 +8,7 @@ RUN pnpm install --frozen-lockfile
 COPY web .
 RUN pnpm build
 
-# Terminal dependencies are pure JavaScript; the backend still uses Node alone.
+# Production dependencies are pure JavaScript: the terminal UI's and the backend's HTTP server (Hono).
 FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS terminal-deps
 WORKDIR /app
 RUN npm i -g pnpm@10.20.0

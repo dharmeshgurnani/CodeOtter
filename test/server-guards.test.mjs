@@ -90,9 +90,9 @@ ctx.diagnostic("Bitbucket, Bitbucket Data Center and Azure DevOps URLs map to on
 const { requestOrg, checkRepoScope } = new Function("OWNER_RE", "REPO_RE", "isForgeRepo", "forgeUrl", `${serverBlocks("scope")}; return { requestOrg, checkRepoScope };`)(
   OWNER_RE, REPO_RE, (r) => /^(forgejo|gitea)~/.test(r), (r) => (r.startsWith("forgejo~") ? FORGES.forgejo.url : r.startsWith("gitea~") ? FORGES.gitea.url : "https://github.com"),
 );
-assert.equal(requestOrg(new URL("http://x/api/home?org=acme")), "acme");
-assert.equal(requestOrg(new URL("http://x/api/home")), "");
-assert.throws(() => requestOrg(new URL("http://x/api/home?org=acme/shop")), /Bad organization/);
+assert.equal(requestOrg("acme"), "acme");
+assert.equal(requestOrg(undefined), "");
+assert.throws(() => requestOrg("acme/shop"), /Bad organization/);
 assert.doesNotThrow(() => checkRepoScope("acme/shop", "acme"));
 assert.doesNotThrow(() => checkRepoScope("acme/shop", ""));
 assert.throws(() => checkRepoScope("other/shop", "acme"), /outside the active organization/);
@@ -108,7 +108,7 @@ assert.throws(() => pbFilterEq("url", 'x"||url!="'), /Invalid url/);
 assert.throws(() => pbFilterEq("key", "a\\b"), /Invalid key/);
 ctx.diagnostic("filter values with quotes or backslashes are rejected before PocketBase sees them");
 
-// Roles and the gate, with PocketBase answering through stubs. A response records what the gate wrote.
+// Roles and the gate, with PocketBase answering through stubs. gate(token, level) decides; a refusal carries the 403 body.
 const loadRoles = ({ pbUrl, users = [], refresh = null, recovery = false }) => {
   const calls = { setRole: [] };
   const store = {
@@ -122,15 +122,12 @@ const loadRoles = ({ pbUrl, users = [], refresh = null, recovery = false }) => {
   const prev = process.env.PR_SCORER_RECOVERY;
   if (recovery) process.env.PR_SCORER_RECOVERY = "1"; else delete process.env.PR_SCORER_RECOVERY;
   try {
-    const cookies = (req) => Object.fromEntries((req.headers.cookie || "").split(";").map((c) => c.trim().split("=")).filter(([k]) => k));
-    const out = new Function("PB_URL", "store", "cookies", `${serverBlocks("roles")}; return { gate, allowed, effectiveRole, currentUser };`)(pbUrl, store, cookies);
+    const out = new Function("PB_URL", "store", `${serverBlocks("roles")}; return { gate, allowed, effectiveRole, currentUser };`)(pbUrl, store);
     return { ...out, calls };
   } finally {
     if (prev === undefined) delete process.env.PR_SCORER_RECOVERY; else process.env.PR_SCORER_RECOVERY = prev;
   }
 };
-const fakeRes = () => { const r = { statusCode: 200, headers: {}, body: "", setHeader(k, v) { this.headers[k] = v; }, end(b) { this.body = b; } }; return r; };
-const req = (cookie = "") => ({ headers: cookie ? { cookie } : {} });
 
 {
   const { allowed } = loadRoles({ pbUrl: "http://pb" });
@@ -146,49 +143,47 @@ ctx.diagnostic("owner may do everything, admin everything but owner pages, nobod
 {
   // bootstrap: no account yet, anonymous counts as owner
   const { gate } = loadRoles({ pbUrl: "http://pb", users: [] });
-  const res = fakeRes();
-  assert.equal((await gate(req(), res, "owner")).ok, true);
-  assert.equal(res.statusCode, 200);
+  const r = await gate(undefined, "owner");
+  assert.equal(r.ok, true);
+  assert.equal(r.refusal, undefined);
 }
 {
   // once an account exists, anonymous is refused with login:true
   const { gate } = loadRoles({ pbUrl: "http://pb", users: [{ id: "u1", role: "owner" }] });
-  const res = fakeRes();
-  assert.equal((await gate(req(), res)).ok, false);
-  assert.equal(res.statusCode, 403);
-  assert.deepEqual(JSON.parse(res.body), { error: "Sign in to continue", login: true });
+  const r = await gate(undefined);
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.refusal, { error: "Sign in to continue", login: true });
 }
 {
   // a signed-in admin is refused owner pages with login:false
   const { gate } = loadRoles({ pbUrl: "http://pb", users: [{ id: "u1", role: "owner" }, { id: "u2", role: "admin" }], refresh: { token: "t2", record: { id: "u2", role: "admin", email: "a@x" } } });
-  const res = fakeRes();
-  const r = await gate(req("pr_auth=t2"), res, "owner");
+  const r = await gate("t2", "owner");
   assert.equal(r.ok, false);
   assert.equal(r.user.role, "admin");
-  assert.deepEqual(JSON.parse(res.body), { error: "This needs the owner role", login: false });
-  assert.equal((await gate(req("pr_auth=t2"), fakeRes(), "admin")).ok, true);
+  assert.deepEqual(r.refusal, { error: "This needs the owner role", login: false });
+  assert.equal((await gate("t2", "admin")).ok, true);
 }
 {
   // roles are given only at sign-in (/auth/callback; the first account becomes owner there, see accounts.test.mjs):
   // a request with a role-less session is anonymous and never admits, even before any owner exists
   const first = loadRoles({ pbUrl: "http://pb", users: [], refresh: { token: "t1", record: { id: "u1", role: "" } } });
-  assert.equal(await first.currentUser(req("pr_auth=t1")), null);
+  assert.equal(await first.currentUser("t1"), null);
   assert.deepEqual(first.calls.setRole, []);
   const second = loadRoles({ pbUrl: "http://pb", users: [{ id: "u1", role: "owner" }], refresh: { token: "t2", record: { id: "u2", role: "" } } });
-  assert.equal(await second.currentUser(req("pr_auth=t2")), null);
+  assert.equal(await second.currentUser("t2"), null);
   assert.deepEqual(second.calls.setRole, []);
 }
 {
   // an expired token is anonymous; recovery mode makes anonymous owner again
   const { gate } = loadRoles({ pbUrl: "http://pb", users: [{ id: "u1", role: "owner" }], refresh: null });
-  assert.equal((await gate(req("pr_auth=stale"), fakeRes())).ok, false);
+  assert.equal((await gate("stale")).ok, false);
   const rec = loadRoles({ pbUrl: "http://pb", users: [{ id: "u1", role: "owner" }], refresh: null, recovery: true });
-  assert.equal((await rec.gate(req(), fakeRes(), "owner")).ok, true);
+  assert.equal((await rec.gate(undefined, "owner")).ok, true);
 }
 {
   // file storage has no accounts: the single operator is owner
   const { gate } = loadRoles({ pbUrl: "" });
-  assert.equal((await gate(req("pr_auth=whatever"), fakeRes(), "owner")).ok, true);
+  assert.equal((await gate("whatever", "owner")).ok, true);
 }
 ctx.diagnostic("gate: bootstrap owner, 403 with login flag once an account exists, first sign-in is owner, recovery mode");
 

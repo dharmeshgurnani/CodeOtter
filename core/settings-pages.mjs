@@ -11,7 +11,7 @@ import { getRepoAccepted, getRepoLearnings, guideCache, guideFiles, normalizeLea
 import { triageConfig } from "./review.mjs";
 import { describeDelivery, forwarderStatus, LOCAL_APP_URL, reposChanged, syncForwarders, webhookUrl } from "./queue.mjs";
 import { repoOf } from "./views.mjs";
-import { accessQueue, allowed, effectiveRole, onboardedRepo, ROLES, setCookie, userView } from "./access.mjs";
+import { accessQueue, allowed, effectiveRole, onboardedRepo, ROLES, userView } from "./access.mjs";
 
 // Settings are schema-driven: each page is { title, load() -> { sections, values }, save(body), test?() }.
 // The server describes sections and fields as JSON; the UI has one generic renderer and a sidebar link per page.
@@ -94,14 +94,15 @@ export const FORGE_CONNECTIONS = Object.fromEntries(Object.entries(FORGES).map((
 // GitHub App manifest flow: the browser posts a manifest to GitHub, the user clicks Create once, GitHub returns a code
 // to /github/manifest/callback, and the conversion gives us the app (sign-in client id + secret, and an id + key that
 // list the repositories it is installed on).
-async function githubManifest(res, body) {
+// `http.setCookie(name, value, maxAgeSeconds)` is the route's cookie writer.
+async function githubManifest(body, http) {
   if (!PB_URL) throw new Error("Sign-in is not available in file-storage mode (set PB_URL)");
   if ((await store.getOAuth()).providers.some((p) => p.name === "github" && p.clientId)) throw new Error("GitHub already has an app; turn sign-in off under Auth providers to replace it");
   const state = randomBytes(16).toString("hex");
-  setCookie(res, "pr_manifest", state, 600);
+  http.setCookie("pr_manifest", state, 600);
   // only a path on this site: the manifest callback redirects there
   if (typeof body?.returnTo === "string" && /^\/(?![/\\])/.test(body.returnTo)) {
-    setCookie(res, "pr_manifest_return", body.returnTo, 600);
+    http.setCookie("pr_manifest_return", body.returnTo, 600);
   }
   const owner = ((await repos())[0] || "codeotter").split("/")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-");
   const appPrefix = owner && owner !== "pr-scorer" && owner !== "code-otter" && owner !== "codeotter" ? `codeotter-${owner}` : "codeotter";
@@ -495,8 +496,8 @@ export const SETTINGS_PAGES = {
       }])),
       // GitHub App manifest flow: the browser posts a manifest to GitHub, the user clicks Create once, GitHub returns a
       // code to /github/manifest/callback, and the conversion gives us the client id + secret to store in PocketBase.
-      async connect(req, res, body) {
-        return githubManifest(res, body);
+      async connect(body, http) {
+        return githubManifest(body, http);
       },
     },
     async save(body) {
@@ -562,8 +563,8 @@ export const SETTINGS_PAGES = {
       };
     },
     actions: {
-      async connect(req, res, body) {
-        return githubManifest(res, body);
+      async connect(body, http) {
+        return githubManifest(body, http);
       },
     },
     async save(body) {
@@ -717,7 +718,7 @@ SETTINGS_PAGES.accounts = {
     await store.setSetting("invites", invites);
   },
   actions: {
-    async uninvite(_req, _res, body) {
+    async uninvite(body) {
       const id = String(body?.item || "").replace(/^invite:/, "");
       const invites = (await store.getSetting("invites")) || [];
       if (!invites.some((i) => i.id === id)) throw new Error("Unknown invite");
@@ -830,7 +831,7 @@ SETTINGS_PAGES.models = {
   },
   async save() {},
   actions: {
-    async download(_req, _res, body) {
+    async download(body) {
       const m = LOCAL[body?.item];
       if (!m) throw new Error("Unknown model");
       const haveModel = modelReady(m);
@@ -838,7 +839,7 @@ SETTINGS_PAGES.models = {
       ensureRuntime(m.runtime).catch(() => {});
       return { message: haveModel ? `Installing the ${m.runtime} runtime…` : `Downloading ${m.label} (${m.sizeMB} MB)…` };
     },
-    async use(_req, _res, body) {
+    async use(body) {
       const m = LOCAL[body?.item];
       if (!m) throw new Error("Unknown model");
       if (!modelReady(m)) throw new Error(`${m.label} is not downloaded`);
@@ -848,7 +849,7 @@ SETTINGS_PAGES.models = {
       modelCache.clear();
       return { message: `${m.label} is now the ${m.kind === "s1" ? "System One" : "language"} model.` };
     },
-    async delete(_req, _res, body) {
+    async delete(body) {
       const m = LOCAL[body?.item];
       if (!m) throw new Error("Unknown model");
       if (sidecars[m.kind].id === m.id) stopSidecar(m.kind);

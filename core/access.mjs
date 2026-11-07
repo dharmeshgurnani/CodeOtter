@@ -1,11 +1,13 @@
-// Organization scope, cookies, account roles, gate() and repository visibility.
-import { APP_URL, OWNER_RE, REPO_RE } from "./config.mjs";
+// Organization scope, account roles, gate() and repository visibility. No HTTP objects: callers pass the session token
+// (the pr_auth cookie) and turn a refused gate into a response (core/routes/middleware.mjs).
+import { OWNER_RE, REPO_RE } from "./config.mjs";
 import { PB_URL, store } from "./store.mjs";
 import { forgeUrl, isForgeRepo, repos } from "./git.mjs";
 
 // <scope>
-export function requestOrg(url) {
-  const org = url.searchParams.get("org") || "";
+// The ?org= scope of a request, validated.
+export function requestOrg(org = "") {
+  org = org || "";
   if (org && !OWNER_RE.test(org)) throw new Error("Bad organization");
   return org;
 }
@@ -18,12 +20,6 @@ export async function onboardedRepo(repo, org) {
   if (!(await repos()).includes(repo)) throw new Error("Repository is not onboarded");
 }
 // </scope>
-// Cookies: pr_oauth is an opaque key for server-held state/PKCE; pr_auth is the PocketBase user token.
-export const cookies = (req) => Object.fromEntries((req.headers.cookie || "").split(";").map((c) => c.trim().split("=")).filter(([k]) => k).map(([k, ...v]) => { try { return [k, decodeURIComponent(v.join("="))]; } catch { return [k, ""]; } }));
-export const setCookie = (res, name, value, maxAge) => {
-  const prev = res.getHeader("set-cookie") || [];
-  res.setHeader("set-cookie", [...(Array.isArray(prev) ? prev : [prev]), `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${APP_URL.startsWith("https") ? "; Secure" : ""}`]);
-};
 // Account types. owner: everything. admin: everything except Accounts. developer: Home and the repositories assigned on
 // Manage accounts (reviews, open pull requests, running reviews and PR tools); no Settings or Admin pages.
 // The first account to sign in becomes owner. After that a sign-in needs an invite: matched by provider + username, or
@@ -66,8 +62,8 @@ async function admitOne(record, providers, username, entraEmail = "") {
   record.role = role;
   return role;
 }
-export async function currentUser(req) {
-  const token = cookies(req).pr_auth;
+// `token` is the pr_auth cookie: the PocketBase user token.
+export async function currentUser(token) {
   if (!token || !PB_URL) return null;
   const r = await store.authRefresh(token);
   if (!r) return null;
@@ -82,15 +78,13 @@ const RECOVERY = process.env.PR_SCORER_RECOVERY === "1";
 export const effectiveRole = async (user) => user?.role || (RECOVERY || !PB_URL || !(await hasUsers()) ? "owner" : "");
 // Access levels: "owner" (owner), "admin" (owner, admin), "review" (any role; developers then pass canSeeRepo per repository).
 export const allowed = (role, access) => (access === "owner" ? role === "owner" : access === "admin" ? role === "owner" || role === "admin" : access === "review" ? ROLES.includes(role) : true);
-// Gate: every data endpoint needs at least the admin role (owner during bootstrap). 403 carries login:true when signed out.
-export async function gate(req, res, access = "admin") {
-  const user = await currentUser(req);
+// Gate: every data endpoint needs at least the admin role (owner during bootstrap). A refusal carries the 403 body,
+// with login:true when signed out.
+export async function gate(token, access = "admin") {
+  const user = await currentUser(token);
   const role = await effectiveRole(user);
   if (allowed(role, access)) return { user, role, ok: true };
-  res.statusCode = 403;
-  res.setHeader("content-type", "application/json");
-  res.end(JSON.stringify({ error: user ? `This needs the ${access} role` : "Sign in to continue", login: !user }));
-  return { user, role, ok: false };
+  return { user, role, ok: false, refusal: { error: user ? `This needs the ${access} role` : "Sign in to continue", login: !user } };
 }
 // </roles>
 // What a viewer ({ user, role } from gate) may see: owners and admins every repository, a developer only the repositories
@@ -110,8 +104,8 @@ export async function assertRepo(g, repo) {
   if (!(await canSeeRepo(g, repo))) throw forbidden("Repository is not assigned to your account");
 }
 // Link previews (og image, page meta) are public as before; a signed-in developer gets none for an unassigned repository.
-export async function developerBlocked(req, repo) {
-  const user = await currentUser(req);
+export async function developerBlocked(token, repo) {
+  const user = await currentUser(token);
   return user?.role === "developer" && !(await canSeeRepo({ user, role: user.role }, repo));
 }
 // </visibility>
