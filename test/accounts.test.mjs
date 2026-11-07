@@ -26,7 +26,7 @@ const load = ({ users = [{ id: "o", role: "owner" }], invites = [], access = {} 
     authRefresh: async () => null,
   };
   const repos = async () => ["acme/api", "acme/secret", "gitea~acme/ops"];
-  const out = new Function("PB_URL", "store", "cookies", "repos", `${serverBlocks("roles", "visibility")}; return { admit, allowed, ROLES, visibleRepos, canSeeRepo, assertRepo };`)("http://pb", store, () => ({}), repos);
+  const out = new Function("PB_URL", "store", "repos", `${serverBlocks("roles", "visibility")}; return { admit, allowed, ROLES, visibleRepos, canSeeRepo, assertRepo };`)("http://pb", store, repos);
   return { ...out, settings, calls };
 };
 

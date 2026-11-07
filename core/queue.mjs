@@ -150,14 +150,6 @@ async function webhookSecrets(src) {
   }
   return [(await store.getSetting(`${src}Webhook`))?.secret].filter(Boolean);
 }
-const readRaw = (req, max = 2e6) =>
-  new Promise((ok, err) => {
-    const parts = [];
-    let n = 0;
-    req.on("data", (d) => { n += d.length; if (n > max) { req.destroy(); err(new Error("Request body too large")); } parts.push(d); })
-      .on("end", () => ok(Buffer.concat(parts)))
-      .on("error", err);
-  });
 let webhookStatusWritten = 0;
 function noteDelivery(src, event, delivery) {
   WEBHOOK_LAST[src] = { at: Date.now(), event, delivery };
@@ -174,11 +166,11 @@ const normalizeGitHubPr = (pr) => ({
   isDraft: !!pr.draft, labels: (pr.labels || []).map((l) => ({ name: l?.name || String(l) })),
 });
 const PR_EVENT_ACTIONS = ["opened", "synchronize", "synchronized", "reopened", "ready_for_review"];
-export async function handleWebhook(req, res, src) {
-  const reply = (status, o) => { res.statusCode = status; res.setHeader("content-type", "application/json"); res.end(JSON.stringify(o)); };
+// One delivery: `h` is the request headers (lower-case names), `body` the raw bytes the signature covers. Returns the reply;
+// accepted work starts before it is sent and never delays it.
+export async function handleWebhook(src, h, body) {
+  const reply = (status, o) => ({ status, body: o });
   if (src !== "github" && !FORGES[src]?.url) return reply(404, { error: `${FORGES[src]?.label || src} is not configured` });
-  const body = await readRaw(req);
-  const h = req.headers;
   const forge = src === "github" ? null : FORGE_API[src];
   let { event, delivery, signature } = forge ? forge.hookMeta(h) : { event: String(h["x-github-event"] || ""), delivery: String(h["x-github-delivery"] || ""), signature: h["x-hub-signature-256"] };
   const secrets = await webhookSecrets(src);
@@ -193,9 +185,8 @@ export async function handleWebhook(req, res, src) {
   }
   if (forge?.hookBody) ({ event, delivery } = forge.hookBody(payload));
   noteDelivery(src, event, delivery);
-  reply(202, { ok: true });
-  if (delivery && !remember(SEEN_DELIVERIES, `${src}:${delivery}`)) return;
-  routeWebhook(src, event, payload).catch((e) => console.warn(`[webhook ${src}] ${event}: ${e.message}`));
+  if (!delivery || remember(SEEN_DELIVERIES, `${src}:${delivery}`)) routeWebhook(src, event, payload).catch((e) => console.warn(`[webhook ${src}] ${event}: ${e.message}`));
+  return reply(202, { ok: true });
 }
 async function routeWebhook(src, event, x) {
   if (event === "ping") return;

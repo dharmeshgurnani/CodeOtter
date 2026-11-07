@@ -3,7 +3,6 @@
 // server.mjs with storage, forges, gh and the review engines stubbed.
 import assert from "node:assert";
 import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
-import { Readable } from "node:stream";
 import { test } from "node:test";
 import { serverBlocks } from "./helpers/server-blocks.mjs";
 import { makeForge, secretMatches } from "../core/forges.mjs";
@@ -74,12 +73,10 @@ function load({ scoreFails = false, repos = ["acme/app", "gitea~acme/lib", "bitb
 const sign = (secret, body, prefix = "sha256=") => prefix + createHmac("sha256", secret).update(body).digest("hex");
 async function deliver(api, src, { event, body, secret, delivery = randomBytes(8).toString("hex"), prefix } = {}) {
   const raw = Buffer.from(typeof body === "string" ? body : JSON.stringify(body));
-  const req = Readable.from([raw]);
   const sigHeader = src === "github" ? "x-hub-signature-256" : `x-${src}-signature`;
-  req.headers = { [`x-${src}-event`]: event, [`x-${src}-delivery`]: delivery, ...(secret ? { [sigHeader]: sign(secret, raw, prefix ?? (src === "github" ? "sha256=" : "")) } : {}) };
-  const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(b) { this.body = b; } };
-  await api.handleWebhook(req, res, src);
-  return res;
+  const headers = { [`x-${src}-event`]: event, [`x-${src}-delivery`]: delivery, ...(secret ? { [sigHeader]: sign(secret, raw, prefix ?? (src === "github" ? "sha256=" : "")) } : {}) };
+  const { status, body: reply } = await api.handleWebhook(src, headers, raw);
+  return { statusCode: status, body: reply };
 }
 // Wait for the PR queue to drain, then a few ticks for work that runs outside it (comment commands).
 const settle = async (api) => { for (let i = 0; i < 100 && api.pending(); i++) await new Promise((r) => setTimeout(r, 5)); await new Promise((r) => setTimeout(r, 30)); };
@@ -237,10 +234,8 @@ const settle = async (api) => { for (let i = 0; i < 100 && api.pending(); i++) a
   const pr = { id: 5, title: "Add cart", state: "OPEN", author: { nickname: "dev" }, source: { branch: { name: "feat" }, commit: { hash: "abc123def456" }, repository: repo }, destination: { branch: { name: "main" }, repository: repo } };
   const send = (event, body, secret = "bb-secret", delivery = randomBytes(8).toString("hex")) => {
     const raw = Buffer.from(JSON.stringify(body));
-    const req = Readable.from([raw]);
-    req.headers = { "x-event-key": event, "x-request-uuid": delivery, "x-hub-signature": sign(secret, raw) };
-    const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(b) { this.body = b; } };
-    return api.handleWebhook(req, res, "bitbucket").then(() => res);
+    const headers = { "x-event-key": event, "x-request-uuid": delivery, "x-hub-signature": sign(secret, raw) };
+    return api.handleWebhook("bitbucket", headers, raw).then((r) => ({ statusCode: r.status, body: r.body }));
   };
   assert.strictEqual((await send("pullrequest:updated", { pullrequest: pr, repository: repo }, "gt-secret")).statusCode, 401, "another forge's secret");
   assert.strictEqual((await send("pullrequest:updated", { pullrequest: pr, repository: repo }, "bb-secret", "u1")).statusCode, 202);
@@ -262,10 +257,8 @@ const settle = async (api) => { for (let i = 0; i < 100 && api.pending(); i++) a
   const repository = { webUrl: "https://dev.azure.com/contoso/Web%20Shop/_git/api" };
   const pr = { pullRequestId: 31, status: "active", title: "Fix tax", sourceRefName: "refs/heads/fix", targetRefName: "refs/heads/main", lastMergeSourceCommit: { commitId: "f".repeat(40) }, createdBy: { uniqueName: "dev@contoso.com" }, repository };
   const send = (body, secret = "az-secret") => {
-    const req = Readable.from([Buffer.from(JSON.stringify(body))]);
-    req.headers = secret ? { "x-codeotter-secret": secret } : {};
-    const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(b) { this.body = b; } };
-    return api.handleWebhook(req, res, "azure").then(() => res);
+    const headers = secret ? { "x-codeotter-secret": secret } : {};
+    return api.handleWebhook("azure", headers, Buffer.from(JSON.stringify(body))).then((r) => ({ statusCode: r.status, body: r.body }));
   };
   const updated = { id: "evt-1", eventType: "git.pullrequest.updated", resource: pr };
   assert.strictEqual((await send(updated, "")).statusCode, 401);
