@@ -17,7 +17,8 @@
   <a href="https://docs.codeotter.io/docs/local-gguf-sidecar"><strong>Offline Mode</strong></a> &middot;
   <a href="https://docs.codeotter.io/docs/docker-quickstart"><strong>Docker</strong></a> &middot;
   <a href="https://docs.codeotter.io/docs/security"><strong>Security & Privacy</strong></a> &middot;
-  <a href="#-star-history"><strong>Star History</strong></a>
+  <a href="#-star-history"><strong>Star History</strong></a> &middot;
+  <a href="#-sponsors"><strong>Sponsors</strong></a>
 </p>
 
 <p align="center">
@@ -199,7 +200,30 @@ All documentation lives at **[docs.codeotter.io](https://docs.codeotter.io/docs)
 
 ---
 
+## 💛 Sponsors
+
+CodeOtter is free to self-host with no paid tier. Sponsorship pays for maintainer time and for the model credits that review every CodeOtter pull request with CodeOtter.
+
+<p align="center">
+  <a href="https://github.com/sponsors/dharmeshgurnani"><img src="https://img.shields.io/badge/Sponsor-GitHub_Sponsors-db2777.svg?logo=githubsponsors&logoColor=white" alt="Sponsor on GitHub" /></a>
+</p>
+
+| | What you get |
+| :--- | :--- |
+| **Individual** | Name in the release notes |
+| **Company** | Logo and link here and on [codeotter.io](https://codeotter.io) |
+| **AI and infrastructure partners** | Model or compute credits; listed as a supported provider or deploy target |
+
+Company and partner sponsorship: **sponsors@codeotter.io**.
+
+<!-- sponsors -->
+<p align="center"><em>Your logo here.</em></p>
+<!-- /sponsors -->
+
+---
+
 ## 📄 License & Community
 
 - **License**: Open source under the [GNU AGPL-3.0](LICENSE). Free to self-host, modify and redistribute; anyone who runs a modified version as a network service must publish their changes.
-- **Contributing**: Contributions and feedback are welcome! Please check out [`CONTRIBUTING.md`](CONTRIBUTING.md) to get started.
+- **Contributing**: Contributions and feedback are welcome! Please check out [`CONTRIBUTING.md`](CONTRIBUTING.md) to get started. Start with a [`good first issue`](https://github.com/dharmeshgurnani/CodeOtter/labels/good%20first%20issue).
+- **Code of conduct**: [Contributor Covenant 2.1](CODE_OF_CONDUCT.md).
