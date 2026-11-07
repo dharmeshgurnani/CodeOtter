@@ -2,23 +2,30 @@
 // server.mjs with forge, gh, review and tool calls stubbed.
 import assert from "node:assert";
 import { serverBlock } from "./helpers/server-blocks.mjs";
+import { makeForge } from "../core/forges.mjs";
 import { test } from "node:test";
 
 test("PR comment commands", async (ctx) => {
 
 const block = serverBlock("pr-commands");
 
+// The Forgejo side runs the real adapter from core/forges.mjs against a stubbed fetch.
+const realFetch = globalThis.fetch;
 function load({ forgePermission = "write", forgeStatus = 0, toolFails = false } = {}) {
   const calls = [];
+  const forgejo = makeForge("forgejo", { kind: "gitea", label: "Forgejo", url: "https://git.example", token: "t" });
+  globalThis.fetch = async (url, init = {}) => {
+    const u = new URL(url);
+    const path = `${u.pathname.replace(/^\/api\/v1\//, "")}${u.search}`;
+    calls.push(["forge", path, init.body ? JSON.parse(init.body) : undefined]);
+    if (path.endsWith("/permission")) return forgeStatus ? new Response("x", { status: forgeStatus }) : Response.json({ permission: forgePermission });
+    return Response.json([]);
+  };
   const stubs = {
     isForgeRepo: (r) => r.startsWith("forgejo~"),
+    forgeOf: () => forgejo,
     prUrlFor: (repo, n) => (repo.startsWith("forgejo~") ? `https://git.example/${repo.slice(8)}/pulls/${n}` : `https://github.com/${repo}/pull/${n}`),
     oneLine: (x, max) => String(x).replace(/\s+/g, " ").slice(0, max),
-    forgeApi: async (path, opts) => {
-      calls.push(["forge", path, opts?.body]);
-      if (path.endsWith("/permission")) { if (forgeStatus) throw Object.assign(new Error("x"), { status: forgeStatus }); return { permission: forgePermission }; }
-      return [];
-    },
     ghAsync: async (...a) => { calls.push(["gh", ...a]); return "[]"; },
     score: async (url, force, repo) => { calls.push(["score", url, force, repo]); return { pr: { url } }; },
     syncPrComments: async (r, repo, opts) => { calls.push(["sync", r.pr.url, repo, opts]); return []; },
@@ -68,7 +75,7 @@ ctx.diagnostic("/review re-reviews and posts");
 // Tools: run with the argument, then post as a comment.
 const t = load();
 await t.runCommand("forgejo~acme/shop", { id: 5, html_url: "https://git.example/acme/shop/pulls/12#issuecomment-5" }, { cmd: "ask", arg: "why?" });
-assert.deepStrictEqual(t.calls[0], ["forge", "repos/forgejo~acme/shop/issues/comments/5/reactions", { content: "eyes" }]);
+assert.deepStrictEqual(t.calls[0], ["forge", "repos/acme/shop/issues/comments/5/reactions", { content: "eyes" }]);
 assert.deepStrictEqual(t.calls.slice(1).map((c) => [c[0], c[1], c[2], c[3]]), [
   ["tool", "https://git.example/acme/shop/pulls/12", "ask", { question: "why?" }],
   ["tool", "https://git.example/acme/shop/pulls/12", "ask", { action: "comment" }],
@@ -86,7 +93,9 @@ const l = load();
 await l.commentsSince("acme/shop", "2026-10-04T10:00:00.000Z");
 await l.commentsSince("forgejo~acme/shop", "2026-10-04T10:00:00.000Z");
 assert.strictEqual(l.calls[0][2], "repos/acme/shop/issues/comments?since=2026-10-04T10%3A00%3A00.000Z&sort=created&direction=asc&per_page=100");
-assert.strictEqual(l.calls[1][1], "repos/forgejo~acme/shop/issues/comments?since=2026-10-04T10%3A00%3A00.000Z&limit=50");
+assert.strictEqual(l.calls[1][1], "repos/acme/shop/issues/comments?since=2026-10-04T10%3A00%3A00.000Z&limit=50");
 ctx.diagnostic("comments listed since the last poll");
+
+globalThis.fetch = realFetch;
 
 });

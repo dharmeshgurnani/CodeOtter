@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { makeForge, secretMatches } from "./forges.mjs";
 
 // Importing the shared services from the TUI must not start a web server or automation.
 const IS_SERVER = !!process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
@@ -33,10 +34,20 @@ function forgeOrigin(value) {
   if (u.hostname === "github.com") throw new Error("Git servers must use a separate server from github.com");
   return u.origin;
 }
+// Every git server besides GitHub. `kind` picks the adapter in forges.mjs; `fixed` providers have one public origin;
+// `pb` is the PocketBase OAuth2 provider used for sign-in (Bitbucket Data Center has none). Saved settings override env.
+const envList = (v) => String(v || "").split(",").map((x) => x.trim()).filter(Boolean);
 const FORGES = {
-  forgejo: { label: "Forgejo", pb: "oidc", url: forgeOrigin(process.env.FORGEJO_URL || ""), token: process.env.FORGEJO_TOKEN || "" },
-  gitea: { label: "Gitea", pb: "gitea", url: forgeOrigin(process.env.GITEA_URL || ""), token: process.env.GITEA_TOKEN || "" },
+  forgejo: { kind: "gitea", label: "Forgejo", pb: "oidc", url: forgeOrigin(process.env.FORGEJO_URL || ""), token: process.env.FORGEJO_TOKEN || "" },
+  gitea: { kind: "gitea", label: "Gitea", pb: "gitea", url: forgeOrigin(process.env.GITEA_URL || ""), token: process.env.GITEA_TOKEN || "" },
+  bitbucket: { kind: "bitbucket", label: "Bitbucket", pb: "bitbucket", fixed: true, url: "https://bitbucket.org", token: process.env.BITBUCKET_TOKEN || "", user: process.env.BITBUCKET_USER || "" },
+  bitbucketdc: { kind: "bitbucketdc", label: "Bitbucket Data Center", url: forgeOrigin(process.env.BITBUCKET_DC_URL || ""), token: process.env.BITBUCKET_DC_TOKEN || "" },
+  azure: { kind: "azure", label: "Azure DevOps", pb: "microsoft", signInLabel: "Microsoft", fixed: true, url: "https://dev.azure.com", token: process.env.AZURE_DEVOPS_TOKEN || "", orgs: envList(process.env.AZURE_DEVOPS_ORGS) },
 };
+const FORGE_IDS = Object.keys(FORGES);
+const FORGE_API = Object.fromEntries(FORGE_IDS.map((id) => [id, makeForge(id, FORGES[id])]));
+// A provider is in use once it can be reached: a self-hosted one when its server is set, a fixed one when it has a token.
+const forgeActive = (id) => (FORGES[id].fixed ? !!FORGES[id].token : !!FORGES[id].url);
 // Newest published release, refreshed in the background at most every 6 hours. CODEOTTER_UPDATE_CHECK=0 turns it off.
 const VERSION = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
 const release = { at: 0, version: "", url: "" };
@@ -57,10 +68,11 @@ function availableUpdate() {
 }
 // Declared before repoFromCwd() runs below: a const used before its declaration throws, and the catch blocks there would hide it.
 // <repo-id>
-const OWNER_RE = /^(?:(?:forgejo|gitea)~)?[\w][\w.-]*$/;
-const REPO_RE = /^(?:(?:forgejo|gitea)~)?[\w][\w.-]*\/[\w][\w.-]*$/;
+// owner/name everywhere, except Azure DevOps: azure~org/project/repo, whose project and repository names may hold spaces.
+const OWNER_RE = /^(?:(?:forgejo|gitea|bitbucket|bitbucketdc|azure)~)?[\w][\w.-]*$/;
+const REPO_RE = /^(?:(?:(?:forgejo|gitea|bitbucket|bitbucketdc)~)?[\w][\w.-]*\/[\w][\w.-]*|azure~[\w][\w.-]*\/[\w](?:[\w. -]*[\w.-])?\/[\w](?:[\w. -]*[\w.-])?)$/;
 // </repo-id>
-const REPO = process.env.REPO || (Object.values(FORGES).some((f) => f.url) ? "" : repoFromCwd());
+const REPO = process.env.REPO || (FORGE_IDS.some(forgeActive) ? "" : repoFromCwd());
 function repoFromCwd() {
   try {
     const ghRepo = execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { encoding: "utf8" }).trim();
@@ -554,9 +566,10 @@ if (IS_SERVER) setInterval(async () => {
 // </pr-events>
 
 // <webhooks>
-// GitHub App, Forgejo and Gitea webhooks land on POST /webhooks/<source>. The raw body is HMAC-SHA256 checked against the
-// stored secret, deliveries are de-duplicated by id, the response goes out before any work starts, and the work goes through
-// the same queue as the poll. Nothing here trusts the payload beyond the repository name and PR number; score() re-reads the PR.
+// GitHub App and git server webhooks land on POST /webhooks/<source>. The raw body is HMAC-SHA256 checked against the
+// stored secret (Azure DevOps cannot sign: its deliveries carry the secret in a header, compared in constant time),
+// deliveries are de-duplicated by id, the response goes out before any work starts, and the work goes through the same
+// queue as the poll. Nothing here trusts the payload beyond the repository name and PR number; score() re-reads the PR.
 const WEBHOOK_LAST = {}; // source -> { at, event, delivery }
 const SEEN_DELIVERIES = new Set();
 const HANDLED_COMMENTS = new Set();
@@ -616,18 +629,19 @@ async function handleWebhook(req, res, src) {
   if (src !== "github" && !FORGES[src]?.url) return reply(404, { error: `${FORGES[src]?.label || src} is not configured` });
   const body = await readRaw(req);
   const h = req.headers;
-  const event = String(h["x-github-event"] || h["x-forgejo-event"] || h["x-gitea-event"] || "");
-  const delivery = String(h["x-github-delivery"] || h["x-forgejo-delivery"] || h["x-gitea-delivery"] || "");
-  const sig = h["x-hub-signature-256"] || h["x-forgejo-signature"] || h["x-gitea-signature"];
+  const forge = src === "github" ? null : FORGE_API[src];
+  let { event, delivery, signature } = forge ? forge.hookMeta(h) : { event: String(h["x-github-event"] || ""), delivery: String(h["x-github-delivery"] || ""), signature: h["x-hub-signature-256"] };
   const secrets = await webhookSecrets(src);
   if (!secrets.length) return reply(503, { error: `No ${src} webhook secret configured (Admin / Git providers)` });
-  if (!secrets.some((s) => verifySignature(s, body, sig))) return reply(401, { error: "Bad signature" });
+  const ok = forge?.secretHeader ? secrets.some((s) => secretMatches(s, h[forge.secretHeader])) : secrets.some((s) => verifySignature(s, body, signature));
+  if (!ok) return reply(401, { error: "Bad signature" });
   let payload;
   try {
     payload = JSON.parse(body.toString("utf8"));
   } catch {
     return reply(400, { error: "Bad JSON" });
   }
+  if (forge?.hookBody) ({ event, delivery } = forge.hookBody(payload));
   noteDelivery(src, event, delivery);
   reply(202, { ok: true });
   if (delivery && !remember(SEEN_DELIVERIES, `${src}:${delivery}`)) return;
@@ -636,6 +650,13 @@ async function handleWebhook(req, res, src) {
 async function routeWebhook(src, event, x) {
   if (event === "ping") return;
   if (event === "installation" || event === "installation_repositories") { ghReposCache = null; return; }
+  // Bitbucket and Azure DevOps payloads have their own shapes; their adapter turns them into a PR or a comment.
+  const routed = FORGE_API[src]?.route?.(event, x);
+  if (FORGE_API[src]?.route) {
+    if (!routed || !REPO_RE.test(routed.repo) || !(await repos()).includes(routed.repo)) return;
+    if (routed.pr) return enqueuePr(routed.repo, routed.pr);
+    return routed.comment && handleComment(routed.repo, routed.comment);
+  }
   const full = String(x?.repository?.full_name || "");
   if (!REPO_RE.test(full)) return;
   const repo = src === "github" ? full : `${src}~${full}`;
@@ -648,20 +669,24 @@ async function routeWebhook(src, event, x) {
   if (event === "issue_comment" || event === "pull_request_comment") {
     const c = x.comment;
     if (x.action !== "created" || !c || !(x.issue?.pull_request || x.is_pull)) return;
-    if (!(await reviewConfig(repo)).commands) return;
-    const command = parseCommand(c.body);
-    if (!command || !commentPrNumber(c)) return;
-    if (!remember(HANDLED_COMMENTS, `${repo}#${c.id}`)) return;
-    // move the command poll's bookmark past this comment so it is not listed again
-    const seen = (await store.getSetting("commandsSeen")) || {};
-    const at = Date.parse(c.created_at || "");
-    if (at && !(Date.parse(seen[repo] || "") >= at)) {
-      seen[repo] = new Date(at).toISOString();
-      await store.setSetting("commandsSeen", seen);
-    }
-    if (!(await commenterTrusted(repo, c).catch(() => false))) return;
-    await runCommand(repo, c, command);
+    return handleComment(repo, c);
   }
+}
+// A comment command from a webhook: once per comment, only when commands are on and the commenter may write.
+async function handleComment(repo, c) {
+  if (!(await reviewConfig(repo)).commands) return;
+  const command = parseCommand(c.body);
+  if (!command || !commentPrNumber(c)) return;
+  if (!remember(HANDLED_COMMENTS, `${repo}#${c.id}`)) return;
+  // move the command poll's bookmark past this comment so it is not listed again
+  const seen = (await store.getSetting("commandsSeen")) || {};
+  const at = Date.parse(c.created_at || "");
+  if (at && !(Date.parse(seen[repo] || "") >= at)) {
+    seen[repo] = new Date(at).toISOString();
+    await store.setSetting("commandsSeen", seen);
+  }
+  if (!(await commenterTrusted(repo, c).catch(() => false))) return;
+  await runCommand(repo, c, command);
 }
 // GitHub does not retry a failed delivery on its own. After a restart, the pull_request deliveries that failed while this
 // process was down are asked for again; comments are covered by the command poll's own "since" bookmark.
@@ -723,8 +748,8 @@ const forwarderStatus = () => [...FORWARDERS].map(([repo, f]) => `${repo}: ${f.s
 // </forwarder>
 
 // <forge-hooks>
-// Forgejo and Gitea have no app installs: a repository webhook is registered when a repository is onboarded and removed
-// when it leaves. One secret per forge, generated once; the hook is recognised by its URL so it is never duplicated.
+// Git servers have no app installs: a repository webhook (Azure DevOps: service hook subscriptions) is registered when a
+// repository is onboarded and removed when it leaves. One secret per forge, generated once; the hook is recognised by its URL so it is never duplicated.
 async function forgeHookSecret(src) {
   const cur = await store.getSetting(`${src}Webhook`);
   if (cur?.secret) return cur.secret;
@@ -732,20 +757,8 @@ async function forgeHookSecret(src) {
   await store.setSetting(`${src}Webhook`, { ...(cur || {}), secret });
   return secret;
 }
-async function ensureForgeHook(repo) {
-  const url = webhookUrl(forgeId(repo));
-  const hooks = await forgeApi(`repos/${repo}/hooks`);
-  if ((Array.isArray(hooks) ? hooks : []).some((h) => h?.config?.url === url)) return false;
-  await forgeApi(`repos/${repo}/hooks`, { method: "POST", body: { type: "gitea", active: true, events: ["pull_request", "issue_comment", "pull_request_comment"], config: { url, content_type: "json", secret: await forgeHookSecret(forgeId(repo)) } } });
-  return true;
-}
-async function removeForgeHook(repo) {
-  const url = webhookUrl(forgeId(repo));
-  const hooks = await forgeApi(`repos/${repo}/hooks`).catch(() => []);
-  for (const h of Array.isArray(hooks) ? hooks : []) {
-    if (h?.config?.url === url && Number.isSafeInteger(Number(h.id))) await forgeApi(`repos/${repo}/hooks/${Number(h.id)}`, { method: "DELETE" }).catch(() => {});
-  }
-}
+const ensureForgeHook = async (repo) => forgeOf(repo).ensureHook(repo, webhookUrl(forgeId(repo)), await forgeHookSecret(forgeId(repo)));
+const removeForgeHook = (repo) => forgeOf(repo).removeHook(repo, webhookUrl(forgeId(repo))).catch(() => {});
 // Called after the onboarded list changes: registers forge hooks for newcomers, drops them for leavers, re-syncs forwarders.
 async function reposChanged(before, after) {
   for (const repo of after.filter((r) => isForgeRepo(r) && !before.includes(r))) await ensureForgeHook(repo).catch((e) => console.warn(`[webhook ${forgeId(repo)}] ${nativeRepo(repo)}: ${e.message}`));
@@ -1070,94 +1083,63 @@ const ghAsync = (...rawArgs) => {
   });
 };
 // <pr-url>
-const forgeId =(repo) => /^(forgejo|gitea)~/.exec(String(repo))?.[1] || "";
+const FORGE_PREFIX = /^(forgejo|gitea|bitbucket|bitbucketdc|azure)~/;
+const forgeId = (repo) => FORGE_PREFIX.exec(String(repo))?.[1] || "";
 const isForgeRepo = (repo) => !!forgeId(repo);
-const nativeRepo = (repo) => String(repo).replace(/^(forgejo|gitea)~/, "");
+const nativeRepo = (repo) => String(repo).replace(FORGE_PREFIX, "");
+const forgeOf = (repo) => FORGE_API[forgeId(repo)];
 const repoLabel = (repo) => isForgeRepo(repo) ? `${nativeRepo(repo)} · ${FORGES[forgeId(repo)].label}` : repo;
 const forgeUrl = (repo) => isForgeRepo(repo) ? FORGES[forgeId(repo)].url : "https://github.com";
-const prUrlFor = (repo, number) => `${forgeUrl(repo)}/${nativeRepo(repo)}/${isForgeRepo(repo) ? "pulls" : "pull"}/${number}`;
+const prUrlFor = (repo, number) => isForgeRepo(repo) ? forgeOf(repo).prUrl(repo, number) : `https://github.com/${repo}/pull/${number}`;
+// A pull request's web URL is its identity: it maps back to exactly one repository id and number, or to nothing.
 function parsePrUrl(value) {
   try {
     const u = new URL(value);
-    if (u.username || u.password || u.search || u.hash) return null;
-    const source = Object.keys(FORGES).find((id) => FORGES[id].url && u.origin === FORGES[id].url);
-    const fj = !!source;
-    if (!fj && u.origin !== "https://github.com") return null;
-    const m = u.pathname.match(fj ? /^\/([\w][\w.-]*\/[\w][\w.-]*)\/pulls\/([1-9]\d*)$/ : /^\/([\w][\w.-]*\/[\w][\w.-]*)\/pull\/([1-9]\d*)$/);
-    if (!m || value !== `${u.origin}${u.pathname}`) return null;
-    return { repo: `${source ? `${source}~` : ""}${m[1]}`, number: Number(m[2]), selfHosted: fj };
+    if (u.username || u.password || u.search || u.hash || value !== `${u.origin}${u.pathname}`) return null;
+    const source = FORGE_IDS.find((id) => FORGES[id].url && u.origin === FORGES[id].url);
+    if (!source && u.origin !== "https://github.com") return null;
+    if (!source) {
+      const m = u.pathname.match(/^\/([\w][\w.-]*\/[\w][\w.-]*)\/pull\/([1-9]\d*)$/);
+      return m ? { repo: m[1], number: Number(m[2]), selfHosted: false } : null;
+    }
+    const hit = FORGE_API[source].parsePr(u);
+    const repo = hit && `${source}~${hit.native}`;
+    return hit && REPO_RE.test(repo) ? { repo, number: hit.number, selfHosted: true } : null;
   } catch { return null; }
 }
 const validPrUrl = (value) => !!parsePrUrl(value);
+// A pasted repository: an id, owner/name (under the active organization's provider), or the repository's web URL.
 function cleanRepo(value, org = "") {
   const s = String(value).trim().replace(/\/+$/, "");
-  for (const [id, f] of Object.entries(FORGES)) if (f.url && s.startsWith(`${f.url}/`)) return `${id}~${s.slice(f.url.length + 1)}`;
-  if (isForgeRepo(org) && !isForgeRepo(s) && REPO_RE.test(s)) return `${forgeId(org)}~${s}`;
+  for (const [id, f] of Object.entries(FORGES)) {
+    if (f.url && s.startsWith(`${f.url}/`)) {
+      const n = FORGE_API[id].parseRepo(s.slice(f.url.length + 1));
+      return n ? `${id}~${n}` : s;
+    }
+  }
+  if (isForgeRepo(org) && !isForgeRepo(s) && REPO_RE.test(`${forgeId(org)}~${s}`)) return `${forgeId(org)}~${s}`;
+  // a name under the active organization: "shop" for owner/shop, "Project/repo" for an Azure DevOps organization
+  if (isForgeRepo(org) && !isForgeRepo(s) && REPO_RE.test(`${org}/${s}`)) return `${org}/${s}`;
   return s.replace(/^https:\/\/github\.com\//, "");
 }
 
 // </pr-url>
-// Only operator-configured origins receive the token. Never follow upstream redirects.
-async function forgeApi(path, { method = "GET", body, raw = false, source = forgeId(path.replace(/^repos\//, "")) } = {}) {
-  const f = FORGES[source];
-  if (!f) throw new Error("Missing git server provider");
-  path = path.replace(/^repos\/(forgejo|gitea)~/, "repos/");
-  if (!f.url || !/^(?:user$|(?:repos|user|users|orgs)\/)/.test(path) || path.split(/[/?]/).some((p) => p === "." || p === "..")) throw new Error("Invalid git server API path");
-  if (!f.token) throw new Error(`Configure an access token in Admin / Git providers / ${f.label}`);
-  const res = await fetch(`${f.url}/api/v1/${path}`, {
-    method, redirect: "error", signal: AbortSignal.timeout(30000),
-    headers: { authorization: `token ${f.token}`, accept: raw ? "text/plain" : "application/json", ...(body ? { "content-type": "application/json" } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  if (!res.ok) throw Object.assign(new Error(`${f.label} ${method} ${path.split("?")[0]} failed (${res.status})`), { status: res.status });
-  if (res.status === 204) return null;
-  return raw ? res.text() : res.json();
-}
-
-async function forgeList(path, source = forgeId(path.replace(/^repos\//, ""))) {
-  const rows = [];
-  // Request one extra page even when the server caps limit below 50.
-  for (let page = 1; page <= 1000; page++) {
-    const batch = await forgeApi(`${path}${path.includes("?") ? "&" : "?"}limit=50&page=${page}`, { source });
-    if (!Array.isArray(batch)) throw new Error("Invalid git server list response");
-    if (!batch.length) return rows;
-    rows.push(...batch);
-  }
-  throw new Error("Git server pagination limit exceeded");
-}
-
-function normalizeForgePr(p, repo, files = [], commits = []) {
-  return {
-    number: p.number, title: p.title, body: p.body || "", url: prUrlFor(repo, p.number),
-    author: { login: p.user?.login || "unknown" }, updatedAt: p.updated_at,
-    baseRefName: p.base?.ref || "", headRefName: p.head?.ref || "", headRefOid: p.head?.sha || "",
-    // Fork head content lives in the fork, not in the base repository's branch namespace.
-    headRepo: p.head?.repo?.full_name ? `${forgeId(repo)}~${p.head.repo.full_name}` : repo,
-    additions: p.additions ?? files.reduce((n, f) => n + f.additions, 0),
-    deletions: p.deletions ?? files.reduce((n, f) => n + f.deletions, 0), changedFiles: p.changed_files ?? files.length,
-    state: p.merged ? "MERGED" : String(p.state || "open").toUpperCase(), isDraft: !!p.draft, labels: p.labels || [], files, commits,
-  };
-}
+// Only operator-configured origins receive the token. Never follow upstream redirects (forges.mjs).
+// Kept for the Forgejo/Gitea-only calls (OAuth app creation): `source` is the provider id.
+const forgeApi = (path, { source, ...opts } = {}) => FORGE_API[source || forgeId(path.replace(/^repos\//, ""))].api(path.replace(/^repos\/[a-z]+~/, "repos/"), opts);
+const normalizeForgePr = (p, repo) => forgeOf(repo).normalize(p, repo);
 
 async function readPr(url, spec, diff = false) {
   const parsed = parsePrUrl(url);
   if (!parsed) throw new Error("Invalid pull request URL");
   if (!parsed.selfHosted) return ghAsync("pr", diff ? "diff" : "view", ...spec, ...(diff ? [] : ["--json", "number,title,body,author,url,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,files,commits,state"]));
   const { repo, number } = parsed;
-  const path = `repos/${repo}/pulls/${number}`;
-  if (diff) return forgeApi(`${path}.diff`, { raw: true });
-  const [p, files, commits] = await Promise.all([forgeApi(path), forgeList(`${path}/files`), forgeList(`${path}/commits`)]);
-  if (commits.length && !commits.some((c) => c.sha === p.head?.sha)) {
-    throw new Error("The git server is updating this pull request after a push. Retry the review shortly.");
-  }
-  return JSON.stringify(normalizeForgePr(p, repo,
-    files.map((f) => ({ path: f.filename, additions: Number(f.additions) || 0, deletions: Number(f.deletions) || 0 })),
-    // Forgejo/Gitea return newest first; the shared incremental engine expects oldest first.
-    commits.reverse().map((c) => ({ oid: c.sha, messageHeadline: (c.commit?.message || "").split("\n")[0], messageBody: (c.commit?.message || "").split("\n").slice(1).join("\n"), authors: [{ login: c.author?.login || c.commit?.author?.name || "" }], committedDate: c.commit?.author?.date }))));
+  const forge = forgeOf(repo);
+  return diff ? forge.diff(repo, number) : JSON.stringify(await forge.pr(repo, number));
 }
 
 const createPrComment = (url, repo, number, body) => isForgeRepo(repo)
-  ? forgeApi(`repos/${repo}/issues/${number}/comments`, { method: "POST", body: { body } })
+  ? forgeOf(repo).comment(repo, number, body)
   : ghAsync("pr", "comment", url, "--body", body);
 
 const HOTSPOTS = [
@@ -1360,12 +1342,7 @@ async function guideFiles(repo, ref = "") {
   if (hit && Date.now() - hit.at < 600e3) return hit.files;
   if (isForgeRepo(repo)) {
     const files = [];
-    for (const file of GUIDE_FILES) {
-      try {
-        await forgeApi(`repos/${repo}/contents/${file}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`);
-        files.push(file);
-      } catch (e) { if (e.status !== 404) throw e; }
-    }
+    for (const file of GUIDE_FILES) if ((await forgeOf(repo).file(repo, file, ref)) !== null) files.push(file);
     guideCache.set(cacheKey, { files, at: Date.now() });
     capMap(guideCache, 500);
     return files;
@@ -1381,11 +1358,7 @@ async function guideFiles(repo, ref = "") {
   return files;
 }
 const guideText = async (repo, file, ref = "") => {
-  if (isForgeRepo(repo)) {
-    const data = await forgeApi(`repos/${repo}/contents/${file}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`);
-    if (data.encoding !== "base64" || typeof data.content !== "string") throw new Error("Invalid git server guide content");
-    return Buffer.from(data.content, "base64").toString("utf8");
-  }
+  if (isForgeRepo(repo)) return (await forgeOf(repo).file(repo, file, ref)) ?? "";
   if (ref) {
     try {
       return await ghAsync("api", `repos/${repo}/contents/${file}?ref=${encodeURIComponent(ref)}`, "-H", "Accept: application/vnd.github.raw");
@@ -1476,9 +1449,8 @@ async function fetchGitHistory(repo, pr) {
     : [];
   let baseCommits = [];
   try {
-    const list = isForgeRepo(repo)
-      ? await forgeApi(`repos/${repo}/commits?sha=${encodeURIComponent(pr.baseRefName)}&limit=8`)
-      : JSON.parse(await ghAsync("api", `repos/${repo}/commits?sha=${encodeURIComponent(pr.baseRefName)}&per_page=8`));
+    if (isForgeRepo(repo)) baseCommits = await forgeOf(repo).baseCommits(repo, pr.baseRefName, 8);
+    const list = isForgeRepo(repo) ? null : JSON.parse(await ghAsync("api", `repos/${repo}/commits?sha=${encodeURIComponent(pr.baseRefName)}&per_page=8`));
     if (Array.isArray(list)) {
       baseCommits = list.map((c) => ({
         sha: String(c.sha || "").slice(0, 7),
@@ -1541,8 +1513,7 @@ async function fetchLinkedIssues(baseRepo, pr) {
     refs.slice(0, 3).map(async ({ repo: issueRepo, number: num }) => {
       if (!REPO_RE.test(issueRepo)) return null;
       try {
-        const raw = isForgeRepo(issueRepo) ? JSON.stringify(await forgeApi(`repos/${issueRepo}/issues/${num}`)) : await ghAsync(["issue", "view", String(num), "-R", issueRepo, "--json", "number,title,body,state,url,labels"]);
-        const iss = JSON.parse(raw);
+        const iss = isForgeRepo(issueRepo) ? await forgeOf(issueRepo).issue(issueRepo, num) : JSON.parse(await ghAsync(["issue", "view", String(num), "-R", issueRepo, "--json", "number,title,body,state,url,labels"]));
         if (!iss || !iss.number) return null;
         return {
           number: Number(iss.number) || num,
@@ -1550,7 +1521,7 @@ async function fetchLinkedIssues(baseRepo, pr) {
           title: String(iss.title || "").trim().slice(0, 300),
           body: String(iss.body || "").trim().slice(0, 1200),
           state: String(iss.state || "OPEN").toUpperCase(),
-          url: isForgeRepo(issueRepo) ? `${forgeUrl(issueRepo)}/${nativeRepo(issueRepo)}/issues/${num}` : String(iss.url || `https://github.com/${issueRepo}/issues/${num}`),
+          url: String(iss.url || `https://github.com/${issueRepo}/issues/${num}`),
           labels: Array.isArray(iss.labels)
             ? iss.labels.map((l) => (typeof l === "string" ? l : String(l?.name || ""))).filter(Boolean).slice(0, 12)
             : [],
@@ -1673,7 +1644,7 @@ const triageRuns = new Map();
 async function postTriageStatus(repo, sha, state, description, url) {
   if (!SHA_RE.test(sha || "")) return;
   const fields = { state, context: TRIAGE_CONTEXT, description: description.slice(0, 140), target_url: `${APP_URL}/review?pr=${encodeURIComponent(url)}` };
-  if (isForgeRepo(repo)) return forgeApi(`repos/${repo}/statuses/${sha}`, { method: "POST", body: fields });
+  if (isForgeRepo(repo)) return forgeOf(repo).status(repo, sha, fields, parsePrUrl(url)?.number);
   return ghAsync(["api", "--method", "POST", `repos/${repo}/statuses/${sha}`, ...Object.entries(fields).flatMap(([k, v]) => ["-f", `${k}=${v}`])]);
 }
 function formatTriageComment(t) {
@@ -1938,9 +1909,8 @@ async function headFileTexts(pr, paths, max = 25, maxChars = 400000, ref = pr.he
     try {
       let text;
       if (isForgeRepo(repo)) {
-        const data = await forgeApi(`repos/${repo}/contents/${enc(p)}?ref=${encodeURIComponent(ref)}`);
-        if (data?.encoding !== "base64" || typeof data.content !== "string") return;
-        text = Buffer.from(data.content, "base64").toString("utf8");
+        text = await forgeOf(repo).file(repo, p, ref);
+        if (typeof text !== "string") return;
       } else {
         text = await ghAsync("api", `repos/${repoOf(pr)}/contents/${enc(p)}?ref=${encodeURIComponent(ref)}`, "-H", "Accept: application/vnd.github.raw");
       }
@@ -2377,7 +2347,7 @@ function applyGithubToken(token) {
 }
 async function repositoryChoices(owner = "") {
   if (owner && !OWNER_RE.test(owner)) return [];
-  if (isForgeRepo(owner)) return (await forgeList("user/repos", forgeId(owner))).map((r) => `${forgeId(owner)}~${r.full_name}`).filter((r) => REPO_RE.test(r) && r.startsWith(`${owner}/`));
+  if (isForgeRepo(owner)) return (await forgeOf(owner).listRepos()).filter((r) => REPO_RE.test(r) && r.startsWith(`${owner}/`));
 
   let savedGhToken = savedGithubToken || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
   if (!savedGhToken) {
@@ -2540,8 +2510,9 @@ async function repositoryChoices(owner = "") {
   }
 
   if (!owner) {
-    const remote = await Promise.all(Object.entries(FORGES).filter(([, f]) => f.url && f.token).map(async ([id]) =>
-      (await forgeList("user/repos", id)).map((r) => `${id}~${r.full_name}`).filter((r) => REPO_RE.test(r))));
+    // one provider that cannot list its repositories must not hide the others'
+    const remote = await Promise.all(FORGE_IDS.filter((id) => FORGES[id].url && FORGES[id].token).map(async (id) =>
+      (await FORGE_API[id].listRepos().catch((e) => { console.warn(`[repos] ${FORGES[id].label}: ${e.message}`); return []; })).filter((r) => REPO_RE.test(r))));
     for (const r of remote.flat()) allChoices.add(r);
   }
   return [...allChoices];
@@ -2551,7 +2522,7 @@ const activeReviews = new Map();
 
 async function resolvePr(ref, repo) {
   ref = decodeURIComponent(String(ref || "")).trim();
-  if (!/^[1-9]\d*$/.test(ref) && !validPrUrl(ref)) throw new Error("Paste a GitHub or configured Forgejo or Gitea pull request URL, or a number with a repository selected");
+  if (!/^[1-9]\d*$/.test(ref) && !validPrUrl(ref)) throw new Error("Paste a pull request URL from GitHub or a connected git provider, or a number with a repository selected");
   if (repo && !REPO_RE.test(repo)) throw new Error(`Not an owner/name: ${repo}`);
   if (/^\d+$/.test(ref) && !repo) repo = (await repos())[0];
   if (/^\d+$/.test(ref) && !repo) throw new Error("Paste the full pull request URL, or add a repository first");
@@ -2724,8 +2695,8 @@ async function startOrPollReview(ref, force, repo, part = "", publish = true) {
         let deltaDiff = "";
         if (hasNewSha && newCommits.length > 0) {
           try {
-            const cmpRaw = isForgeRepo(repoOf(live.pr)) ? JSON.stringify(await forgeApi(`repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`)) : await ghAsync("api", `repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`);
-            const cmp = JSON.parse(cmpRaw);
+            const cmp = isForgeRepo(repoOf(live.pr)) ? null : JSON.parse(await ghAsync("api", `repos/${repoOf(live.pr)}/compare/${encodeURIComponent(prevSha)}...${encodeURIComponent(currentHeadSha)}`));
+            if (isForgeRepo(repoOf(live.pr))) deltaDiff = await forgeOf(repoOf(live.pr)).compare(repoOf(live.pr), prevSha, currentHeadSha);
             if (Array.isArray(cmp?.files)) {
               deltaDiff = cmp.files
                 .filter((f) => f?.filename && f?.patch)
@@ -2946,11 +2917,12 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
         `<!-- codeotter:suggestion:${f.file}:${targetLine} -->`,
         `🦦 **CodeOtter [${String(f.severity || "low").toUpperCase()}]** — **${f.title || "Suggested fix"}** (\`${f.file}:L${targetLine}\`)`,
         ...(explanation ? ["", explanation] : []),
-        // Forgejo and Gitea review comments cover one line, so a multi-line fix is shown, not offered for commit.
+        // Most git servers anchor a review comment on one line, so a multi-line fix is shown, not offered for commit
+        // (GitHub and Azure DevOps take a line range).
         ...(f.suggestion
           ? [
               "",
-              f.startLine && isForgeRepo(repo) ? `Replaces lines ${f.startLine}-${targetLine}:\n\`\`\`` : "```suggestion",
+              f.startLine && isForgeRepo(repo) && !forgeOf(repo).multiLineSuggestions ? `Replaces lines ${f.startLine}-${targetLine}:\n\`\`\`` : "```suggestion",
               String(f.suggestion).replace(/\r?\n$/, ""),
               "```",
             ]
@@ -2971,18 +2943,10 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
 
   if (isForgeRepo(repo)) {
     if (!validPrUrl(r.pr.url) || repoOf(r.pr) !== repo || Number(r.pr.url.split("/").at(-1)) !== Number(r.pr.number)) throw new Error("PR and repository mismatch");
-    try {
-      await forgeApi(`repos/${repo}/pulls/${r.pr.number}/reviews`, { method: "POST", body: {
-        event: "COMMENT", body: "CodeOtter inline suggestions", ...(rawHeadSha ? { commit_id: rawHeadSha } : {}),
-        comments: comments.map((c) => ({ path: c.path, new_position: c.line, old_position: 0, body: c.body })),
-      } });
-      return { posted: comments.length, mode: "inline_review", comments: comments.map((c) => ({ path: c.path, line: c.line })) };
-    } catch (e) {
-      // A line outside the diff may be rejected; auth/network failures must not trigger another write.
-      if (![400, 422].includes(e.status)) throw e;
-      await createPrComment(r.pr.url, repo, r.pr.number, comments.map((c) => c.body).join("\n\n"));
-      return { posted: comments.length, mode: "pr_comment_fallback", comments: comments.map((c) => ({ path: c.path, line: c.line })) };
-    }
+    // A line outside the diff may be rejected (those come back here); auth/network failures throw before another write.
+    const failed = await forgeOf(repo).inline(repo, r.pr.number, comments, rawHeadSha);
+    if (failed.length) await createPrComment(r.pr.url, repo, r.pr.number, failed.map((c) => c.body).join("\n\n"));
+    return { posted: comments.length, mode: !failed.length ? "inline_review" : failed.length === comments.length ? "pr_comment_fallback" : "mixed", comments: comments.map((c) => ({ path: c.path, line: c.line })) };
   }
 
   const buildReviewArgs = (includeCommitId) => {
@@ -3063,12 +3027,12 @@ async function postInlineSuggestionsOnPr(r, repo = repoOf(r.pr), { findingIdx = 
 
 async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, postReview = false, postInlineSuggestions = false, triage = null, extra = [] } = {}) {
   if (!postScores && !postReview && !postInlineSuggestions && !triage && !extra.length) return [];
-  const commentAuthor = isForgeRepo(repo) ? await forgeApi("user", { source: forgeId(repo) }) : null;
+  // on a git server, a marker comment counts only when this token wrote it (where the server can say who that is)
+  const commentAuthor = isForgeRepo(repo) ? await forgeOf(repo).me(repo) : null;
   let existingComments = [];
   try {
-    // Forgejo's issue-comment endpoint returns all comments and ignores page/limit.
     // --paginate --slurp: on a busy PR the marker comment may sit past the first 100, and a miss would post a duplicate.
-    const raw = isForgeRepo(repo) ? JSON.stringify(await forgeApi(`repos/${repo}/issues/${r.pr.number}/comments`)) : await ghAsync(["api", "--paginate", "--slurp", `repos/${repo}/issues/${r.pr.number}/comments?per_page=100`]).then((s) => JSON.stringify(JSON.parse(s).flat()));
+    const raw = isForgeRepo(repo) ? JSON.stringify(await forgeOf(repo).comments(repo, r.pr.number)) : await ghAsync(["api", "--paginate", "--slurp", `repos/${repo}/issues/${r.pr.number}/comments?per_page=100`]).then((s) => JSON.stringify(JSON.parse(s).flat()));
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) existingComments = parsed;
   } catch (e) { if (isForgeRepo(repo)) throw e; }
@@ -3077,7 +3041,7 @@ async function syncPrComments(r, repo = repoOf(r.pr), { postScores = false, post
     const existing = existingComments.find((c) => typeof c?.body === "string" && c.body.includes(marker) && (!commentAuthor || c.user?.id === commentAuthor.id));
     if (existing?.id) {
       if (isForgeRepo(repo)) {
-        await forgeApi(`repos/${repo}/issues/comments/${existing.id}`, { method: "PATCH", body: { body } });
+        await forgeOf(repo).editComment(repo, r.pr.number, existing.id, body);
         return `${label} (updated)`;
       }
       await ghAsync(["api", "--method", "PATCH", `repos/${repo}/issues/comments/${existing.id}`, "-f", `body=${body}`]);
@@ -3159,7 +3123,7 @@ const DESCRIBE_TYPES = ["Bug fix", "Feature", "Refactor", "Performance", "Securi
 const DESCRIBE_RE = /<!-- codeotter:describe -->[\s\S]*?<!-- \/codeotter:describe -->/;
 async function updatePrBody(pr, body) {
   const { repo, number } = parsePrUrl(pr.url);
-  if (isForgeRepo(repo)) return forgeApi(`repos/${repo}/pulls/${number}`, { method: "PATCH", body: { body } });
+  if (isForgeRepo(repo)) return forgeOf(repo).setBody(repo, number, body);
   return ghAsync("api", "--method", "PATCH", `repos/${repo}/pulls/${number}`, "-f", `body=${body}`);
 }
 const PR_TOOLS = {
@@ -3331,33 +3295,23 @@ function parseCommand(body) {
   if (!m || !COMMANDS.includes(m[1].toLowerCase())) return null;
   return { cmd: m[1].toLowerCase(), arg: String(m[2] || "").trim().slice(0, 2000) };
 }
-// The pull request a comment belongs to, from its web link (GitHub /pull/7#..., Forgejo and Gitea /pulls/7#...).
-const commentPrNumber = (c) => Number((String(c?.html_url || "").match(/\/pulls?\/([1-9]\d*)(?:#|$)/) || [])[1]) || 0;
+// The pull request a comment belongs to: adapters set prNumber; otherwise its web link (GitHub /pull/7#..., Gitea /pulls/7#...).
+const commentPrNumber = (c) => Number(c?.prNumber) || Number((String(c?.html_url || "").match(/\/pulls?\/([1-9]\d*)(?:#|$)/) || [])[1]) || 0;
+// Who may run a comment command: write access on GitHub and Forgejo/Gitea, see each adapter's trusted() for the others.
 async function commenterTrusted(repo, c) {
   if (!isForgeRepo(repo)) return ["OWNER", "MEMBER", "COLLABORATOR"].includes(c.author_association);
-  const login = String(c.user?.login || "");
-  if (!/^[\w][\w.-]*$/.test(login)) return false;
-  try {
-    const p = await forgeApi(`repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`);
-    return ["owner", "admin", "write"].includes(String(p?.permission || "").toLowerCase());
-  } catch (e) {
-    if ([403, 404].includes(e.status)) return false;
-    throw e;
-  }
+  return forgeOf(repo).trusted(repo, c);
 }
 async function commentsSince(repo, since) {
-  if (isForgeRepo(repo)) return forgeApi(`repos/${repo}/issues/comments?since=${encodeURIComponent(since)}&limit=50`);
+  if (isForgeRepo(repo)) return forgeOf(repo).commentsSince(repo, since);
   return JSON.parse(await ghAsync("api", `repos/${repo}/issues/comments?since=${encodeURIComponent(since)}&sort=created&direction=asc&per_page=100`));
 }
 async function runCommand(repo, c, { cmd, arg }) {
   const number = commentPrNumber(c);
   const prUrl = prUrlFor(repo, number);
   const id = Number(c.id);
-  if (Number.isSafeInteger(id) && id > 0) {
-    await (isForgeRepo(repo)
-      ? forgeApi(`repos/${repo}/issues/comments/${id}/reactions`, { method: "POST", body: { content: "eyes" } })
-      : ghAsync("api", "--method", "POST", `repos/${repo}/issues/comments/${id}/reactions`, "-f", "content=eyes")).catch(() => {});
-  }
+  if (isForgeRepo(repo)) await Promise.resolve().then(() => forgeOf(repo).react(repo, c)).catch(() => {});
+  else if (Number.isSafeInteger(id) && id > 0) await ghAsync("api", "--method", "POST", `repos/${repo}/issues/comments/${id}/reactions`, "-f", "content=eyes").catch(() => {});
   try {
     if (cmd === "review") {
       await syncPrComments(await score(prUrl, true, repo), repo, { postScores: true, postReview: true });
@@ -3743,7 +3697,8 @@ const page = (title, actions, body) =>
 // Open pull requests. Pages render an empty list when GitHub cannot be reached; the poll passes { strict } and gets the error.
 // (an options object, not a flag: callers also use repos.map(openPrs), whose index must not turn strict on)
 async function openPrs(repo, { strict = false } = {}) {
-  if (isForgeRepo(repo)) return (await forgeList(`repos/${repo}/pulls?state=open`)).map((p) => normalizeForgePr(p, repo));
+  // a git server's error (bad token, server down) reaches the page instead of looking like "no pull requests"
+  if (isForgeRepo(repo)) return forgeOf(repo).openPrs(repo);
   try {
     return JSON.parse(await ghAsync("pr", "list", "-R", repo, "--json", "number,title,author,url,updatedAt,additions,deletions,changedFiles,headRefOid,isDraft,labels", "--limit", "200"));
   } catch (e) {
@@ -3853,17 +3808,66 @@ const DEFAULT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 
 // Field types: select, combo (select + free text), text, password, number, range, checkbox, readonly.
 const mask = (secret) => (secret ? `\u2022\u2022\u2022\u2022${secret.slice(-4)}` : "");
 const byProvider = (pick) => Object.fromEntries(Object.entries(PROVIDERS).map(([k, x]) => [k, pick(x)]));
-const LOGIN_PROVIDERS = { github: { label: "GitHub", pb: "github" }, ...FORGES };
+// Sign-in providers: GitHub plus every git server PocketBase has an OAuth2 provider for (Azure DevOps signs in through
+// Microsoft Entra ID, so its row is "Microsoft"; Bitbucket Data Center has no sign-in).
+const LOGIN_PROVIDERS = {
+  github: { label: "GitHub", pb: "github" },
+  ...Object.fromEntries(FORGE_IDS.filter((id) => FORGES[id].pb).map((id) => [id, { label: FORGES[id].signInLabel || FORGES[id].label, pb: FORGES[id].pb }])),
+};
 const oauthFlows = new Map();
+// Microsoft Entra ID sign-in is pinned to one tenant: its users' email addresses are then set by that directory's admins,
+// which is what lets an invite match them by email. The multi-tenant endpoints are refused.
+const ENTRA = "https://login.microsoftonline.com";
+const ENTRA_TENANT_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)$/i;
+const entraTenant = (p) => (String(p?.authURL || "").match(/^https:\/\/login\.microsoftonline\.com\/([^/]+)\/oauth2\//) || [])[1] || "";
+const OAUTH_APP_LINKS = {
+  github: "https://github.com/settings/developers",
+  bitbucket: "https://support.atlassian.com/bitbucket-cloud/docs/use-oauth-on-bitbucket-cloud/",
+  microsoft: "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+};
+// The PocketBase OAuth2 provider entry for a sign-in row. GitHub and Bitbucket use PocketBase's built-in endpoints;
+// Forgejo and Gitea point at their configured server; Microsoft at the one tenant.
+function oauthProvider(id, current, clientId, clientSecret, tenant = "") {
+  const spec = LOGIN_PROVIDERS[id];
+  const base = { ...current, name: spec.pb, clientId: String(clientId || "").trim(), ...(clientSecret ? { clientSecret: String(clientSecret) } : {}) };
+  if (spec.pb === "github" || spec.pb === "bitbucket") return base;
+  if (spec.pb === "microsoft") {
+    const t = String(tenant || "").trim().toLowerCase();
+    if (!ENTRA_TENANT_RE.test(t)) throw new Error("Set the Microsoft Entra tenant: its domain (contoso.onmicrosoft.com) or tenant ID");
+    return { ...base, displayName: spec.label, authURL: `${ENTRA}/${t}/oauth2/v2.0/authorize`, tokenURL: `${ENTRA}/${t}/oauth2/v2.0/token` };
+  }
+  const url = FORGES[id].url;
+  if (!url) throw new Error(`Set the ${spec.label} server under Admin / Git providers first`);
+  return { ...base, displayName: spec.label, pkce: true,
+    authURL: `${url}/login/oauth/authorize`, tokenURL: `${url}/login/oauth/access_token`, userInfoURL: id === "gitea" ? `${url}/api/v1/user` : `${url}/login/oauth/userinfo` };
+}
+const AZURE_ORG_RE = /^[\w][\w.-]*$/;
 const FORGE_CONNECTIONS = Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, {
     async save(body) {
       const v = body[id];
       if (!v) return;
+      // Bitbucket Cloud and Azure DevOps have one public origin: their row saves credentials (and Azure's organizations).
+      if (f.fixed) {
+        const token = String(v.token || "").trim() || f.token;
+        const next = { url: f.url, token };
+        if (f.kind === "bitbucket") {
+          next.user = String(v.user ?? f.user ?? "").trim();
+          if (/[:\s]/.test(next.user)) throw new Error("Bitbucket account email must not contain spaces or a colon");
+        }
+        if (f.kind === "azure") {
+          next.orgs = [...new Set((Array.isArray(v.orgs) ? v.orgs : String(v.orgs ?? (f.orgs || []).join(",")).split(/[\s,]+/)).map((x) => String(x).trim()).filter(Boolean))];
+          for (const o of next.orgs) if (!AZURE_ORG_RE.test(o)) throw new Error(`Not an Azure DevOps organization name: ${o}`);
+        }
+        await store.setSetting(id, next);
+        Object.assign(f, next);
+        guideCache.clear();
+        return;
+      }
       const nextUrl = forgeOrigin(v.url);
       if (nextUrl && Object.entries(FORGES).some(([other, value]) => other !== id && value.url === nextUrl)) throw new Error("Each provider must use a separate server origin");
       if (nextUrl !== f.url) {
         const linked = (await repos()).some((r) => forgeId(r) === id) || (await store.all()).some((r) => forgeId(repoOf(r.pr)) === id);
-        const oauth = PB_URL && ((await store.getOAuth()).providers.some((p) => p.name === f.pb) || await store.hasForgeIdentities(f.pb));
+        const oauth = PB_URL && !!f.pb && ((await store.getOAuth()).providers.some((p) => p.name === f.pb) || await store.hasForgeIdentities(f.pb));
         if (linked || oauth) throw new Error(`Cannot change the ${f.label} server while repositories, reviews, or OAuth identities are linked`);
       }
       const token = nextUrl ? String(v.token || (nextUrl === f.url ? f.token : "")) : "";
@@ -3874,9 +3878,7 @@ const FORGE_CONNECTIONS = Object.fromEntries(Object.entries(FORGES).map(([id, f]
       guideCache.clear();
     },
     async test() {
-      const rows = await forgeApi("user/repos?limit=1", { source: id });
-      if (!Array.isArray(rows)) throw new Error("Invalid git server response");
-      return { ok: true, reply: `Connected to ${f.label}` };
+      return { ok: true, reply: await FORGE_API[id].test() };
     },
   }]));
 // GitHub App manifest flow: the browser posts a manifest to GitHub, the user clicks Create once, GitHub returns a code
@@ -3918,16 +3920,17 @@ async function githubManifest(res, body) {
 // Admin / Git providers and Admin / Auth providers draw the same table: a row per provider with Provider, Server and Status.
 // Only the row's action differs: Test and a gear for the connection there, a sign-in toggle here.
 const PROVIDER_COLUMNS = [{ key: "provider", label: "Provider" }, { key: "server", label: "Server" }, { key: "status", label: "Status" }];
-const PROVIDER_ICONS = { github: "https://github.com/github.png?size=64", forgejo: "https://forgejo.org/favicon.svg", gitea: "https://github.com/go-gitea.png?size=64" };
+const PROVIDER_ICONS = { github: "https://github.com/github.png?size=64", forgejo: "https://forgejo.org/favicon.svg", gitea: "https://github.com/go-gitea.png?size=64", bitbucket: "/providers/bitbucket.svg", bitbucketdc: "/providers/bitbucket.svg", azure: "/providers/azure-devops.svg", microsoft: "/providers/microsoft.svg" };
 const providerUrl = (id) => (id === "github" ? "https://github.com" : FORGES[id].url);
-function providerRow(id, status, extra) {
-  const label = LOGIN_PROVIDERS[id].label;
-  const url = providerUrl(id);
+// `as` overrides what the row shows (the Auth providers page draws Azure DevOps' sign-in as Microsoft Entra ID).
+function providerRow(id, status, extra, as = {}) {
+  const label = as.label || (id === "github" ? "GitHub" : FORGES[id].label);
+  const url = as.url ?? providerUrl(id);
   return {
     id,
     label,
     cells: {
-      provider: { text: label, icon: PROVIDER_ICONS[id] || "" },
+      provider: { text: label, icon: PROVIDER_ICONS[as.icon || id] || "" },
       server: url ? { text: url.replace(/^https?:\/\//, ""), mono: true } : { text: "Not set", tone: "muted" },
       status: url ? status : { text: "Not connected", tone: "warn" },
     },
@@ -3986,7 +3989,7 @@ const SETTINGS_PAGES = {
       const next = [...others, ...mine];
       if (add && !(v.list || []).map(clean).includes(add)) {
         try {
-          if (isForgeRepo(add)) await forgeApi(`repos/${add}`);
+          if (isForgeRepo(add)) await forgeOf(add).repoExists(add);
           else await ghAsync("repo", "view", add, "--json", "nameWithOwner");
         } catch {
           throw new Error(`Cannot access ${nativeRepo(add)}: check the name and ${isForgeRepo(add) ? FORGES[forgeId(add)].label : "GitHub"} credentials`);
@@ -4233,16 +4236,19 @@ const SETTINGS_PAGES = {
           },
         }),
         ...Object.entries(FORGES).map(([id, f]) => providerRow(id, f.token ? { text: "Token saved", tone: "ok" } : { text: "No token", tone: "muted" }, {
-          actions: [{ id: `test${id}`, label: "Test", ...(f.url ? {} : { disabled: true }) }, { id: `app${id}`, label: "Create app", ...(!PB_URL || !f.url || !f.token || hasApp(id) ? { disabled: true } : {}) }],
+          // Create app: only Forgejo and Gitea can mint an OAuth app through their API
+          actions: [{ id: `test${id}`, label: "Test", ...(f.url && (!f.fixed || f.token) ? {} : { disabled: true }) }, { id: `app${id}`, label: "Create app", ...(f.kind !== "gitea" || !PB_URL || !f.url || !f.token || hasApp(id) ? { disabled: true } : {}) }],
           settings: {
             title: `${f.label} connection`,
             fields: [
-              { key: "url", label: "Server URL", type: "text", placeholder: `https://${id}.example.com` },
-              { key: "token", label: "Access token", type: "password", placeholder: mask(f.token), hint: "Leave blank to keep the stored token." },
-              { key: "webhookUrl", label: "Webhook URL", type: "readonly", hint: "Registered on each onboarded repository; pull_request and comment events arrive here." },
+              ...(f.fixed ? [] : [{ key: "url", label: "Server URL", type: "text", placeholder: `https://${id}.example.com` }]),
+              ...(f.kind === "bitbucket" ? [{ key: "user", label: "Atlassian account email", type: "text", placeholder: "you@example.com", hint: "With an Atlassian API token. Leave empty for a workspace or repository access token." }] : []),
+              ...(f.kind === "azure" ? [{ key: "orgs", label: "Organizations", type: "text", placeholder: "contoso, fabrikam" }] : []),
+              { key: "token", label: f.kind === "azure" ? "Personal access token" : f.kind === "bitbucketdc" ? "HTTP access token" : f.kind === "bitbucket" ? "API token" : "Access token", type: "password", placeholder: mask(f.token), hint: "Leave blank to keep the stored token." },
+              { key: "webhookUrl", label: "Webhook URL", type: "readonly", hint: f.kind === "azure" ? "Service hook subscriptions are added for each onboarded repository; the token needs the Service hooks scope." : "Registered on each onboarded repository; pull request and comment events arrive here." },
               { key: "webhookStatus", label: "Last delivery", type: "readonly" },
             ],
-            values: { url: f.url, token: "", webhookUrl: webhookUrl(id), webhookStatus: describeDelivery(id) },
+            values: { ...(f.fixed ? {} : { url: f.url }), ...(f.kind === "bitbucket" ? { user: f.user || "" } : {}), ...(f.kind === "azure" ? { orgs: (f.orgs || []).join(", ") } : {}), token: "", webhookUrl: webhookUrl(id), webhookStatus: describeDelivery(id) },
           },
         })),
       ];
@@ -4262,7 +4268,7 @@ const SETTINGS_PAGES = {
         const login = (await ghAsync("api", "user", "--jq", ".login")).trim();
         return { message: `Connected to GitHub as ${login}` };
       },
-      ...Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [`app${id}`, async () => {
+      ...Object.fromEntries(Object.entries(FORGES).filter(([, f]) => f.kind === "gitea").map(([id, f]) => [`app${id}`, async () => {
         if (!PB_URL) throw new Error("Sign-in requires PocketBase (PB_URL)");
         // the button is disabled then too; a stale page or a repeated request must not mint a second app and overwrite working credentials
         if ((await store.getOAuth()).providers.some((p) => p.name === f.pb && p.clientId)) throw new Error(`${f.label} already has an OAuth app; turn sign-in off under Auth providers to replace it`);
@@ -4286,7 +4292,10 @@ const SETTINGS_PAGES = {
     async save(body) {
       // The table posts its rows with the edited one marked; it is applied in the { github | [forge]: { url?, token } } shape.
       const edited = (body.providers?.rows || []).find((r) => r?.edited && (r.id === "github" || FORGES[r.id]));
-      if (edited) body = { [edited.id]: { url: edited.settings?.values?.url, token: edited.settings?.values?.token, clearToken: !!edited.settings?.values?.clearToken, webhookSecret: edited.settings?.values?.webhookSecret, forward: edited.settings?.values?.forward } };
+      if (edited) {
+        const v = edited.settings?.values || {};
+        body = { [edited.id]: { url: v.url, token: v.token, clearToken: !!v.clearToken, webhookSecret: v.webhookSecret, forward: v.forward, ...("user" in v ? { user: v.user } : {}), ...("orgs" in v ? { orgs: v.orgs } : {}) } };
+      }
       const gh = String(body.github?.token || "").trim();
       if (body.github?.clearToken) { await store.setSetting("githubToken", ""); applyGithubToken(""); }
       else if (gh) { await store.setSetting("githubToken", gh); applyGithubToken(gh); }
@@ -4311,8 +4320,9 @@ const SETTINGS_PAGES = {
       if (!PB_URL) return { sections: [{ id: "signin", title: "Sign-in", description: "Sign-in requires PocketBase (PB_URL).", fields: [] }], values: {} };
       const o = await store.getOAuth();
       const rows = Object.entries(LOGIN_PROVIDERS).map(([id, spec]) => {
-        const url = providerUrl(id);
         const current = o.providers.find((p) => p.name === spec.pb) || {};
+        const tenant = spec.pb === "microsoft" ? entraTenant(current) : "";
+        const url = spec.pb === "microsoft" ? `${ENTRA}${tenant ? `/${tenant}` : ""}` : providerUrl(id);
         const on = !!o.enabled && !!current.clientId;
         return providerRow(id, on ? { text: "Enabled", tone: "ok" } : { text: "Off", tone: "muted" }, {
           toggle: on,
@@ -4320,13 +4330,14 @@ const SETTINGS_PAGES = {
           settings: {
             title: `Sign in with ${spec.label}`,
             fields: [
-              { key: "clientId", label: "Client ID", type: "text", link: { label: "Create OAuth app", url: id === "github" ? "https://github.com/settings/developers" : `${url}/user/settings/applications` } },
-              { key: "clientSecret", label: "Client secret", type: "password", placeholder: current.clientId ? "Saved" : "", hint: current.clientId ? "Leave blank to keep the stored secret." : "" },
-              { key: "callback", label: "Callback URL", type: "readonly" },
+              ...(spec.pb === "microsoft" ? [{ key: "tenant", label: "Tenant", type: "text", placeholder: "contoso.onmicrosoft.com or tenant ID", hint: "One directory: invites match its users by email." }] : []),
+              { key: "clientId", label: spec.pb === "bitbucket" ? "Key" : spec.pb === "microsoft" ? "Application (client) ID" : "Client ID", type: "text", link: { label: spec.pb === "bitbucket" ? "OAuth consumers" : spec.pb === "microsoft" ? "App registrations" : "Create OAuth app", url: OAUTH_APP_LINKS[spec.pb] || `${url}/user/settings/applications` } },
+              { key: "clientSecret", label: spec.pb === "bitbucket" ? "Secret" : "Client secret", type: "password", placeholder: current.clientId ? "Saved" : "", hint: current.clientId ? "Leave blank to keep the stored secret." : "" },
+              { key: "callback", label: spec.pb === "microsoft" ? "Redirect URI" : "Callback URL", type: "readonly" },
             ],
-            values: { clientId: current.clientId || "", clientSecret: "", callback: `${APP_URL}/auth/callback` },
+            values: { ...(spec.pb === "microsoft" ? { tenant } : {}), clientId: current.clientId || "", clientSecret: "", callback: `${APP_URL}/auth/callback` },
           },
-        });
+        }, spec.pb === "microsoft" ? { label: spec.label, url, icon: "microsoft" } : {});
       });
       return {
         sections: [{
@@ -4351,7 +4362,7 @@ const SETTINGS_PAGES = {
       const edited = (body.signin?.rows || []).find((r) => r?.edited && LOGIN_PROVIDERS[r.id]);
       if (edited) {
         const v = edited.settings?.values || {};
-        body = { [edited.id === "github" ? "oauth" : `${edited.id}oauth`]: { enabled: !!edited.toggle, clientId: v.clientId, clientSecret: v.clientSecret } };
+        body = { [edited.id === "github" ? "oauth" : `${edited.id}oauth`]: { enabled: !!edited.toggle, clientId: v.clientId, clientSecret: v.clientSecret, ...("tenant" in v ? { tenant: v.tenant } : {}) } };
       }
       if (!Object.keys(LOGIN_PROVIDERS).some((id) => body[id === "github" ? "oauth" : `${id}oauth`])) return;
       if (!PB_URL) throw new Error("Sign-in requires PocketBase (PB_URL)");
@@ -4366,13 +4377,7 @@ const SETTINGS_PAGES = {
         const clientId = String(v.clientId || "").trim();
         if (!clientId) throw new Error(`${spec.label} client ID is required`);
         if (!current && !v.clientSecret) throw new Error(`${spec.label} client secret is required`);
-        if (id !== "github" && !FORGES[id].url) throw new Error(`Set the ${spec.label} server under Admin / Git providers first`);
-        providers.push({ ...current, name: spec.pb, clientId,
-          ...(v.clientSecret ? { clientSecret: String(v.clientSecret) } : {}),
-          ...(id !== "github" ? { displayName: spec.label, pkce: true,
-            authURL: `${FORGES[id].url}/login/oauth/authorize`, tokenURL: `${FORGES[id].url}/login/oauth/access_token`, userInfoURL: id === "gitea" ? `${FORGES[id].url}/api/v1/user` : `${FORGES[id].url}/login/oauth/userinfo`,
-          } : {}),
-        });
+        providers.push(oauthProvider(id, current, clientId, v.clientSecret, v.tenant ?? entraTenant(current)));
       }
       await store.setOAuth({ ...o, enabled: providers.length > 0, providers });
     },
@@ -4485,7 +4490,8 @@ SETTINGS_PAGES.accounts = {
     if (accessChanged) await store.setSetting("access", access);
     for (const [id, role] of next) if (role !== users.find((u) => u.id === id)?.role) await store.setRole(id, role);
   },
-  // A pending invite: provider + lowercased username, or a GitHub email (PocketBase keeps only GitHub's verified email).
+  // A pending invite: provider + lowercased username, or a GitHub email (PocketBase keeps only GitHub's verified email),
+  // or for Microsoft an email (Entra has no username; sign-in is pinned to one tenant, see oauthProvider).
   async invite(v) {
     const login = String(v.login || "").trim().toLowerCase();
     const provider = String(v.provider || "");
@@ -4494,7 +4500,8 @@ SETTINGS_PAGES.accounts = {
     if (!INVITE_ROLES.includes(v.role)) throw new Error(`Unknown role ${v.role}`);
     const email = login.includes("@");
     if (email ? !INVITE_EMAIL_RE.test(login) : !INVITE_LOGIN_RE.test(login)) throw new Error("Enter a username or an email address");
-    if (email && provider !== "github") throw new Error(`${spec.label} invites match by username`);
+    if (spec.pb === "microsoft" && !email) throw new Error("Microsoft invites match by email address");
+    if (email && !["github", "microsoft"].includes(spec.pb)) throw new Error(`${spec.label} invites match by username`);
     const invites = ((await store.getSetting("invites")) || []).filter((i) => !(i.pb === spec.pb && i.login === login));
     invites.push({ id: randomBytes(8).toString("hex"), provider, pb: spec.pb, login, role: v.role, repos: v.role === "developer" ? await assignableRepos(v.repos) : [], at: new Date().toISOString() });
     await store.setSetting("invites", invites);
@@ -4696,8 +4703,8 @@ async function homeData(org = "", g = { role: "owner" }) {
     { id: "links", kind: "links", title: "Quick links", items: [
       ...(admin ? [
         { label: "Manage repositories", hint: "Add or remove onboarded repositories", path: "/settings/repos" },
-        { label: "Git providers", hint: "GitHub, Forgejo and Gitea servers", path: "/settings/git" },
-        { label: "Auth providers", hint: "GitHub, Forgejo and Gitea sign-in", path: "/settings/oauth" },
+        { label: "Git providers", hint: "GitHub, Bitbucket, Azure DevOps, Forgejo and Gitea", path: "/settings/git" },
+        { label: "Auth providers", hint: "Sign-in with GitHub, Bitbucket, Microsoft, Forgejo and Gitea", path: "/settings/oauth" },
       ] : []),
       { label: "Documentation", hint: "docs.codeotter.io", href: "https://docs.codeotter.io/docs" },
     ] },
@@ -4745,15 +4752,19 @@ function accessQueue(fn) {
   admitting = run.catch(() => {});
   return run;
 }
-const admit = (record, providers, username = "") => accessQueue(() => admitOne(record, providers, username));
-async function admitOne(record, providers, username) {
+// `entraEmail` is set only for a Microsoft sign-in through a single-tenant app (the caller checks the tenant).
+const admit = (record, providers, username = "", entraEmail = "") => accessQueue(() => admitOne(record, providers, username, entraEmail));
+async function admitOne(record, providers, username, entraEmail = "") {
   if (record.role) return record.role;
   let role = "owner";
   if ((await store.users()).some((u) => u.role === "owner")) {
     const login = String(username || "").toLowerCase();
-    // Email matches only GitHub identities: PocketBase keeps GitHub's verified primary email; other providers may not verify.
+    // Email matches GitHub identities (PocketBase keeps GitHub's verified primary email) and Microsoft identities from the
+    // one configured tenant, whose addresses its admins assign. Other providers may not verify an email.
     const email = record.verified === true && record.email ? String(record.email).toLowerCase() : "";
-    const hit = ((await store.getSetting("invites")) || []).find((i) => providers.includes(i.pb) && (i.login.includes("@") ? i.pb === "github" && !!email && i.login === email : !!login && i.login === login));
+    const entra = providers.includes("microsoft") ? String(entraEmail || "").toLowerCase() : "";
+    const emailMatch = (i) => (i.pb === "github" ? !!email && i.login === email : i.pb === "microsoft" ? !!entra && i.login === entra : false);
+    const hit = ((await store.getSetting("invites")) || []).find((i) => providers.includes(i.pb) && (i.login.includes("@") ? emailMatch(i) : !!login && i.login === login));
     if (!hit) return "";
     role = hit.role;
     if (role === "developer") await store.setSetting("access", { ...((await store.getSetting("access")) || {}), [record.id]: hit.repos || [] });
@@ -4827,15 +4838,20 @@ await store.init();
 applyGithubToken(await store.getSetting("githubToken"));
 for (const [id, f] of Object.entries(FORGES)) {
   const saved = await store.getSetting(id);
-  if (saved) { f.url = forgeOrigin(saved.url); f.token = saved.token || ""; }
+  if (!saved) continue;
+  if (!f.fixed) f.url = forgeOrigin(saved.url);
+  f.token = saved.token || "";
+  if ("user" in saved) f.user = String(saved.user || "");
+  if (Array.isArray(saved.orgs)) f.orgs = saved.orgs.filter((o) => AZURE_ORG_RE.test(o));
 }
 const origins = Object.values(FORGES).map((f) => f.url).filter(Boolean);
 if (new Set(origins).size !== origins.length) throw new Error("Each provider must use a separate server origin");
 for (const [id, f] of Object.entries(FORGES)) {
+  if (f.fixed) continue;
   const previous = await store.getSetting(`${id}Origin`);
   if (previous && previous !== f.url) {
     const linked = (await repos()).some((r) => forgeId(r) === id) || (await store.all()).some((r) => r.pr?.url?.startsWith(`${previous}/`));
-    if (linked || (PB_URL && ((await store.getOAuth()).providers.some((p) => p.name === f.pb) || await store.hasForgeIdentities(f.pb)))) throw new Error(`${f.label} origin changed while repositories or OAuth identities are linked`);
+    if (linked || (PB_URL && !!f.pb && ((await store.getOAuth()).providers.some((p) => p.name === f.pb) || await store.hasForgeIdentities(f.pb)))) throw new Error(`${f.label} origin changed while repositories or OAuth identities are linked`);
   }
   if (f.url && previous !== f.url) await store.setSetting(`${id}Origin`, f.url);
 }
@@ -4912,7 +4928,7 @@ http
     try {
       // Cross-site requests never reach the API (defence in depth on top of SameSite=Lax cookies).
       if ((url.pathname.startsWith("/api/") || url.pathname === "/score") && req.headers["sec-fetch-site"] === "cross-site") { res.statusCode = 403; return json({ error: "Cross-site request refused" }); }
-      const hook = url.pathname.match(/^\/webhooks\/(github|forgejo|gitea)$/);
+      const hook = url.pathname.match(/^\/webhooks\/(github|forgejo|gitea|bitbucket|bitbucketdc|azure)$/);
       if (hook) {
         if (req.method !== "POST") { res.statusCode = 405; return json({ error: "POST only" }); }
         return handleWebhook(req, res, hook[1]);
@@ -4942,7 +4958,7 @@ http
             completed: savedComplete && rs.length > 0,
             appUrl: APP_URL,
             hasPb: !!PB_URL,
-            primaryProvider: (await store.getSetting("primaryProvider")) || (FORGES.forgejo.url ? "forgejo" : FORGES.gitea.url ? "gitea" : "github"),
+            primaryProvider: (await store.getSetting("primaryProvider")) || FORGE_IDS.find(forgeActive) || "github",
             forges: Object.fromEntries(Object.entries(FORGES).map(([id, f]) => [id, { url: f.url, configured: !!f.url && !!f.token }])),
             oauth: o,
             repos: rs,
@@ -4975,15 +4991,16 @@ http
               return json({ ok: false, error: err.message });
             }
           }
-          if (provider === "forgejo" || provider === "gitea") {
+          if (Object.hasOwn(FORGES, provider)) {
             try {
-              const origin = forgeOrigin(body.url || FORGES[provider].url);
-              const token = body.token || FORGES[provider].token;
-              if (!origin) throw new Error(`Please provide a ${FORGES[provider].label} server URL`);
-              const res = await fetch(`${origin}/api/v1/user`, { headers: { ...(token ? { authorization: `token ${token}` } : {}), accept: "application/json" } });
-              if (!res.ok) throw new Error(`${FORGES[provider].label} returned HTTP ${res.status}`);
-              const user = await res.json();
-              return json({ ok: true, message: `Connected to ${FORGES[provider].label} as @${user.username || user.login || "user"}` });
+              // the entered values on a copy of the provider: nothing is saved until save-provider
+              const f = FORGES[provider];
+              const draft = { ...f, url: f.fixed ? f.url : forgeOrigin(body.url || f.url), token: String(body.token || f.token || ""),
+                ...(f.kind === "bitbucket" ? { user: String(body.user ?? f.user ?? "").trim() } : {}),
+                ...(f.kind === "azure" ? { orgs: body.orgs !== undefined ? String(body.orgs).split(/[\s,]+/).filter(Boolean) : f.orgs } : {}) };
+              if (!draft.url) throw new Error(`Please provide a ${f.label} server URL`);
+              if (draft.orgs?.some((o) => !AZURE_ORG_RE.test(o))) throw new Error("Not an Azure DevOps organization name");
+              return json({ ok: true, message: await makeForge(provider, draft).test() });
             } catch (err) {
               return json({ ok: false, error: err.message });
             }
@@ -4999,33 +5016,16 @@ http
             await store.setSetting("githubToken", tok);
             applyGithubToken(tok);
           }
-          if (provider === "forgejo" || provider === "gitea") {
-            const nextUrl = forgeOrigin(body.url);
-            const token = String(body.token || "");
-            if (nextUrl) {
-              await store.setSetting(provider, { url: nextUrl, token });
-              await store.setSetting(`${provider}Origin`, nextUrl);
-              FORGES[provider].url = nextUrl;
-              FORGES[provider].token = token;
-            }
+          if (Object.hasOwn(FORGES, provider) && (body.url || body.token)) {
+            await FORGE_CONNECTIONS[provider].save({ [provider]: { url: body.url, token: body.token, ...("user" in body ? { user: body.user } : {}), ...("orgs" in body ? { orgs: body.orgs } : {}) } });
           }
           if (PB_URL && (body.clientId || body.clientSecret)) {
             const o = await store.getOAuth();
-            const spec = LOGIN_PROVIDERS[provider];
+            const spec = Object.hasOwn(LOGIN_PROVIDERS, provider) && LOGIN_PROVIDERS[provider];
             if (spec) {
+              const current = o.providers.find((p) => p.name === spec.pb);
               const providers = o.providers.filter((p) => p.name !== spec.pb);
-              providers.push({
-                name: spec.pb,
-                clientId: String(body.clientId || "").trim(),
-                ...(body.clientSecret ? { clientSecret: String(body.clientSecret) } : {}),
-                ...(provider !== "github" ? {
-                  displayName: spec.label,
-                  pkce: true,
-                  authURL: `${FORGES[provider].url}/login/oauth/authorize`,
-                  tokenURL: `${FORGES[provider].url}/login/oauth/access_token`,
-                  userInfoURL: provider === "gitea" ? `${FORGES[provider].url}/api/v1/user` : `${FORGES[provider].url}/login/oauth/userinfo`,
-                } : {}),
-              });
+              providers.push(oauthProvider(provider, current, body.clientId, body.clientSecret, body.tenant ?? entraTenant(current)));
               await store.setOAuth({ ...o, enabled: true, providers });
             }
           }
@@ -5135,7 +5135,13 @@ http
         try {
           auth = await store.authWithOAuth2({ provider: flow.provider, code: url.searchParams.get("code"), codeVerifier: flow.codeVerifier, redirectURL: `${APP_URL}/auth/callback` });
           // First account: owner. Later ones need an invite; an uninvited account is deleted again, never left usable.
-          if (!(await admit(auth.record, [flow.provider], auth.meta?.username))) {
+          // Microsoft: the directory's mail (or UPN), trusted only while the app is pinned to one tenant
+          let entraEmail = "";
+          if (flow.provider === "microsoft") {
+            const p = (await store.getOAuth()).providers.find((x) => x.name === "microsoft");
+            if (ENTRA_TENANT_RE.test(entraTenant(p))) entraEmail = String(auth.meta?.email || auth.meta?.rawUser?.mail || auth.meta?.rawUser?.userPrincipalName || "");
+          }
+          if (!(await admit(auth.record, [flow.provider], auth.meta?.username, entraEmail))) {
             await store.deleteUser(auth.record.id).catch((e) => console.error(`Could not delete uninvited account ${auth.record.id}: ${e.message}`));
             return fail(NOT_INVITED);
           }

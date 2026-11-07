@@ -9,23 +9,27 @@ import { AppSidebar } from "./app-sidebar";
 const ReviewPage = lazy(() => import("./review-page").then((m) => ({ default: m.ReviewPage })));
 import { SettingsPage } from "./settings-page";
 import { HomePage } from "./home-page";
-import { LoginPage, GitHubMark, ForgejoMark, GiteaMark } from "./login-page";
+import { LoginPage, ProviderMark } from "./login-page";
 const OnboardingPage = lazy(() => import("./onboarding-page").then((m) => ({ default: m.OnboardingPage })));
 import { FormSkeleton, ReviewSkeleton, TableSkeleton } from "@/components/skeletons";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Link } from "@/components/link";
 import { sessionGet, sessionSet, storageGet, storageSet } from "@/lib/storage";
-import { type Board, type Review, type User, forgeId, forgeLabel, repoFromUrl, repoLabel, VERDICT, effort, effortTone, tone } from "./types";
+import { type Board, type Review, type User, forgeId, forgeLabel, repoFromUrl, repoLabel, repoSegments, VERDICT, effort, effortTone, tone } from "./types";
 
+// Routes are kept decoded: an Azure DevOps repository path (/repo/azure~org/My Project/repo) holds spaces.
+const here = () => {
+  try { return decodeURI(location.pathname) + location.search; } catch { return location.pathname + location.search; }
+};
 const useRoute = () => {
-  const [route, setRoute] = useState(location.pathname + location.search);
+  const [route, setRoute] = useState(here);
   useEffect(() => {
-    const on = () => setRoute(location.pathname + location.search);
+    const on = () => setRoute(here());
     addEventListener("popstate", on);
     return () => removeEventListener("popstate", on);
   }, []);
   const go = (path: string, replace = false) => {
-    if (path === location.pathname + location.search && !replace) return;
+    if (path === here() && !replace) return;
     history[replace ? "replaceState" : "pushState"](null, "", path);
     setRoute(path);
     scrollTo(0, 0);
@@ -99,15 +103,16 @@ export default function App() {
 
   const reviewUrl = (url: string) => `/review?pr=${encodeURIComponent(url)}`;
   useEffect(() => {
-    if (["/settings/forgejo", "/settings/gitea"].includes(path)) go("/settings/git", true);
+    if (["/settings/forgejo", "/settings/gitea", "/settings/bitbucket", "/settings/azure"].includes(path)) go("/settings/git", true);
   }, [path]);
   const settingsPage = path.startsWith("/settings/") ? path.slice("/settings/".length) : "";
-  // /repo/owner/name -> reviews for that repo, /repo/owner/name/open -> its open pull requests
+  // /repo/owner/name -> reviews for that repo, /repo/owner/name/open -> its open pull requests (Azure: /repo/azure~org/project/repo)
   const repoParts = path.startsWith("/repo/") ? path.slice("/repo/".length).split("/") : [];
-  const repoPage = repoParts.slice(0, 2).join("/");
-  const repoView = repoParts[2] === "open" ? "open" : repoParts[2] === "settings" ? "settings" : "reviews";
+  const repoLen = repoSegments(repoParts[0] ?? "");
+  const repoPage = repoParts.slice(0, repoLen).join("/");
+  const repoView = repoParts[repoLen] === "open" ? "open" : repoParts[repoLen] === "settings" ? "settings" : "reviews";
   const repoViewTitle = repoView === "open" ? "Open pull requests" : repoView === "settings" ? "Repository settings" : "Reviews";
-  const known = path === "/" || path === "/login" || path === "/onboarding" || path === "/review" || !!settingsPage || repoParts.length >= 2;
+  const known = path === "/" || path === "/login" || path === "/onboarding" || path === "/review" || !!settingsPage || repoParts.length >= repoLen;
   useEffect(() => { if (!known) go("/", true); }, [known]);
 
   useEffect(() => {
@@ -238,15 +243,14 @@ const openCounts = (board: Board | null) => {
   return out;
 };
 
-// The pull request on its own forge (GitHub, Forgejo or Gitea), as that provider's mark at the end of a row.
+// The pull request on its own git provider, as that provider's mark at the end of a row.
 function ProviderLink({ url, forgeUrls }: { url: string; forgeUrls?: Record<string, string> }) {
   const repo = repoFromUrl(url, forgeUrls);
-  const id = forgeId(repo);
   const label = `Open on ${forgeLabel(repo)}`;
   return (
     <Button asChild variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-foreground">
       <a href={url} target="_blank" rel="noreferrer" aria-label={label} title={label}>
-        {id === "forgejo" ? <ForgejoMark /> : id === "gitea" ? <GiteaMark /> : <GitHubMark />}
+        <ProviderMark id={forgeId(repo)} />
       </a>
     </Button>
   );
