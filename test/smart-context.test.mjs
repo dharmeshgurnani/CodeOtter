@@ -99,7 +99,7 @@ ctx.diagnostic(`Blast radius fan-out calculation passed: baseline ${baselineBlas
 // Test Case 4: Live git grep outside changed files for symbol 'effort'
 const excludeArgs = [":!web/src/types.ts", ":!web/src/types.ts".replace(/\\/g, "/")];
 const raw = execFileSync("git", ["grep", "-n", "-w", "effort", "--", ".", ...excludeArgs], { encoding: "utf8" });
-assert(raw.includes("core/server.mjs:"), "Expected git grep to find outside callers in core/server.mjs");
+assert(/^core\/[\w-]+\.mjs:/m.test(raw), "Expected git grep to find outside callers in core/");
 ctx.diagnostic("Outside-diff caller resolution via git grep passed");
 
 });

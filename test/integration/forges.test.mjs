@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, mkdirSync, cpSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, cpSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes, createHash } from "node:crypto";
@@ -146,7 +146,7 @@ try {
   child(pbBin, ["serve", `--http=127.0.0.1:${pp}`, `--dir=${pbDir}`, `--migrationsDir=${migrations}`]);
   await ready(`${pb}/api/health`);
   mkdirSync(join(dir, "core"), { recursive: true }); cpSync(join(root, "package.json"), join(dir, "package.json"));
-  for (const f of ["server.mjs", "forges.mjs", "models.json", "showcase.json"]) cpSync(join(root, "core", f), join(dir, "core", f));
+  for (const f of readdirSync(join(root, "core")).filter((f) => /\.(mjs|json)$/.test(f))) cpSync(join(root, "core", f), join(dir, "core", f));
   cpSync(join(root, "web", "dist"), join(dir, "web", "dist"), { recursive: true });
   // Never invoke the real GitHub CLI or inspect a real checkout during this suite.
   const preload = join(dir, "github-fixture.mjs");
@@ -472,7 +472,7 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   const fileDir = join(dir, "file-storage");
   mkdirSync(join(fileDir, "scores"), { recursive: true });
   mkdirSync(join(fileDir, "core"), { recursive: true }); cpSync(join(root, "package.json"), join(fileDir, "package.json"));
-  for (const f of ["server.mjs", "forges.mjs", "models.json", "showcase.json"]) cpSync(join(root, "core", f), join(fileDir, "core", f));
+  for (const f of readdirSync(join(root, "core")).filter((f) => /\.(mjs|json)$/.test(f))) cpSync(join(root, "core", f), join(fileDir, "core", f));
   writeFileSync(join(fileDir, "config.json"), JSON.stringify({
     [provider]: { url: forge, token: token.sha1 },
     repos: ["reviewer/sample", `${provider}~reviewer/sample`],
