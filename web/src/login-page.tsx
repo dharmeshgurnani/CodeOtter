@@ -30,6 +30,33 @@ export const GiteaMark = () => (
   </svg>
 );
 
+export const BitbucketMark = () => (
+  <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden="true">
+    <path d="M.778 1.213a.768.768 0 0 0-.768.892l3.263 19.81c.084.5.515.868 1.022.873H19.95a.772.772 0 0 0 .77-.646l3.27-20.03a.768.768 0 0 0-.768-.891zM14.52 15.53H9.522L8.17 8.466h7.561z" />
+  </svg>
+);
+
+export const AzureDevOpsMark = () => (
+  <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden="true">
+    <path d="M0 8.877L2.247 5.91l8.405-3.416V.022l7.37 5.393L2.966 8.338v8.225L0 15.707zm24-4.45v14.651l-5.753 4.9-9.303-3.057v3.056l-5.978-7.416 15.057 1.798V5.415z" />
+  </svg>
+);
+
+export const MicrosoftMark = () => (
+  <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden="true">
+    <path d="M1 1h10.5v10.5H1zM12.5 1H23v10.5H12.5zM1 12.5h10.5V23H1zM12.5 12.5H23V23H12.5z" />
+  </svg>
+);
+
+// The mark for a provider id (sign-in buttons use "azure" for Microsoft Entra ID).
+export function ProviderMark({ id, signIn = false }: { id: string; signIn?: boolean }) {
+  if (id === "forgejo") return <ForgejoMark />;
+  if (id === "gitea") return <GiteaMark />;
+  if (id === "bitbucket" || id === "bitbucketdc") return <BitbucketMark />;
+  if (id === "azure") return signIn ? <MicrosoftMark /> : <AzureDevOpsMark />;
+  return <GitHubMark />;
+}
+
 export function LoginPage({ error, onLogin, go }: { error: string; onLogin: (provider: string) => Promise<void> | void; go: (p: string) => void }) {
   const [d, setD] = useState<LoginData | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -73,9 +100,7 @@ export function LoginPage({ error, onLogin, go }: { error: string; onLogin: (pro
               onClick={() => { setBusy(provider.id); Promise.resolve(onLogin(provider.id)).finally(() => setBusy("")); }}
               className="mt-8 flex h-12 w-full items-center justify-center gap-3 rounded-lg bg-neutral-900 px-4 text-[15px] font-medium text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busy === provider.id ? <Loader2 className="size-5 animate-spin" /> : provider.id === "github" && <GitHubMark />}
-              {busy !== provider.id && provider.id === "forgejo" && <ForgejoMark />}
-              {busy !== provider.id && provider.id === "gitea" && <GiteaMark />}
+              {busy === provider.id ? <Loader2 className="size-5 animate-spin" /> : <ProviderMark id={provider.id} signIn />}
               {`Continue with ${provider.label}`}
             </button>)}
             {reason && (

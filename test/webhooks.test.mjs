@@ -6,19 +6,38 @@ import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import { test } from "node:test";
 import { serverBlocks } from "./helpers/server-blocks.mjs";
+import { makeForge, secretMatches } from "../core/forges.mjs";
 
 test("Webhooks and the PR queue", async () => {
 
 const block = serverBlocks("pr-events", "webhooks", "forwarder", "forge-hooks");
 
-function load({ scoreFails = false, repos = ["acme/app", "gitea~acme/lib"], trusted = true } = {}) {
-  const settings = new Map([["review", { auto: true, commands: true }], ["triage", { auto: false }], ["githubApp", { webhookSecret: "gh-secret" }], ["giteaWebhook", { secret: "gt-secret" }]]);
+function load({ scoreFails = false, repos = ["acme/app", "gitea~acme/lib", "bitbucket~team/app", "azure~contoso/Web Shop/api"], trusted = true } = {}) {
+  const settings = new Map([["review", { auto: true, commands: true }], ["triage", { auto: false }], ["githubApp", { webhookSecret: "gh-secret" }], ["giteaWebhook", { secret: "gt-secret" }], ["bitbucketWebhook", { secret: "bb-secret" }], ["azureWebhook", { secret: "az-secret" }]]);
   const calls = [];
   const forgeHooks = [];
+  const FORGES = {
+    forgejo: { kind: "gitea", label: "Forgejo", url: "" },
+    gitea: { kind: "gitea", label: "Gitea", url: "https://git.example", token: "t" },
+    bitbucket: { kind: "bitbucket", label: "Bitbucket", fixed: true, url: "https://bitbucket.org", token: "t" },
+    azure: { kind: "azure", label: "Azure DevOps", fixed: true, url: "https://dev.azure.com", token: "t", orgs: ["contoso"] },
+  };
+  const FORGE_API = Object.fromEntries(Object.keys(FORGES).map((id) => [id, makeForge(id, FORGES[id])]));
+  // the git server API behind the adapters: Gitea's repository hooks
+  globalThis.fetch = async (url, init = {}) => {
+    const method = init.method || "GET";
+    const path = new URL(url).pathname.replace(/^\/api\/v1\//, "");
+    calls.push(["forge", method, path]);
+    if (path.endsWith("/hooks") && method === "POST") { forgeHooks.push({ id: forgeHooks.length + 1, config: JSON.parse(init.body).config }); return Response.json(forgeHooks.at(-1)); }
+    if (path.endsWith("/hooks")) return Response.json(forgeHooks);
+    if (method === "DELETE") { forgeHooks.splice(0); return new Response(null, { status: 204 }); }
+    return Response.json({});
+  };
   const stubs = {
     SHA_RE: /^[0-9a-f]{7,40}$/i,
-    REPO_RE: /^(?:(?:forgejo|gitea)~)?[\w][\w.-]*\/[\w][\w.-]*$/,
-    FORGES: { forgejo: { label: "Forgejo", url: "" }, gitea: { label: "Gitea", url: "https://git.example" } },
+    REPO_RE: /^(?:(?:(?:forgejo|gitea|bitbucket|bitbucketdc)~)?[\w][\w.-]*\/[\w][\w.-]*|azure~[\w][\w.-]*\/[\w](?:[\w. -]*[\w.-])?\/[\w](?:[\w. -]*[\w.-])?)$/,
+    FORGES, FORGE_API, secretMatches,
+    forgeOf: (r) => FORGE_API[/^([a-z]+)~/.exec(r)?.[1]],
     APP_URL: "https://otter.example",
     PORT: 4747,
     IS_SERVER: false,
@@ -34,25 +53,18 @@ function load({ scoreFails = false, repos = ["acme/app", "gitea~acme/lib"], trus
     ghEnv: () => process.env,
     repos: async () => repos,
     openPrs: async () => [],
-    forgeId: (r) => /^(forgejo|gitea)~/.exec(r)?.[1] || "",
-    isForgeRepo: (r) => /^(forgejo|gitea)~/.test(r),
-    nativeRepo: (r) => r.replace(/^(forgejo|gitea)~/, ""),
+    forgeId: (r) => /^([a-z]+)~/.exec(r)?.[1] || "",
+    isForgeRepo: (r) => /^[a-z]+~/.test(r),
+    nativeRepo: (r) => r.replace(/^[a-z]+~/, ""),
     oneLine: (x, max) => String(x).replace(/\s+/g, " ").slice(0, max),
     triagePr: async (url) => { calls.push(["triage", url]); },
     score: async (url, force, repo) => { calls.push(["score", url, repo]); if (scoreFails) throw new Error("model down"); return { pr: { url } }; },
     syncPrComments: async (r) => { calls.push(["sync", r.pr.url]); },
     normalizeForgePr: (p, repo) => ({ url: `https://git.example/${repo.slice(6)}/pulls/${p.number}`, headRefOid: p.head?.sha, isDraft: !!p.draft, labels: [] }),
     parseCommand: (body) => { const m = String(body || "").match(/^\/(review|ask)(?:\s+(.*))?$/); return m ? { cmd: m[1], arg: m[2] || "" } : null; },
-    commentPrNumber: (c) => Number((String(c?.html_url || "").match(/\/pulls?\/(\d+)/) || [])[1]) || 0,
+    commentPrNumber: (c) => Number(c?.prNumber) || Number((String(c?.html_url || "").match(/\/pulls?\/(\d+)/) || [])[1]) || 0,
     commenterTrusted: async () => trusted,
     runCommand: async (repo, c, cmd) => { calls.push(["command", repo, c.id, cmd.cmd]); },
-    forgeApi: async (path, opts = {}) => {
-      calls.push(["forge", opts.method || "GET", path]);
-      if (path.endsWith("/hooks") && opts.method === "POST") { forgeHooks.push({ id: forgeHooks.length + 1, config: opts.body.config }); return forgeHooks.at(-1); }
-      if (path.endsWith("/hooks")) return forgeHooks;
-      if (opts.method === "DELETE") { forgeHooks.splice(0); return null; }
-      return {};
-    },
   };
   const names = Object.keys(stubs);
   const api = new Function(...names, `${block}; return { verifySignature, handleWebhook, routeWebhook, enqueuePr, webhookHealthy, pollDue, noteDelivery, ensureForgeHook, removeForgeHook, reposChanged, forwarderStatus, PR_QUEUE, WEBHOOK_LAST, HANDLED_COMMENTS, lastCatchUp, pending: () => PR_QUEUE.size || prDraining };`)(...names.map((n) => stubs[n]));
@@ -216,6 +228,57 @@ const settle = async (api) => { for (let i = 0; i < 100 && api.pending(); i++) a
   assert.match(fresh.settings.get("giteaWebhook").secret, /^[0-9a-f]{48}$/, "a secret is generated once");
   assert.strictEqual(fresh.forwarderStatus(), "Off");
   console.log("✓ Forgejo/Gitea repository hooks: created once, secret generated once, removed with the repository");
+}
+
+// Bitbucket Cloud: X-Event-Key, X-Request-UUID and an X-Hub-Signature with the sha256= prefix
+{
+  const api = load();
+  const repo = { full_name: "team/app", links: { html: { href: "https://bitbucket.org/team/app" } } };
+  const pr = { id: 5, title: "Add cart", state: "OPEN", author: { nickname: "dev" }, source: { branch: { name: "feat" }, commit: { hash: "abc123def456" }, repository: repo }, destination: { branch: { name: "main" }, repository: repo } };
+  const send = (event, body, secret = "bb-secret", delivery = randomBytes(8).toString("hex")) => {
+    const raw = Buffer.from(JSON.stringify(body));
+    const req = Readable.from([raw]);
+    req.headers = { "x-event-key": event, "x-request-uuid": delivery, "x-hub-signature": sign(secret, raw) };
+    const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(b) { this.body = b; } };
+    return api.handleWebhook(req, res, "bitbucket").then(() => res);
+  };
+  assert.strictEqual((await send("pullrequest:updated", { pullrequest: pr, repository: repo }, "gt-secret")).statusCode, 401, "another forge's secret");
+  assert.strictEqual((await send("pullrequest:updated", { pullrequest: pr, repository: repo }, "bb-secret", "u1")).statusCode, 202);
+  await send("pullrequest:updated", { pullrequest: pr, repository: repo }, "bb-secret", "u1"); // redelivery
+  await send("pullrequest:fulfilled", { pullrequest: { ...pr, state: "MERGED" }, repository: repo });
+  await send("pullrequest:updated", { pullrequest: { ...pr, state: "DECLINED" }, repository: repo });
+  const other = { full_name: "team/other", links: { html: { href: "https://bitbucket.org/team/other" } } };
+  await send("pullrequest:created", { pullrequest: { ...pr, destination: { branch: { name: "main" }, repository: other } }, repository: other });
+  await send("pullrequest:comment_created", { pullrequest: pr, repository: repo, comment: { id: 81, content: { raw: "/review" }, user: { account_id: "acc-1", nickname: "lead" }, created_on: "2026-11-02T09:00:00Z" } });
+  await send("pullrequest:comment_created", { pullrequest: pr, repository: repo, comment: { id: 82, content: { raw: "/review" }, deleted: true, created_on: "2026-11-02T09:01:00Z" } });
+  await settle(api);
+  assert.deepStrictEqual(api.calls, [["score", "https://bitbucket.org/team/app/pull-requests/5", "bitbucket~team/app"], ["sync", "https://bitbucket.org/team/app/pull-requests/5"], ["command", "bitbucket~team/app", 81, "review"]]);
+  console.log("✓ Bitbucket deliveries: signed, de-duplicated, open PRs only, onboarded repositories only, comment commands");
+}
+
+// Azure DevOps: no signature, the secret in X-CodeOtter-Secret; event and delivery id come from the body
+{
+  const api = load();
+  const repository = { webUrl: "https://dev.azure.com/contoso/Web%20Shop/_git/api" };
+  const pr = { pullRequestId: 31, status: "active", title: "Fix tax", sourceRefName: "refs/heads/fix", targetRefName: "refs/heads/main", lastMergeSourceCommit: { commitId: "f".repeat(40) }, createdBy: { uniqueName: "dev@contoso.com" }, repository };
+  const send = (body, secret = "az-secret") => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]);
+    req.headers = secret ? { "x-codeotter-secret": secret } : {};
+    const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(b) { this.body = b; } };
+    return api.handleWebhook(req, res, "azure").then(() => res);
+  };
+  const updated = { id: "evt-1", eventType: "git.pullrequest.updated", resource: pr };
+  assert.strictEqual((await send(updated, "")).statusCode, 401);
+  assert.strictEqual((await send(updated, "az-secre")).statusCode, 401, "a prefix of the secret is not the secret");
+  assert.strictEqual((await send(updated, "bb-secret")).statusCode, 401);
+  assert.strictEqual((await send(updated)).statusCode, 202);
+  await send(updated); // same notification id
+  await send({ id: "evt-2", eventType: "git.pullrequest.updated", resource: { ...pr, status: "completed" } });
+  await send({ id: "evt-3", eventType: "git.pullrequest.updated", resource: { ...pr, repository: { webUrl: "https://dev.azure.com/contoso/Web%20Shop/_git/other" } } });
+  await send({ id: "evt-4", eventType: "ms.vss-code.git-pullrequest-comment-event", resource: { pullRequest: pr, comment: { id: 2, content: "/ask why", publishedDate: "2026-11-02T10:00:00Z", author: { id: "u-1", uniqueName: "lead@contoso.com" }, _links: { threads: { href: "https://dev.azure.com/contoso/_apis/git/repositories/r1/pullRequests/31/threads/77" } } } } });
+  await settle(api);
+  assert.deepStrictEqual(api.calls, [["score", "https://dev.azure.com/contoso/Web%20Shop/_git/api/pullrequest/31", "azure~contoso/Web Shop/api"], ["sync", "https://dev.azure.com/contoso/Web%20Shop/_git/api/pullrequest/31"], ["command", "azure~contoso/Web Shop/api", "77:2", "ask"]]);
+  console.log("✓ Azure DevOps deliveries: shared-secret header, notification ids de-duplicated, active PRs only, thread comments");
 }
 
 console.log("All webhook tests passed");

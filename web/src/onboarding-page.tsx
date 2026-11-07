@@ -6,7 +6,8 @@ import { InfoTip } from "@/components/info-tip";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DitherCanvas } from "@/components/dither-canvas";
 import { toast } from "sonner";
-import { GitHubMark, ForgejoMark, GiteaMark } from "./login-page";
+import { GitHubMark, ForgejoMark, GiteaMark, BitbucketMark, AzureDevOpsMark } from "./login-page";
+import { FORGE_LABELS } from "./types";
 import { storageSet } from "@/lib/storage";
 
 // One shape for every API response: JSON on success, {error} on failure (the error text, never the body, reaches the screen).
@@ -61,7 +62,13 @@ export function OnboardingPage({
   const [showManualGh, setShowManualGh] = useState(false);
 
   // Step 1: Provider State
-  const [provider, setProvider] = useState<"github" | "forgejo" | "gitea">("github");
+  type ProviderId = "github" | "forgejo" | "gitea" | "bitbucket" | "bitbucketdc" | "azure";
+  const [provider, setProvider] = useState<ProviderId>("github");
+  // Bitbucket Cloud and Azure DevOps have one public server; their form asks for an account email or organizations instead.
+  const selfHosted = provider === "forgejo" || provider === "gitea" || provider === "bitbucketdc";
+  const [forgeUser, setForgeUser] = useState("");
+  const [forgeOrgs, setForgeOrgs] = useState("");
+  const [forgeTenant, setForgeTenant] = useState("");
   const [ghToken, setGhToken] = useState("");
   const [ghClientId, setGhClientId] = useState("");
   const [ghClientSecret, setGhClientSecret] = useState("");
@@ -114,8 +121,8 @@ export function OnboardingPage({
       .then((data: OnboardingStatus) => {
         if (!alive) return;
         setStatus(data);
-        if (data.primaryProvider === "forgejo" || data.primaryProvider === "gitea") {
-          setProvider(data.primaryProvider);
+        if (data.primaryProvider && data.primaryProvider !== "github" && data.forges?.[data.primaryProvider]) {
+          setProvider(data.primaryProvider as ProviderId);
           const f = data.forges?.[data.primaryProvider];
           if (f?.url) setForgeUrl(f.url);
         }
@@ -192,7 +199,9 @@ export function OnboardingPage({
       if (provider === "github") {
         if (ghToken) payload.token = ghToken;
       } else {
-        payload.url = forgeUrl;
+        if (selfHosted) payload.url = forgeUrl;
+        if (provider === "bitbucket") payload.user = forgeUser;
+        if (provider === "azure") payload.orgs = forgeOrgs;
         payload.token = forgeToken;
       }
       const res = await fetch("/api/onboarding/test-provider", {
@@ -224,11 +233,18 @@ export function OnboardingPage({
         if (ghClientId) payload.clientId = ghClientId;
         if (ghClientSecret) payload.clientSecret = ghClientSecret;
       } else {
-        if (!forgeUrl.trim()) throw new Error("Server URL is required");
-        payload.url = forgeUrl;
+        if (selfHosted && !forgeUrl.trim()) throw new Error("Server URL is required");
+        if (!selfHosted && !forgeToken.trim()) throw new Error("An access token is required");
+        if (provider === "azure" && !forgeOrgs.trim()) throw new Error("Add at least one Azure DevOps organization");
+        if (selfHosted) payload.url = forgeUrl;
+        if (provider === "bitbucket") payload.user = forgeUser;
+        if (provider === "azure") { payload.orgs = forgeOrgs; payload.tenant = forgeTenant; }
         payload.token = forgeToken;
-        payload.clientId = forgeClientId;
-        payload.clientSecret = forgeClientSecret;
+        // Bitbucket Data Center has no sign-in provider
+        if (provider !== "bitbucketdc") {
+          payload.clientId = forgeClientId;
+          payload.clientSecret = forgeClientSecret;
+        }
       }
 
       const res = await fetch("/api/onboarding/save-provider", {
@@ -431,6 +447,39 @@ export function OnboardingPage({
                       </div>
                     ),
                   },
+                  {
+                    id: "bitbucket" as const,
+                    label: "Bitbucket",
+                    badge: "Cloud",
+                    hint: "bitbucket.org with an API or access token, Bitbucket sign-in",
+                    icon: (
+                      <div className="flex size-7 items-center justify-center rounded-md bg-[#0052CC] text-white p-1">
+                        <BitbucketMark />
+                      </div>
+                    ),
+                  },
+                  {
+                    id: "bitbucketdc" as const,
+                    label: "Bitbucket Data Center",
+                    badge: "Self-Hosted",
+                    hint: "Self-hosted Bitbucket with an HTTP access token",
+                    icon: (
+                      <div className="flex size-7 items-center justify-center rounded-md bg-[#0052CC] text-white p-1">
+                        <BitbucketMark />
+                      </div>
+                    ),
+                  },
+                  {
+                    id: "azure" as const,
+                    label: "Azure DevOps",
+                    badge: "Cloud",
+                    hint: "dev.azure.com with a personal access token, Microsoft Entra sign-in",
+                    icon: (
+                      <div className="flex size-7 items-center justify-center rounded-md bg-[#0078D4] text-white p-1">
+                        <AzureDevOpsMark />
+                      </div>
+                    ),
+                  },
                 ].map((p) => {
                   const isSelected = provider === p.id;
                   return (
@@ -575,18 +624,44 @@ export function OnboardingPage({
                 ) : (
                   <div className="space-y-4">
                     <h2 className="text-sm font-semibold text-neutral-900">
-                      {provider === "forgejo" ? "Forgejo" : "Gitea"} Server Connection
+                      {FORGE_LABELS[provider]} Connection
                     </h2>
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-700">Server Origin URL *</label>
-                      <input
-                        type="url"
-                        value={forgeUrl}
-                        onChange={(e) => setForgeUrl(e.target.value)}
-                        placeholder={provider === "forgejo" ? "https://forgejo.company.internal" : "https://gitea.company.internal"}
-                        className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
-                      />
-                    </div>
+                    {selfHosted && (
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">Server Origin URL *</label>
+                        <input
+                          type="url"
+                          value={forgeUrl}
+                          onChange={(e) => setForgeUrl(e.target.value)}
+                          placeholder={`https://${provider === "bitbucketdc" ? "bitbucket" : provider}.company.internal`}
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                        />
+                      </div>
+                    )}
+                    {provider === "bitbucket" && (
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">Atlassian account email (with an API token; empty for an access token)</label>
+                        <input
+                          type="email"
+                          value={forgeUser}
+                          onChange={(e) => setForgeUser(e.target.value)}
+                          placeholder="you@example.com"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                        />
+                      </div>
+                    )}
+                    {provider === "azure" && (
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">Organizations *</label>
+                        <input
+                          type="text"
+                          value={forgeOrgs}
+                          onChange={(e) => setForgeOrgs(e.target.value)}
+                          placeholder="contoso, fabrikam"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                        />
+                      </div>
+                    )}
                     <div>
                       <label className="block text-xs font-medium text-neutral-700">Repository Access Token (Required for reviews)</label>
                       <input
@@ -597,13 +672,25 @@ export function OnboardingPage({
                         className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
                       />
                     </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {provider === "azure" && (
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">Microsoft Entra tenant (for sign-in)</label>
+                        <input
+                          type="text"
+                          value={forgeTenant}
+                          onChange={(e) => setForgeTenant(e.target.value)}
+                          placeholder="contoso.onmicrosoft.com or tenant ID"
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
+                        />
+                      </div>
+                    )}
+                    {provider !== "bitbucketdc" && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div>
                         <div className="flex items-center justify-between">
                           <label className="block text-xs font-medium text-neutral-700">OAuth Client ID (Optional)</label>
-                          {forgeUrl && (
+                          {(forgeUrl || !selfHosted) && (
                             <a
-                              href={`${forgeUrl}/user/settings/applications`}
+                              href={provider === "bitbucket" ? "https://support.atlassian.com/bitbucket-cloud/docs/use-oauth-on-bitbucket-cloud/" : provider === "azure" ? "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" : `${forgeUrl}/user/settings/applications`}
                               target="_blank"
                               rel="noreferrer"
                               className="text-[11px] text-blue-600 hover:underline"
@@ -630,7 +717,7 @@ export function OnboardingPage({
                           className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
                         />
                       </div>
-                    </div>
+                    </div>}
                     <div className="flex items-center justify-between pt-2">
                       <Button
                         type="button"

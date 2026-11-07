@@ -72,17 +72,27 @@ export type Review = {
 export type User = { id: string; name: string; email: string; role: string; avatar: string };
 export type Board = { repo: string; repos: string[]; onboardingNeeded?: boolean; forgejoUrl?: string; forgeUrls?: Record<string, string>; model: string; baseUrl: string; store: string; update?: { version: string; url: string } | null; settingsPages: { id: string; title: string; group: "settings" | "admin" | "workspace" | "repo" }[]; reviewed: Review[]; open: OpenPr[] };
 
+// A pull request URL's repository id, given the configured origins (provider id -> origin). Same rules as repoFromUrl in
+// core/forges.mjs: owner/name for GitHub, Forgejo, Gitea and Bitbucket; PROJECT/repo for Bitbucket Data Center
+// (/projects/P/repos/r/...); org/project/repo for Azure DevOps (/org/project/_git/repo/...).
 export const repoFromUrl = (url: string, origins: Record<string, string> = {}) => {
   try {
     const u = new URL(url);
-    const source = Object.keys(origins).find((id) => origins[id] === u.origin);
+    const source = Object.keys(origins).find((id) => origins[id] && origins[id] === u.origin);
     if (u.origin !== "https://github.com" && !source) return "";
-    return `${source ? `${source}~` : ""}${u.pathname.split("/").slice(1, 3).join("/")}`;
+    const seg = u.pathname.split("/").slice(1);
+    if (source === "bitbucketdc") return seg[0] === "projects" && seg[2] === "repos" ? `${source}~${seg[1]}/${seg[3]}` : "";
+    if (source === "azure") return seg[2] === "_git" ? `${source}~${[seg[0], seg[1], seg[3]].map(decodeURIComponent).join("/")}` : "";
+    return `${source ? `${source}~` : ""}${seg.slice(0, 2).join("/")}`;
   } catch { return ""; }
 };
-export const forgeId = (id: string) => /^(forgejo|gitea)~/.exec(id)?.[1] || "";
-export const forgeLabel = (id: string) => forgeId(id) === "gitea" ? "Gitea" : forgeId(id) === "forgejo" ? "Forgejo" : "GitHub";
-export const repoLabel = (id: string) => forgeId(id) ? `${id.split("~")[1]} · ${forgeLabel(id)}` : id;
+export const FORGE_LABELS: Record<string, string> = { forgejo: "Forgejo", gitea: "Gitea", bitbucket: "Bitbucket", bitbucketdc: "Bitbucket Data Center", azure: "Azure DevOps" };
+export const FORGE_PREFIX = /^(forgejo|gitea|bitbucket|bitbucketdc|azure)~/;
+export const forgeId = (id: string) => FORGE_PREFIX.exec(id)?.[1] || "";
+export const forgeLabel = (id: string) => FORGE_LABELS[forgeId(id)] || "GitHub";
+export const repoLabel = (id: string) => forgeId(id) ? `${id.replace(FORGE_PREFIX, "")} · ${forgeLabel(id)}` : id;
+// Repository ids have two segments, three for Azure DevOps (org/project/repo).
+export const repoSegments = (id: string) => (id.startsWith("azure~") ? 3 : 2);
 
 export const VERDICT = { approve: ["Approved", "ok"], comment: ["Commented", "warn"], request_changes: ["Changes requested", "bad"] } as const;
 export const tone = (v: number, invert = false) => {

@@ -146,7 +146,7 @@ try {
   child(pbBin, ["serve", `--http=127.0.0.1:${pp}`, `--dir=${pbDir}`, `--migrationsDir=${migrations}`]);
   await ready(`${pb}/api/health`);
   mkdirSync(join(dir, "core"), { recursive: true }); cpSync(join(root, "package.json"), join(dir, "package.json"));
-  for (const f of ["server.mjs", "models.json", "showcase.json"]) cpSync(join(root, "core", f), join(dir, "core", f));
+  for (const f of ["server.mjs", "forges.mjs", "models.json", "showcase.json"]) cpSync(join(root, "core", f), join(dir, "core", f));
   cpSync(join(root, "web", "dist"), join(dir, "web", "dist"), { recursive: true });
   // Never invoke the real GitHub CLI or inspect a real checkout during this suite.
   const preload = join(dir, "github-fixture.mjs");
@@ -294,7 +294,8 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
 
   // PR comment commands: a collaborator's /describe gets an eyes reaction, re-runs Describe and upserts its comment; a failing
   // /ask (the fixture never answers questions) is replied to on the PR.
-  await json(`${pb}/api/collections/settings/records`, { method: "POST", headers: { authorization: adminAuth.token }, body: { key: "review", value: { commands: true } } });
+  // commands are a per-repository setting; this repository already has its own Repository settings (saved above)
+  await api(`/api/settings/repo?org=${scope}&repo=${encodeURIComponent(`${provider}~reviewer/sample`)}`, { repo: { commands: true } });
   const describePrompts = () => prompts.filter((p) => p.startsWith("Write the description of this pull request")).length;
   const describedBefore = describePrompts();
   const cmd = await fj(`repos/reviewer/sample/issues/${pr.number}/comments`, { method: "POST", body: { body: "/describe" } });
@@ -471,7 +472,7 @@ const spawn=cp.spawn; cp.spawn=(bin,args,opts)=>bin==='gh'?spawn(process.execPat
   const fileDir = join(dir, "file-storage");
   mkdirSync(join(fileDir, "scores"), { recursive: true });
   mkdirSync(join(fileDir, "core"), { recursive: true }); cpSync(join(root, "package.json"), join(fileDir, "package.json"));
-  for (const f of ["server.mjs", "models.json", "showcase.json"]) cpSync(join(root, "core", f), join(fileDir, "core", f));
+  for (const f of ["server.mjs", "forges.mjs", "models.json", "showcase.json"]) cpSync(join(root, "core", f), join(fileDir, "core", f));
   writeFileSync(join(fileDir, "config.json"), JSON.stringify({
     [provider]: { url: forge, token: token.sha1 },
     repos: ["reviewer/sample", `${provider}~reviewer/sample`],

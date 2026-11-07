@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { text } from "./review-output.mjs";
+import { repoFromUrl } from "../core/forges.mjs";
 
 const SCORE_KEYS = ["quality", "correctness_risk", "test_coverage", "readability", "pr_hygiene"];
 const PLACEHOLDER = "░░░";
@@ -40,14 +41,7 @@ export function repositoryReviewSkeleton(pr) {
     details: [pr ? `#${pr.number} ${pr.title}` : "#░░░  " + "░".repeat(24), pr?.url || "░".repeat(30), "", `Verdict  ${PLACEHOLDER}`, "", "GATES", `${PLACEHOLDER}  ${"░".repeat(20)}`, `${PLACEHOLDER}  ${"░".repeat(16)}`, "", "FINDINGS", PARAGRAPH, "", "WALKTHROUGH", PARAGRAPH].join("\n"),
   };
 }
-export function repoFromPr(pr, origins = {}) {
-  try {
-    const url = new URL(pr.url);
-    const forge = Object.keys(origins).find(id => origins[id] === url.origin);
-    if (url.origin !== "https://github.com" && !forge) return "";
-    return `${forge ? `${forge}~` : ""}${url.pathname.split("/").slice(1, 3).join("/")}`;
-  } catch { return ""; }
-}
+export const repoFromPr = (pr, origins = {}) => repoFromUrl(pr?.url, origins);
 export function reviewComplete(record) {
   return !!record && !record.pending && !record.error && SCORE_KEYS.every(k => Number.isFinite(record.review?.scores?.[k]))
     && Number.isFinite(record.blast?.score) && !!record.review?.summary?.trim();

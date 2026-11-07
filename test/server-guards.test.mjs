@@ -7,11 +7,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { serverBlocks } from "./helpers/server-blocks.mjs";
+import { makeForge } from "../core/forges.mjs";
 
 test("server guards", async (ctx) => {
 
-const FORGES = { forgejo: { url: "https://code.example.org", label: "Forgejo" }, gitea: { url: "", label: "Gitea" } };
-const { OWNER_RE, REPO_RE, parsePrUrl, validPrUrl, cleanRepo, prUrlFor } = new Function("FORGES", `${serverBlocks("repo-id", "pr-url")}; return { OWNER_RE, REPO_RE, parsePrUrl, validPrUrl, cleanRepo, prUrlFor };`)(FORGES);
+const FORGES = {
+  forgejo: { kind: "gitea", url: "https://code.example.org", label: "Forgejo" },
+  gitea: { kind: "gitea", url: "", label: "Gitea" },
+  bitbucket: { kind: "bitbucket", fixed: true, url: "https://bitbucket.org", label: "Bitbucket" },
+  bitbucketdc: { kind: "bitbucketdc", url: "https://bitbucket.corp.example", label: "Bitbucket Data Center" },
+  azure: { kind: "azure", fixed: true, url: "https://dev.azure.com", label: "Azure DevOps" },
+};
+const FORGE_IDS = Object.keys(FORGES);
+const FORGE_API = Object.fromEntries(FORGE_IDS.map((id) => [id, makeForge(id, FORGES[id])]));
+const { OWNER_RE, REPO_RE, parsePrUrl, validPrUrl, cleanRepo, prUrlFor } = new Function("FORGES", "FORGE_IDS", "FORGE_API", `${serverBlocks("repo-id", "pr-url")}; return { OWNER_RE, REPO_RE, parsePrUrl, validPrUrl, cleanRepo, prUrlFor };`)(FORGES, FORGE_IDS, FORGE_API);
 
 // Owner and repository ids are what reaches gh argv and the forge API path.
 for (const ok of ["acme", "acme-corp", "a.b_c", "forgejo~acme"]) assert.ok(OWNER_RE.test(ok), ok);
@@ -48,6 +57,34 @@ assert.equal(cleanRepo("https://code.example.org/acme/shop"), "forgejo~acme/shop
 assert.equal(cleanRepo("acme/shop", "forgejo~acme"), "forgejo~acme/shop");
 assert.equal(cleanRepo(" acme/shop "), "acme/shop");
 ctx.diagnostic("repository input is normalised to its provider-prefixed id");
+
+// Bitbucket Cloud, Bitbucket Data Center and Azure DevOps: their own URL shapes, the same id rules.
+for (const ok of ["bitbucket~team/app", "bitbucketdc~PROJ/app", "azure~contoso/Web Shop/shop-api", "azure~contoso/p/r"]) assert.ok(REPO_RE.test(ok), ok);
+for (const bad of ["azure~contoso/p", "azure~contoso/p/r/x", "azure~contoso/ p/r", "azure~contoso/p/r ", "azure~contoso/../r", "bitbucket~team/app/x", "azure~con toso/p/r"]) assert.ok(!REPO_RE.test(bad), bad);
+for (const ok of ["bitbucket~team", "bitbucketdc~PROJ", "azure~contoso"]) assert.ok(OWNER_RE.test(ok), ok);
+assert.deepEqual(parsePrUrl("https://bitbucket.org/team/app/pull-requests/5"), { repo: "bitbucket~team/app", number: 5, selfHosted: true });
+assert.deepEqual(parsePrUrl("https://bitbucket.corp.example/projects/PROJ/repos/app/pull-requests/9"), { repo: "bitbucketdc~PROJ/app", number: 9, selfHosted: true });
+assert.deepEqual(parsePrUrl("https://dev.azure.com/contoso/Web%20Shop/_git/shop-api/pullrequest/31"), { repo: "azure~contoso/Web Shop/shop-api", number: 31, selfHosted: true });
+for (const bad of [
+  "https://bitbucket.org/team/app/pull-requests/5/overview",
+  "https://bitbucket.org/team/app/pulls/5",
+  "https://bitbucket.corp.example/projects/PROJ/repos/app/pull-requests/9/overview",
+  "https://dev.azure.com/contoso/Web Shop/_git/shop-api/pullrequest/31",
+  "https://dev.azure.com/contoso/Web%2FShop/_git/shop-api/pullrequest/31",
+  "https://dev.azure.com/contoso/%2E%2E/_git/shop-api/pullrequest/31",
+  "https://dev.azure.com/contoso/p/_git/r/pullrequest/0",
+]) assert.equal(parsePrUrl(bad), null, bad);
+assert.equal(prUrlFor("bitbucket~team/app", 5), "https://bitbucket.org/team/app/pull-requests/5");
+assert.equal(prUrlFor("bitbucketdc~PROJ/app", 9), "https://bitbucket.corp.example/projects/PROJ/repos/app/pull-requests/9");
+assert.equal(prUrlFor("azure~contoso/Web Shop/shop-api", 31), "https://dev.azure.com/contoso/Web%20Shop/_git/shop-api/pullrequest/31");
+assert.equal(parsePrUrl(prUrlFor("azure~contoso/Web Shop/shop-api", 31)).repo, "azure~contoso/Web Shop/shop-api", "round trip");
+assert.equal(cleanRepo("https://bitbucket.org/team/app/src/main/"), "bitbucket~team/app");
+assert.equal(cleanRepo("https://bitbucket.corp.example/projects/PROJ/repos/app/browse"), "bitbucketdc~PROJ/app");
+assert.equal(cleanRepo("https://dev.azure.com/contoso/Web%20Shop/_git/shop-api"), "azure~contoso/Web Shop/shop-api");
+assert.equal(cleanRepo("Web Shop/shop-api", "azure~contoso"), "azure~contoso/Web Shop/shop-api");
+assert.equal(cleanRepo("app", "bitbucket~team"), "bitbucket~team/app", "a bare name lands under the active organization");
+assert.equal(cleanRepo("x/y/z", "bitbucket~team"), "x/y/z", "anything else is left for the caller to refuse");
+ctx.diagnostic("Bitbucket, Bitbucket Data Center and Azure DevOps URLs map to one id each, and back");
 
 // Scope: every page is scoped to the active organization; a repository outside it is refused server-side.
 const { requestOrg, checkRepoScope } = new Function("OWNER_RE", "REPO_RE", "isForgeRepo", "forgeUrl", `${serverBlocks("scope")}; return { requestOrg, checkRepoScope };`)(

@@ -608,7 +608,7 @@ ${c.bold}USAGE:${c.reset}
 ${c.bold}COMMANDS:${c.reset}
   tui                 Connected repositories, scores and summaries (terminal default)
   review              Review local git diff (default outside a terminal)
-  pr <url-or-number>  Review and score a GitHub / Forgejo / Gitea Pull Request
+  pr <url-or-number>  Review and score a pull request (GitHub, Bitbucket, Azure DevOps, Forgejo, Gitea)
   ci                  Run automated CI gate checks with merge blocker exit codes
   mcp                 Start Model Context Protocol (MCP) server over stdio
   help                Show this help message

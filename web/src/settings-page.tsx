@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { JsonForm, type Section, type Values } from "@/components/json-form";
 import { FormSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
-import type { User } from "./types";
+import { type User, FORGE_PREFIX } from "./types";
 
 // Thin shell for every settings page: fetch that page's schema + values, hand them to the generic form, route actions to the API.
 // Every settings page is scoped to the active organization (sent as ?org=), like every other page.
@@ -85,8 +85,15 @@ export function SettingsPage({ forgeUrls, page, repo = "", org, setOrg, user, on
         say({ ok: true, text: "Saved." });
         // Onboarding a repository from another organization switches to it, so the page you land on is not empty.
         const source = Object.keys(forgeUrls).find((id) => forgeUrls[id] && rawAdded.startsWith(`${forgeUrls[id]}/`));
-        const prefix = /^(forgejo|gitea)~/.exec(org)?.[0] || "";
-        const owner = source ? `${source}~${rawAdded.slice(forgeUrls[source].length + 1).split("/")[0]}` : `${prefix && !rawAdded.startsWith("https://github.com/") && !/^(forgejo|gitea)~/.test(added) ? prefix : ""}${added.split("/")[0]}`;
+        const prefix = FORGE_PREFIX.exec(org)?.[0] || "";
+        // Bitbucket Data Center URLs are /projects/KEY/repos/name; an Azure DevOps "project/repo" stays in the current organization
+        const segs = source ? rawAdded.slice(forgeUrls[source].length + 1).split("/") : [];
+        const nativeOwner = source === "bitbucketdc" && segs[0] === "projects" ? segs[1] : segs[0];
+        const owner = source
+          ? `${source}~${decodeURIComponent(nativeOwner ?? "")}`
+          : prefix === "azure~" && !FORGE_PREFIX.test(added) && added.split("/").length === 2
+            ? org
+            : `${prefix && !rawAdded.startsWith("https://github.com/") && !FORGE_PREFIX.test(added) ? prefix : ""}${added.split("/")[0]}`;
         if (page === "repos" && owner && added.includes("/") && owner !== org) setOrg(owner);
       } else if (actionId === "test") {
         const d = await call(url("/test"), { method: "POST" });

@@ -99,7 +99,7 @@ Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face insi
 
 ### `AGENTS.md` / `CLAUDE.md`, Repo Learnings, Inline `suggestion` Fixes, Incremental Delta Reviews &amp; GitHub PR Sync
 
-Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository and enforces them at the merge gate. Smart outside-diff context, a self-check pass on every finding, PR tools (Describe, Ask, Improve, Docs, Changelog), `/review`-style PR comment commands, team learnings, accepted fixes, incremental delta reviews, and committable inline `suggestion` fixes posted to the pull request and updated in place. Pull requests and commands arrive by **webhook** from your own GitHub App or Forgejo/Gitea repository hooks (HMAC-checked, with a catch-up poll and `gh webhook forward` for localhost); auto-reviews run from one queue and retry on model failures.
+Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository and enforces them at the merge gate. Smart outside-diff context, a self-check pass on every finding, PR tools (Describe, Ask, Improve, Docs, Changelog), `/review`-style PR comment commands, team learnings, accepted fixes, incremental delta reviews, and committable inline `suggestion` fixes posted to the pull request and updated in place. Works with **GitHub, Bitbucket Cloud, Bitbucket Data Center, Azure DevOps, Forgejo and Gitea**. Pull requests and commands arrive by **webhook** from your own GitHub App, repository hooks or Azure DevOps service hooks (secret-checked, with a catch-up poll and `gh webhook forward` for localhost); auto-reviews run from one queue and retry on model failures.
 
 [Review features →](https://docs.codeotter.io/docs/review-features)
 
@@ -179,7 +179,7 @@ All documentation lives at **[docs.codeotter.io](https://docs.codeotter.io/docs)
 | Run locally | [Quickstart](https://docs.codeotter.io/docs/quickstart) |
 | Deploy | [Docker quickstart](https://docs.codeotter.io/docs/docker-quickstart) · [Accounts and roles](https://docs.codeotter.io/docs/accounts-and-roles) |
 | Models | [BYOK provider config](https://docs.codeotter.io/docs/byok-config) · [Local GGUF & sidecars (100% offline)](https://docs.codeotter.io/docs/local-gguf-sidecar) |
-| Git providers | [Forgejo](https://docs.codeotter.io/docs/forgejo) · [Gitea](https://docs.codeotter.io/docs/gitea) |
+| Git providers | [Bitbucket](https://docs.codeotter.io/docs/bitbucket) · [Azure DevOps](https://docs.codeotter.io/docs/azure-devops) · [Forgejo](https://docs.codeotter.io/docs/forgejo) · [Gitea](https://docs.codeotter.io/docs/gitea) |
 | Reviews | [Dual engine](https://docs.codeotter.io/docs/dual-engine) · [Review features](https://docs.codeotter.io/docs/review-features) · [`AGENTS.md` / `CLAUDE.md`](https://docs.codeotter.io/docs/repository-guidelines) · [Fast triage in CI](https://docs.codeotter.io/docs/ci-triage) |
 | Terminal | [CLI, TUI & MCP server](https://docs.codeotter.io/docs/cli) |
 | Reference | [Security & privacy](https://docs.codeotter.io/docs/security) · [Development & integration tests](https://docs.codeotter.io/docs/development) |
