@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { forgeLabel, repoFromUrl, repoLabel, repoSegments } from "./types";
 
-// Same rules as repoFromUrl in core/forges.mjs: a PR URL maps to one repository id per provider.
+// Same rules as repoFromUrl in core/forges.ts: a PR URL maps to one repository id per provider.
 describe("repoFromUrl", () => {
   const origins = { gitea: "https://git.example", bitbucket: "https://bitbucket.org", bitbucketdc: "https://bb.corp", azure: "https://dev.azure.com", forgejo: "" };
   it("maps each provider's PR URL to its repository id", () => {

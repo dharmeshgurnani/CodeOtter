@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MarkdownView } from "@/components/markdown";
 
-// Server-registered PR tools (PR_TOOLS in server.mjs): pick one, run it, then post the result or apply it to the PR.
+// Server-registered PR tools (PR_TOOLS in server.ts): pick one, run it, then post the result or apply it to the PR.
 type Tool = { id: string; label: string; input: string | null; apply: string | null };
 type Result = { tool: string; markdown: string; at: string; message?: string };
 

@@ -18,7 +18,7 @@ export PB_URL="${PB_URL:-http://127.0.0.1:8090}"
 "$PB" superuser upsert "$PB_ADMIN_EMAIL" "$PB_ADMIN_PASSWORD" --dir "$HOME_DIR/pb_data" --migrationsDir "$HOME_DIR/core/pb_migrations"
 "$PB" serve --http=0.0.0.0:8090 --dir "$HOME_DIR/pb_data" --migrationsDir "$HOME_DIR/core/pb_migrations" &
 PB_PID=$!
-node "$HOME_DIR/core/server.mjs" &
+node "$HOME_DIR/core/server.ts" &
 NODE_PID=$!
 
 forward() {

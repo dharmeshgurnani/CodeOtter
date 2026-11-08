@@ -15,7 +15,7 @@ export default defineConfig({
   reporter: process.env.CI ? [["list"], ["junit", { outputFile: "test-results/e2e.xml" }]] : "list",
   use: { baseURL: `http://127.0.0.1:${port}`, trace: "retain-on-failure", channel: "chromium" },
   webServer: {
-    command: `node ${resolve(import.meta.dirname, "..", "core", "server.mjs")}`,
+    command: `node ${resolve(import.meta.dirname, "..", "core", "server.ts")}`,
     url: `http://127.0.0.1:${port}/healthz`,
     reuseExistingServer: false,
     env: { CODEOTTER_HOME: home, PB_URL: "", PORT: String(port), REPO: "acme/shop", CODEOTTER_UPDATE_CHECK: "0", GH_TOKEN: "", LLM_API_KEY: "", ANTHROPIC_API_KEY: "", OPENAI_API_KEY: "" },

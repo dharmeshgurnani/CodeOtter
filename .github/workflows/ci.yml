@@ -12,13 +12,14 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm, cache-dependency-path: "**/pnpm-lock.yaml" }
-      - run: for f in core/*.mjs core/routes/*.mjs; do node --check "$f"; done
       - run: pnpm install --frozen-lockfile
       - run: pnpm -C web install --frozen-lockfile
+      - name: Backend, TUI and tests (strict TypeScript)
+        run: pnpm typecheck
       - name: Web build (strict TypeScript)
         run: pnpm -C web build
       - name: Core and TUI tests (node:test)
-        run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=test-results.xml "test/*.test.mjs"
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=test-results.xml "test/*.test.ts"
       - name: Web tests (Vitest)
         run: pnpm -C web test -- --reporter=default --reporter=junit --outputFile=test-results/web.xml
       - name: Browser smoke (Playwright)

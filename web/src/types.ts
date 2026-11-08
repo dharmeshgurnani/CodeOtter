@@ -73,7 +73,7 @@ export type User = { id: string; name: string; email: string; role: string; avat
 export type Board = { repo: string; repos: string[]; onboardingNeeded?: boolean; forgejoUrl?: string; forgeUrls?: Record<string, string>; model: string; baseUrl: string; store: string; update?: { version: string; url: string } | null; settingsPages: { id: string; title: string; group: "settings" | "admin" | "workspace" | "repo" }[]; reviewed: Review[]; open: OpenPr[] };
 
 // A pull request URL's repository id, given the configured origins (provider id -> origin). Same rules as repoFromUrl in
-// core/forges.mjs: owner/name for GitHub, Forgejo, Gitea and Bitbucket; PROJECT/repo for Bitbucket Data Center
+// core/forges.ts: owner/name for GitHub, Forgejo, Gitea and Bitbucket; PROJECT/repo for Bitbucket Data Center
 // (/projects/P/repos/r/...); org/project/repo for Azure DevOps (/org/project/_git/repo/...).
 export const repoFromUrl = (url: string, origins: Record<string, string> = {}) => {
   try {
