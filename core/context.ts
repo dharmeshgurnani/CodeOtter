@@ -7,29 +7,16 @@ import { forgeId, forgeOf, ghAsync, isForgeRepo } from "./git.ts";
 import { capMap } from "./pr-tools.ts";
 import { repoOf } from "./views.ts";
 import type { ChangedFile } from "./diff.ts";
+import type { PrCommit as ForgePrCommit, PullRequest as ForgePullRequest } from "./forges.ts";
 import type { GuideSetting, RepoSetting } from "./store.ts";
 
 // A pull request in gh's JSON shape (`gh pr view --json`); the forge adapters normalise theirs to the same fields.
-export interface PrCommit { oid?: string; messageHeadline?: string; messageBody?: string; authors?: { login?: string; name?: string }[]; committedDate?: string; }
-export interface PullRequest {
-  url: string;
-  number: number;
-  title: string;
-  body?: string;
-  author: { login: string };
-  baseRefName: string;
-  headRefName: string;
-  headRefOid?: string;
-  headSha?: string; // the reviewed head, set by the review
-  headRepo?: string; // fork PRs on Forgejo/Gitea: the repository the head branch lives in
-  changedFiles: number;
-  additions: number;
-  deletions: number;
-  files: ChangedFile[];
-  commits?: PrCommit[];
-  state?: string;
-  isDraft?: boolean;
-}
+export type PrCommit = Partial<Omit<ForgePrCommit, "authors">> & { authors?: { login?: string; name?: string }[] };
+// The reviewed pull request: the forge's PullRequest (forges.ts) as far as a review needs it, plus the head it reviewed.
+// gh's JSON may omit the optional fields, and its commits can be partial.
+export type PullRequest = Pick<ForgePullRequest, "url" | "number" | "title" | "author" | "baseRefName" | "headRefName" | "changedFiles" | "additions" | "deletions">
+  & Partial<Pick<ForgePullRequest, "body" | "headRefOid" | "headRepo" | "state" | "isDraft" | "updatedAt" | "labels">>
+  & { files: ChangedFile[]; commits?: PrCommit[]; headSha?: string };
 export interface ReviewSettings {
   maxFindings: number;
   diffChars: number;

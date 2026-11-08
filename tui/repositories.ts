@@ -1,9 +1,10 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { text } from "./review-output.ts";
 import { repoFromUrl } from "../core/forges.ts";
+import type { PullRequest as CorePullRequest } from "../core/forges.ts";
 
 // Stored review records as the TUI reads them; every model field is untrusted and rendered through text().
-export type PullRequest = { number: number; title: string; url: string };
+export type PullRequest = Pick<CorePullRequest, "number" | "title" | "url">;
 export type ReviewGate = { label: string; pass: boolean; explanation?: string };
 export type ReviewFinding = { severity: string; title: string; file: string; line?: number | null; detail: string; suggestion?: string };
 export type WalkthroughChange = { file?: unknown; change?: unknown };

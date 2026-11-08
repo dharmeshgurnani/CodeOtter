@@ -3,9 +3,10 @@ import { execFileSync } from "node:child_process";
 import { REPO_RE } from "./config.ts";
 import { ghAsync, isForgeRepo } from "./git.ts";
 import type { Finding } from "./engines.ts";
+import type { PrFile } from "./forges.ts";
 
 // A changed file as gh (and the forge adapters) list it on a pull request.
-export interface ChangedFile { path: string; additions: number; deletions: number; }
+export type ChangedFile = PrFile;
 export interface OutsideCaller { symbol: string; file: string; line: number; snippet: string; }
 export interface OutsideImpact { symbols: string[]; callers: OutsideCaller[]; outsideCallers: number; uniqueFiles: number; formatted: string; }
 export interface BlastRadius { score: number; files: number; lines: number; dirs: number; hotspots: string[]; testFiles: number; outsideCallers: number; outsideFiles: number; }
