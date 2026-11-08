@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **GitHub Action** ([codeotter-action](https://github.com/dharmeshgurnani/codeotter-action), for GitHub Marketplace): a workflow on `pull_request_target` / `issue_comment` posts its own event payload to `/webhooks/github`, signed with the instance's **Action secret** (new, under Settings → System → Git providers → GitHub; repository secret `CODEOTTER_SECRET`). The server URL comes from `url:` in `codeotter.yml` on the default branch. No App install and no relay. Re-creating the GitHub App with *Create app* now keeps the forwarder and Action secrets.
+- **TypeScript.** `core/`, `tui/`, `bin/`, `test/` and `web/scripts/` are strict TypeScript (`.ts`), run directly by Node's type stripping, with no build step. Node 22.18 or later is required. `pnpm start` runs `node core/server.ts`, and `codeotter` is `tui/codeotter.ts`. `pnpm typecheck` (strict, no `any`) runs in CI and before `pnpm test`. Malformed API request fields are treated as empty instead of failing with a TypeError. PocketBase migrations stay JavaScript.
 
 ## 0.7.0 (2026-11-08)
 
