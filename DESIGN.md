@@ -204,7 +204,7 @@ components:
 
 # Code Otter
 
-Specification of the visual identity, token system, and component patterns across **Code Otter** ([`web/src/`](./web/src) and [`core/server.mjs`](./core/server.mjs)), structured according to the open [Google Stitch `DESIGN.md`](https://github.com/google-labs-code/design.md) specification.
+Specification of the visual identity, token system, and component patterns across **Code Otter** ([`web/src/`](./web/src) and [`core/server.ts`](./core/server.ts)), structured according to the open [Google Stitch `DESIGN.md`](https://github.com/google-labs-code/design.md) specification.
 
 ## Overview
 
@@ -334,7 +334,7 @@ Code Otter eschews heavy drop shadows in favor of **structural 1px borders** (`#
 ## Do's and Don'ts
 
 ### Do's
-- **Do** route every new dashboard section through [`JsonReport`](./web/src/components/json-report.tsx) and every new settings/admin page through [`SETTINGS_PAGES`](./core/server.mjs) + [`JsonForm`](./web/src/components/json-form.tsx).
+- **Do** route every new dashboard section through [`JsonReport`](./web/src/components/json-report.tsx) and every new settings/admin page through [`SETTINGS_PAGES`](./core/server.ts) + [`JsonForm`](./web/src/components/json-form.tsx).
 - **Do** preserve card geometry across every grid: always render the subtitle (`min-h-5`) and button row (`invisible` when unused) in stat cards.
 - **Do** use `@animate-ui` primitives (`pnpx shadcn@latest add @animate-ui/<item> -y` inside `web/`) for any collapsible, dialog, dropdown, tooltip, or sidebar widget.
 - **Do** scope every data request and page view to the active organization (`?org=`) selected in `OrgSwitcher`.

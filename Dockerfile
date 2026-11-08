@@ -44,8 +44,8 @@ COPY bin ./bin
 COPY core ./core
 COPY tui ./tui
 COPY --from=terminal-deps /app/node_modules ./node_modules
-RUN chmod +x /app/tui/codeotter.mjs /app/bin/start.sh \
- && ln -s /app/tui/codeotter.mjs /usr/local/bin/codeotter
+RUN chmod +x /app/tui/codeotter.ts /app/bin/start.sh \
+ && ln -s /app/tui/codeotter.ts /usr/local/bin/codeotter
 COPY --from=web /app/web/dist ./web/dist
 
 ENV PB_URL=http://127.0.0.1:8090 PORT=4747 PR_SCORER_DATA=/app/pb_data/local S1_DEVICE=cpu PR_SCORER_PYTHON=python3
