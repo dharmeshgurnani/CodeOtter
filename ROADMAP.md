@@ -3,6 +3,7 @@
 | Status | Feature | Date |
 | :---: | :--- | :--- |
 | [x] | Backend in one module per subsystem; HTTP on Hono with one route module per area and route-level access middleware | 2026-11-07 |
+| [x] | Backend, CLI and tests in strict TypeScript, run by Node type stripping with no build step | 2026-11-08 |
 | [x] | Bitbucket Cloud, Bitbucket Data Center and Azure DevOps repositories (reviews, inline comments, statuses, PR tools, comment commands, webhooks / service hooks) alongside GitHub, Forgejo and Gitea; sign-in with Bitbucket and Microsoft Entra ID. Stub-tested; not yet run against live servers | 2026-11-07 |
 | [x] | Developer role, per-account repository access and invites (uninvited sign-ins refused) | 2026-10-13 |
 | [x] | Auto-review: new and updated pull requests reviewed and posted without a command; CI on every PR; async gh; /healthz | 2026-10-09 |
@@ -30,7 +31,7 @@
 | [ ] | Railway: template from `ghcr.io/dharmeshgurnani/codeotter` with a volume at `/app/pb_data` and a generated `PB_ADMIN_PASSWORD`; add the `railway.com/deploy/...` button | |
 | [ ] | AWS: CloudFormation template (EC2 + `install.sh` user data) hosted in S3 for a Launch Stack button | |
 | [ ] | DigitalOcean and Vultr: apply as marketplace vendors for 1-Click apps | |
-| [ ] | GitHub Marketplace: publish the CodeOtter Review action (codeotter-action) | |
+| [x] | GitHub Marketplace: CodeOtter Review action ([codeotter-action](https://github.com/marketplace/actions/codeotter-review)) | 2026-11-08 |
 | [ ] | Coolify and Dokploy: submit one-click templates | |
 | [x] | Automatic Docker updates: release tags publish a multi-arch image to GHCR, Compose runs Watchtower, sidebar shows a newer release to admins | 2026-10-02 |
 | [x] | Fast triage: System One rates correctness risk and blast radius of each new or updated PR from a whole-change digest, sets the `codeotter/triage` commit status and an updatable PR comment, polled every 2 minutes; GitHub Actions wait job in the [CI triage docs](https://docs.codeotter.io/docs/ci-triage) | 2026-10-02 |

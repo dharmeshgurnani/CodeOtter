@@ -4,7 +4,7 @@ labels: [bug]
 body:
   - type: input
     id: version
-    attributes: { label: CodeOtter version, placeholder: "0.7.0, Docker :latest, or a commit" }
+    attributes: { label: CodeOtter version, placeholder: "0.8.0, Docker :latest, or a commit" }
     validations: { required: true }
   - type: input
     id: models
