@@ -13,7 +13,7 @@ import type { ReviewSettings } from "./context.ts";
 // Settings: one JSON value per key. The types are what this app writes; a missing key reads as null. Keys not listed
 // here (dynamic ones such as a forge id) read as unknown and the caller narrows.
 export interface Invite { id: string; provider: string; pb: string; login: string; role: Role; repos?: string[]; at?: string }
-export interface GithubAppSetting { id?: number | string; slug?: string; owner?: string; pem?: string; clientId?: string; clientSecret?: string; webhookSecret?: string; forwardSecret?: string }
+export interface GithubAppSetting { id?: number | string; slug?: string; owner?: string; pem?: string; clientId?: string; clientSecret?: string; webhookSecret?: string; forwardSecret?: string; actionSecret?: string }
 export interface ModelSetting { provider?: string; model?: string; apiKey?: string; baseUrl?: string }
 export interface TriageSetting { auto: boolean; stopAt: number }
 export interface TriageResult { url: string; repo: string; headSha: string; at: string }
