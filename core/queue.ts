@@ -163,7 +163,7 @@ function verifySignature(secret: string | undefined, body: Buffer, header: unkno
 async function webhookSecrets(src: string) {
   if (src === "github") {
     const app = (await store.getSetting("githubApp")) || {};
-    return [app.webhookSecret, app.forwardSecret].filter(Boolean);
+    return [app.webhookSecret, app.forwardSecret, app.actionSecret].filter(Boolean);
   }
   return [(await store.getSetting(`${src}Webhook`))?.secret].filter(Boolean);
 }
@@ -303,6 +303,15 @@ function startForwarder(repo: string, secret: string) {
     });
   };
   run();
+}
+// The secret the CodeOtter GitHub Action signs with (repository secret CODEOTTER_SECRET). The Action posts the workflow's
+// own pull_request / issue_comment payload to /webhooks/github, so it takes the same path as an App delivery.
+export async function actionSecret() {
+  const app = (await store.getSetting("githubApp")) || {};
+  if (app.actionSecret) return app.actionSecret;
+  const secret = randomBytes(24).toString("hex");
+  await store.setSetting("githubApp", { ...app, actionSecret: secret });
+  return secret;
 }
 export const forwarderStatus = () => [...FORWARDERS].map(([repo, f]) => `${repo}: ${f.state}${f.error ? ` (${f.error})` : ""}`).join(" · ") || "Off";
 // </forwarder>

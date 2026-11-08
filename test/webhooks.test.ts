@@ -125,6 +125,17 @@ const settle = async (api: Queue) => { for (let i = 0; i < 100 && api.pending();
   console.log("✓ bad signature 401, bad JSON 400, unconfigured forge 404, missing secret 503, nothing runs");
 }
 
+// the GitHub Action signs with the instance's action secret and posts the workflow's own event payload
+{
+  const api = load();
+  api.settings.set("githubApp", { actionSecret: "act-secret" });
+  const pr = { action: "opened", repository: { full_name: "acme/app" }, pull_request: { number: 9, html_url: "https://github.com/acme/app/pull/9", head: { sha: "c".repeat(40) } } };
+  assert.strictEqual((await deliver(api, "github", { event: "pull_request", body: pr, secret: "act-secret", delivery: "action-1-1" })).statusCode, 202);
+  await settle(api);
+  assert.deepStrictEqual(api.calls[0], ["score", "https://github.com/acme/app/pull/9", "acme/app"]);
+  console.log("✓ GitHub Action deliveries signed with the action secret are queued like App deliveries");
+}
+
 // a pull_request delivery is accepted, de-duplicated and reviewed once per head
 {
   const api = load();

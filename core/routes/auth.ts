@@ -107,7 +107,11 @@ auth.get("/github/manifest/callback", async (c) => {
   const o = await store.getOAuth();
   await store.setOAuth({ ...o, enabled: true, providers: [...o.providers.filter((p) => p.name !== "github"), { name: "github", clientId: app.client_id, clientSecret: app.client_secret }] });
   await store.setSetting("primaryProvider", "github");
+  const prev = (await store.getSetting("githubApp")) || {};
   await store.setSetting("githubApp", {
+    // secrets this instance minted itself survive a new app: running forwarders and Action workflows keep signing with them
+    ...(prev.forwardSecret ? { forwardSecret: prev.forwardSecret } : {}),
+    ...(prev.actionSecret ? { actionSecret: prev.actionSecret } : {}),
     id: app.id,
     slug: app.slug,
     owner: app.owner?.login || "",

@@ -9,7 +9,7 @@ import { applyGithubToken, cleanRepo, forgeApi, forgeId, forgeOf, ghAsync, isFor
 import { askModel, askSystemOne, llmConfig, s1Config } from "./models.ts";
 import { getRepoAccepted, getRepoLearnings, guideCache, guideFiles, normalizeLearningList, normalizeReview, REVIEW_DEFAULTS, reviewConfig } from "./context.ts";
 import { triageConfig } from "./review.ts";
-import { describeDelivery, forwarderStatus, LOCAL_APP_URL, reposChanged, syncForwarders, webhookUrl } from "./queue.ts";
+import { actionSecret, describeDelivery, forwarderStatus, LOCAL_APP_URL, reposChanged, syncForwarders, webhookUrl } from "./queue.ts";
 import { repoOf } from "./views.ts";
 import { accessQueue, allowed, effectiveRole, isRole, onboardedRepo, ROLES, userView } from "./access.ts";
 import type { Access, Role, SessionUser } from "./access.ts";
@@ -502,10 +502,11 @@ export const SETTINGS_PAGES: Record<string, SettingsPage> = {
               { key: "webhookUrl", label: "Webhook URL", type: "readonly", ...(app.slug ? { link: { label: "App settings", url: `https://github.com/settings/apps/${app.slug}` } } : {}) },
               { key: "webhookSecret", label: "Webhook secret", type: "password", placeholder: app.webhookSecret ? "Saved" : "", hint: app.webhookSecret ? "Leave blank to keep the stored secret." : "Apps created by Create app carry one. For an existing app, set the URL above and a secret under the app's Webhook settings, then paste the secret here." },
               { key: "webhookStatus", label: "Last delivery", type: "readonly" },
+              { key: "actionSecret", label: "Action secret", type: "readonly", hint: "Repository secret CODEOTTER_SECRET for the CodeOtter GitHub Action." },
               { key: "forward", label: "Forward webhooks here", type: "checkbox", text: "gh webhook forward streams each GitHub repository's pull_request and issue_comment events to this process (local development without a public URL; needs gh extension install cli/gh-webhook)" },
               { key: "forwardStatus", label: "Forwarders", type: "readonly", hideWhen: { field: "forward", in: ["false"] } },
             ],
-            values: { token: "", ...(githubToken ? { clearToken: false } : {}), webhookUrl: webhookUrl("github"), webhookSecret: "", webhookStatus: describeDelivery("github"), forward, forwardStatus: forwarderStatus() },
+            values: { token: "", ...(githubToken ? { clearToken: false } : {}), webhookUrl: webhookUrl("github"), webhookSecret: "", webhookStatus: describeDelivery("github"), actionSecret: await actionSecret(), forward, forwardStatus: forwarderStatus() },
           },
         }),
         ...Object.entries(FORGES).map(([id, f]) => providerRow(id, f.token ? { text: "Token saved", tone: "ok" } : { text: "No token", tone: "muted" }, {
