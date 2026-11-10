@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **GitHub works with only the GitHub App.** An install whose only GitHub credential is the App made in onboarding (no saved token, no `GH_TOKEN`, no `gh auth login`; Railway, Render, Docker) now lists, reviews and comments on pull requests as the App, using an installation token for the repository's owner. Before, every GitHub call failed silently and open pull requests never appeared. A saved token, `GH_TOKEN` or a `gh` login still takes precedence.
+
 ## 0.8.1 (2026-11-10)
 
 - **Container start without `PB_ADMIN_EMAIL`** (Render, Railway): `bin/start.sh` now exports its PocketBase admin defaults, so the server signs in with the superuser it just created instead of failing with `PocketBase auth 400`.
