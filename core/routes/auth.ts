@@ -67,6 +67,12 @@ auth.get("/auth/callback", async (c) => {
   cookie(c, "pr_oauth", "", 0);
   const fail = (msg: string) => c.redirect(`/login?login_error=${encodeURIComponent(msg)}`, 302);
   const q = c.req.query();
+  // A GitHub App made with "Request user authorization during installation" sends the installer here, not to its
+  // setup URL, with a code we never asked for. It is an install, not a sign-in: carry on where the install started.
+  if (!flow && q.installation_id) {
+    const done = (await store.getSetting("onboardingComplete")) === true;
+    return c.redirect(done ? "/settings/git?connected=github" : "/onboarding?step=2&connected=github", 302);
+  }
   if (!flow || flow.expires < Date.now() || flow.state !== q.state) return fail("Sign-in state mismatch, try again");
   if (q.error) return fail(q.error_description || q.error);
   let signedIn: AuthResult;

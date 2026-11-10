@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Container start without `PB_ADMIN_EMAIL`** (Render, Railway): `bin/start.sh` now exports its PocketBase admin defaults, so the server signs in with the superuser it just created instead of failing with `PocketBase auth 400`.
+- **No default repository outside a checkout.** Without `REPO`, a `gh` login or a git remote (Docker, Render, Railway), a new install starts with no onboarded repositories, so onboarding opens, instead of falling back to `dharmeshgurnani/CodeOtter`.
+- **GitHub App manifest**: *Create app* no longer lists `installation_repositories` as a default event, which GitHub rejected ("Default events unsupported"). Apps receive it without subscribing.
+- **GitHub App install returns to onboarding.** New apps no longer request user authorization during installation, so GitHub sends the installer to onboarding. Apps already created that way land on the sign-in callback with an `installation_id`; that now goes back to onboarding (or Git providers) instead of failing with "Sign-in state mismatch" on the login page.
+
 ## 0.8.0 (2026-11-08)
 
 - **GitHub Action** ([codeotter-action](https://github.com/dharmeshgurnani/codeotter-action), for GitHub Marketplace): a workflow on `pull_request_target` / `issue_comment` posts its own event payload to `/webhooks/github`, signed with the instance's **Action secret** (new, under Settings → System → Git providers → GitHub; repository secret `CODEOTTER_SECRET`). The server URL comes from `url:` in `codeotter.yml` on the default branch. No App install and no relay. Re-creating the GitHub App with *Create app* now keeps the forwarder and Action secrets.

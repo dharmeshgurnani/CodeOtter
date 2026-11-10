@@ -144,7 +144,7 @@ export async function repositoryDiff(repo: string, pr: string) {
 if (IS_SERVER) {
   await initializeCore();
   const server = serve({ fetch: app.fetch, port: Number(PORT) }, async () => {
-    console.log(`CodeOtter on http://localhost:${PORT} (repo ${REPO}, model ${(await llmConfig()).model}, store ${PB_URL ? `PocketBase ${PB_URL}` : "scores/"})`);
+    console.log(`CodeOtter on http://localhost:${PORT} (repo ${REPO || "none"}, model ${(await llmConfig()).model}, store ${PB_URL ? `PocketBase ${PB_URL}` : "scores/"})`);
     syncForwarders().catch((e) => console.warn(`[forwarder] ${e.message}`));
     redeliverGitHubFailures().catch((e) => console.warn(`[webhook github] redelivery: ${e.message}`));
   });

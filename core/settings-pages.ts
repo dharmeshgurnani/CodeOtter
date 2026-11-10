@@ -182,9 +182,10 @@ async function githubManifest(body: Body, http: CookieWriter): Promise<ActionRes
       metadata: "read",
       administration: "read",
     },
-    request_oauth_on_install: true,
+    // false: GitHub then sends the installer to setup_url (onboarding) instead of the sign-in callback
+    request_oauth_on_install: false,
     // GitHub refuses a localhost webhook URL; a laptop gets events through the forwarder instead.
-    ...(LOCAL_APP_URL ? {} : { hook_attributes: { url: webhookUrl("github"), active: true }, default_events: ["pull_request", "issue_comment", "installation_repositories"] }),
+    ...(LOCAL_APP_URL ? {} : { hook_attributes: { url: webhookUrl("github"), active: true }, default_events: ["pull_request", "issue_comment"] }),
   };
   return { submit: { url: `https://github.com/settings/apps/new?state=${state}`, fields: { manifest: JSON.stringify(manifest) } } };
 }

@@ -285,6 +285,11 @@ try {
     const cb = await call("/auth/callback?state=st&code=c", { cookie: `pr_oauth=${key}` });
     return { status: cb.status, location: cb.headers.get("location") || "", cookie: cb.headers.get("set-cookie") || "" };
   };
+  const install = await call("/auth/callback?code=c&installation_id=7&setup_action=install");
+  assert.equal(install.status, 302);
+  assert.ok(["/onboarding?step=2&connected=github", "/settings/git?connected=github"].includes(install.headers.get("location") || ""), install.headers.get("location") || "no location");
+  assert.ok(!/pr_auth=/.test(install.headers.get("set-cookie") ?? ""), "an install redirect never signs anyone in");
+  ctx.diagnostic("a GitHub App install that lands on the sign-in callback goes back to onboarding, not to /login");
   const mallory = await signIn({ token: "tmal", record: { id: "u-mal", role: "", name: "mallory", email: "", verified: false }, meta: { username: "mallory" } });
   assert.equal(mallory.location, `/login?login_error=${encodeURIComponent("Not invited: ask an owner for an invite")}`);
   assert.ok(!/pr_auth=tmal/.test(mallory.cookie), "no session for a refused sign-in");

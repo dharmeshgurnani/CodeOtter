@@ -1,65 +1,93 @@
 <div align="center">
 
-<p align="center">
-  <img src="assets/banners/hero-score-card.png" alt="CodeOtter AI Code Review Platform" width="520" style="max-width: 100%; height: auto; border-radius: 10px;" />
-</p>
+<img src="assets/banners/hero-score-card.png" alt="CodeOtter AI Code Review" width="520" />
 
 # 🦦 CodeOtter
 
-### CodeOtter is the self-hosted AI pull request reviewer with 6 calibrated 0–100 gauges (`Quality`, `Blast Radius`, `Risk`, `Tests`, `Readability`, `PR Hygiene`), 9 binary merge gates (`Title`, `Description`, `Security`, `Complexity`, `Tests`, `Docs`, `Scope`, `Guidelines`, `Issue Requirements`), and a `POST /v1/systemone` deterministic System 1 engine — free to self-host under AGPL-3.0.
+### Self-hosted AI code review that scores every pull request.
 
-<p align="center">
+**6 calibrated 0–100 scores · 9 yes/no merge gates · 100% offline or bring your own keys · $0 per seat**
+
+<p>
+  <a href="#-deploy-in-one-click"><strong>Deploy</strong></a> &middot;
   <a href="https://codeotter.io"><strong>Website</strong></a> &middot;
   <a href="https://docs.codeotter.io/docs"><strong>Docs</strong></a> &middot;
-  <a href="#-quickstart"><strong>Quickstart</strong></a> &middot;
-  <a href="#what-is-codeotter"><strong>What is CodeOtter</strong></a> &middot;
-  <a href="https://docs.codeotter.io/docs/dual-engine"><strong>Dual Engine</strong></a> &middot;
-  <a href="https://docs.codeotter.io/docs/local-gguf-sidecar"><strong>Offline Mode</strong></a> &middot;
-  <a href="https://docs.codeotter.io/docs/docker-quickstart"><strong>Docker</strong></a> &middot;
-  <a href="https://docs.codeotter.io/docs/security"><strong>Security & Privacy</strong></a> &middot;
-  <a href="#-star-history"><strong>Star History</strong></a> &middot;
+  <a href="#-features"><strong>Features</strong></a> &middot;
+  <a href="#-why-codeotter"><strong>Why CodeOtter</strong></a> &middot;
   <a href="#-sponsors"><strong>Sponsors</strong></a>
 </p>
 
-<p align="center">
+<p>
+  <a href="https://github.com/dharmeshgurnani/CodeOtter/stargazers"><img src="https://img.shields.io/github/stars/dharmeshgurnani/CodeOtter?style=social" alt="GitHub Stars" /></a>
   <a href="https://github.com/dharmeshgurnani/CodeOtter/actions/workflows/ci.yml"><img src="https://github.com/dharmeshgurnani/CodeOtter/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://codeotter.io"><img src="https://img.shields.io/badge/Website-codeotter.io-b45309.svg" alt="Website" /></a>
-  <a href="https://docs.codeotter.io/docs"><img src="https://img.shields.io/badge/Docs-docs.codeotter.io-b45309.svg" alt="Docs" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-c2410c.svg" alt="AGPL-3.0" /></a>
-  <a href="package.json"><img src="https://img.shields.io/badge/Node-%3E%3D22-111111.svg" alt="Node Version" /></a>
   <a href="https://docs.codeotter.io/docs/security"><img src="https://img.shields.io/badge/Privacy-Zero_Telemetry-15803d.svg" alt="Zero Telemetry" /></a>
-  <a href="#what-is-codeotter"><img src="https://img.shields.io/badge/Deployment-100%25_Self--Hosted-15803d.svg" alt="100% Self Hosted" /></a>
   <a href="https://docs.codeotter.io/docs/local-gguf-sidecar"><img src="https://img.shields.io/badge/Models-Local_GGUF_%7C_BYOK-b45309.svg" alt="Local or BYOK" /></a>
-  <a href="https://star-history.com/#dharmeshgurnani/CodeOtter&Date"><img src="https://img.shields.io/github/stars/dharmeshgurnani/CodeOtter?style=flat&color=eab308" alt="GitHub Stars" /></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/Node-%3E%3D22-111111.svg" alt="Node Version" /></a>
 </p>
+
+<p>
+  <a href="assets/videos/codeotter-cinematic-film-silent.mp4"><picture><source srcset="assets/videos/hero-showcase.gif" type="image/gif"><img src="assets/videos/hero-showcase.jpg" alt="CodeOtter review dashboard" width="960" /></picture></a>
+</p>
+
+**⭐ Star the repo to follow releases.** New git providers, local models and review features ship every few weeks.
 
 </div>
 
 ---
 
-## What is CodeOtter?
+## 🚀 Deploy in one click
 
-**CodeOtter** is a free-to-self-host pull request review platform built for engineering teams who want calibrated code intelligence without sending private code to third-party SaaS clouds or paying **$24–$30/developer/month**.
-
-Run it **100% offline** on your workstation with open-weight Hugging Face models (`llama.cpp` + `ggmlc` sidecars), or connect your own keys for Claude, OpenAI, MiniMax, or OpenRouter.
-
-<p align="center">
-  <a href="assets/videos/codeotter-cinematic-film-silent.mp4"><picture><source srcset="assets/videos/hero-showcase.gif" type="image/gif"><img src="assets/videos/hero-showcase.jpg" alt="CodeOtter AI Code Review Dashboard" width="960" /></picture></a>
+<p>
+  <a href="https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fdharmeshgurnani%2FCodeOtter%2Fmain%2Fbin%2Fdeploy%2Fazure.json"><img src="https://aka.ms/deploytoazurebutton" alt="Deploy to Azure" height="32" /></a>
+  &nbsp;
+  <a href="https://render.com/deploy?repo=https://github.com/dharmeshgurnani/CodeOtter"><img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render" height="32" /></a>
 </p>
+
+Any Linux server (Docker):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh | bash
+```
+
+Local (Node 22+ and pnpm; for GitHub repositories, `gh auth status`):
+
+```bash
+git clone https://github.com/dharmeshgurnani/CodeOtter.git
+cd CodeOtter
+pnpm dev      # http://localhost:5173 (or pnpm start for production on :4747)
+```
+
+Full guides: **[Quickstart](https://docs.codeotter.io/docs/quickstart)** · **[Docker quickstart](https://docs.codeotter.io/docs/docker-quickstart)**.
 
 ---
 
-## Features
+## 🦦 Why CodeOtter
+
+| | Typical hosted AI reviewer | **CodeOtter** |
+| :--- | :--- | :--- |
+| Price | $24–$30 per developer per month | **$0, free to self-host** |
+| Where your code goes | Vendor cloud | **Your server; never leaves it with local models** |
+| Air-gapped / offline | No | **Yes: llama.cpp, ggmlc and CodeT5 sidecars** |
+| Models | Vendor's choice | **Claude, OpenAI, MiniMax, OpenRouter or any local GGUF** |
+| Scores | Prose opinions | **6 calibrated 0–100 scores + 9 merge gates from a System 1 model** |
+| Git providers | Usually GitHub first | **GitHub, Bitbucket Cloud & Data Center, Azure DevOps, Forgejo, Gitea** |
+| Team conventions | Config files per vendor | **Your existing `AGENTS.md` / `CLAUDE.md`** |
+| Source | Closed | **Open source, AGPL-3.0** |
+
+---
+
+## ✨ Features
 
 <table>
 <tr>
 <td width="50%" valign="middle">
 
-### Side-by-Side 30/70 Review Dashboard
+### Review Dashboard
 
-Inspect calibrated **0–100 score gauges** (`Quality`, `Blast Radius`, `Risk`, `Tests`, `Readability`, `PR Hygiene`) on the left while reading the streaming **Markdown review terminal**, interactive **Architecture & Blast Radius Mermaid diagram** (100% offline SVG flowchart renderer with raw Mermaid source toggle), cohort file walkthroughs, and severity-ranked findings on the right. Re-run scores or narrative independently with one click.
+Six 0–100 score gauges beside the streaming review, a blast-radius diagram and severity-ranked findings. Re-run scores or the review on its own with one click.
 
-[Quickstart →](#-quickstart)
+[Review dashboard →](https://docs.codeotter.io/docs/review-features)
 
 </td>
 <td width="50%">
@@ -69,11 +97,11 @@ Inspect calibrated **0–100 score gauges** (`Quality`, `Blast Radius`, `Risk`, 
 <tr>
 <td width="50%" valign="middle">
 
-### Deterministic System 1 Scores &amp; Merge Gates
+### Scores &amp; Merge Gates
 
-Standard LLM prompts hallucinate numbers. CodeOtter pairs your language model with a **System 1 decision engine** (`POST /v1/systemone`) that evaluates **6 rubric scores** and **9 yes/no pre-merge gates** (`Title`, `Description`, `Security`, `Complexity`, `Tests`, `Docs`, `Scope`, `Guidelines`) in a single fast pass.
+A System 1 model answers 6 scored rubrics and 9 yes/no merge gates in one pass. Typed answers, not numbers guessed by a chat model.
 
-[Dual Engine Architecture →](https://docs.codeotter.io/docs/dual-engine)
+[Dual engine →](https://docs.codeotter.io/docs/dual-engine)
 
 </td>
 <td width="50%">
@@ -83,11 +111,11 @@ Standard LLM prompts hallucinate numbers. CodeOtter pairs your language model wi
 <tr>
 <td width="50%" valign="middle">
 
-### 100% Offline Local Models
+### 100% Offline Models
 
-Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face inside **Settings → System → Local models**. CodeOtter automatically manages `llama-server` (`llama.cpp`), `laya` (`ggmlc`), and Python sidecars with discrete Vulkan/Metal GPU detection.
+Download open-weight GGUF and CodeT5 models from Hugging Face in one click. CodeOtter runs the sidecars and picks up your GPU.
 
-[Offline Mode →](https://docs.codeotter.io/docs/local-gguf-sidecar)
+[Offline mode →](https://docs.codeotter.io/docs/local-gguf-sidecar)
 
 </td>
 <td width="50%">
@@ -97,12 +125,11 @@ Download open-weight GGUF and CodeT5 checkpoints directly from Hugging Face insi
 <tr>
 <td width="50%" valign="middle">
 
-### `AGENTS.md` / `CLAUDE.md`, Repo Learnings, Inline `suggestion` Fixes, Incremental Delta Reviews &amp; GitHub PR Sync
+### Every Git Provider
 
-Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded repository and enforces them at the merge gate. Smart outside-diff context, a self-check pass on every finding, PR tools (Describe, Ask, Improve, Docs, Changelog), `/review`-style PR comment commands, team learnings, accepted fixes, incremental delta reviews, and committable inline `suggestion` fixes posted to the pull request and updated in place. Works with **GitHub, Bitbucket Cloud, Bitbucket Data Center, Azure DevOps, Forgejo and Gitea**. Pull requests and commands arrive by **webhook** from your own GitHub App, repository hooks or Azure DevOps service hooks (secret-checked, with a catch-up poll and `gh webhook forward` for localhost); auto-reviews run from one queue and retry on model failures.
+Reviews follow your `AGENTS.md` / `CLAUDE.md` and post committable fixes inline. Works with GitHub, Bitbucket, Azure DevOps, Forgejo and Gitea.
 
 [Review features →](https://docs.codeotter.io/docs/review-features)
-
 
 </td>
 <td width="50%">
@@ -110,6 +137,15 @@ Automatically detects `AGENTS.md` and `CLAUDE.md` at the root of each onboarded 
 </td>
 </tr>
 </table>
+
+**Also included:**
+[PR commands](https://docs.codeotter.io/docs/review-features) (`/review` `/describe` `/improve` `/ask` `/docs` `/changelog`) ·
+[incremental reviews and team learnings](https://docs.codeotter.io/docs/review-features) ·
+[webhooks from your own GitHub App](https://docs.codeotter.io/docs/review-features) ·
+[CLI, terminal UI and MCP server](https://docs.codeotter.io/docs/cli) ·
+[fast triage in CI](https://docs.codeotter.io/docs/ci-triage) ·
+[accounts, roles and invites](https://docs.codeotter.io/docs/accounts-and-roles) ·
+[zero telemetry](https://docs.codeotter.io/docs/security)
 
 ---
 
@@ -136,40 +172,6 @@ Works with **any local open-weight model or hosted API** — mix and match Syste
 
 ---
 
-## CodeOtter is right for your team if
-
-- ✅ You want **enterprise-grade PR reviews** without sending private code to a third-party cloud
-- ✅ You want **calibrated 0–100 scores and deterministic gates**, not hallucinated guesses
-- ✅ You want to **enforce team conventions** (`AGENTS.md` / `CLAUDE.md`) automatically on every PR
-- ✅ You want to run **100% offline on local hardware** (MacBook, Linux workstation, air-gapped GPU)
-- ✅ You want **zero per-seat billing** ($0 forever for self-hosting)
-- ✅ You want an **instant, zero-dependency deployment** with Docker or lightweight Node
-
----
-
-## ⚡ Quickstart
-
-Requires Node 22+ and pnpm. For GitHub repositories, authenticate the GitHub CLI (`gh auth status`).
-
-```bash
-git clone https://github.com/dharmeshgurnani/CodeOtter.git
-cd CodeOtter
-pnpm dev      # http://localhost:5173 (or pnpm start for production on :4747)
-```
-
-Or deploy with Docker on any Linux server:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/dharmeshgurnani/CodeOtter/main/bin/install.sh | bash
-```
-
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fdharmeshgurnani%2FCodeOtter%2Fmain%2Fbin%2Fdeploy%2Fazure.json)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dharmeshgurnani/CodeOtter)
-
-The full setup guides are in the **[Quickstart](https://docs.codeotter.io/docs/quickstart)** and **[Docker quickstart](https://docs.codeotter.io/docs/docker-quickstart)**.
-
----
-
 ## 📚 Documentation
 
 All documentation lives at **[docs.codeotter.io](https://docs.codeotter.io/docs)** ([source](https://github.com/dharmeshgurnani/codeotter-docs)).
@@ -187,6 +189,8 @@ All documentation lives at **[docs.codeotter.io](https://docs.codeotter.io/docs)
 ---
 
 ## ⭐ Star History
+
+If CodeOtter saves you a review cycle or a per-seat bill, **[give it a star](https://github.com/dharmeshgurnani/CodeOtter)**. It is the main way other teams find it.
 
 <p align="center">
   <a href="https://star-history.com/#dharmeshgurnani/CodeOtter&Date">
@@ -227,3 +231,9 @@ Company and partner sponsorship: **sponsors@codeotter.io**.
 - **License**: Open source under the [GNU AGPL-3.0](LICENSE). Free to self-host, modify and redistribute; anyone who runs a modified version as a network service must publish their changes.
 - **Contributing**: Contributions and feedback are welcome! Please check out [`CONTRIBUTING.md`](CONTRIBUTING.md) to get started. Start with a [`good first issue`](https://github.com/dharmeshgurnani/CodeOtter/labels/good%20first%20issue).
 - **Code of conduct**: [Contributor Covenant 2.1](CODE_OF_CONDUCT.md).
+- **What's next**: [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md)
+- **Issues**: [Report a bug](https://github.com/dharmeshgurnani/CodeOtter/issues/new?template=bug.yml) · [Request a feature](https://github.com/dharmeshgurnani/CodeOtter/issues/new?template=feature.yml) · [Security policy](SECURITY.md)
+
+<p align="center">
+  <a href="https://github.com/dharmeshgurnani/CodeOtter/graphs/contributors"><img src="https://contrib.rocks/image?repo=dharmeshgurnani/CodeOtter" alt="Contributors" /></a>
+</p>

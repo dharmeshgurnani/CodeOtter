@@ -14,6 +14,8 @@ if [ -z "${PB_ADMIN_PASSWORD:-}" ]; then
   echo "warning: PB_ADMIN_PASSWORD is not set; PocketBase superuser uses the default password. Set PB_ADMIN_PASSWORD." >&2
 fi
 PB_ADMIN_PASSWORD="${PB_ADMIN_PASSWORD:-AdminPassword123!}"
+# node (core/store.ts) signs in with these; export the defaults too, or it falls back to its own and auth fails
+export PB_ADMIN_EMAIL PB_ADMIN_PASSWORD
 export PB_URL="${PB_URL:-http://127.0.0.1:8090}"
 "$PB" superuser upsert "$PB_ADMIN_EMAIL" "$PB_ADMIN_PASSWORD" --dir "$HOME_DIR/pb_data" --migrationsDir "$HOME_DIR/core/pb_migrations"
 "$PB" serve --http=0.0.0.0:8090 --dir "$HOME_DIR/pb_data" --migrationsDir "$HOME_DIR/core/pb_migrations" &
