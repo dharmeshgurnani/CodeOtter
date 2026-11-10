@@ -80,11 +80,6 @@ function repoFromCwd(): string {
     const m = origin.match(/[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?$/);
     if (m && REPO_RE.test(`${m[1]}/${m[2]}`)) return `${m[1]}/${m[2]}`;
   } catch {}
-  try {
-    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { repository?: string | { url?: string } };
-    const repoStr = typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url || "";
-    const m = repoStr.match(/(?:github\.com\/|github:|^)([\w.-]+\/[\w.-]+?)(?:\.git)?$/);
-    if (m && REPO_RE.test(m[1])) return m[1];
-  } catch {}
-  return "dharmeshgurnani/CodeOtter";
+  // No git checkout (Docker, Railway, Render): nothing is onboarded until the owner picks repositories.
+  return "";
 }
