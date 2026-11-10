@@ -42,6 +42,8 @@
   <a href="https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fdharmeshgurnani%2FCodeOtter%2Fmain%2Fbin%2Fdeploy%2Fazure.json"><img src="https://aka.ms/deploytoazurebutton" alt="Deploy to Azure" height="32" /></a>
   &nbsp;
   <a href="https://render.com/deploy?repo=https://github.com/dharmeshgurnani/CodeOtter"><img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render" height="32" /></a>
+  &nbsp;
+  <a href="https://railway.com/deploy/cl00sB"><img src="https://railway.com/button.svg" alt="Deploy on Railway" height="32" /></a>
 </p>
 
 Any Linux server (Docker):
