@@ -13,12 +13,13 @@ interface GhRepo { full_name?: string } // GitHub REST repository (the one field
 
 // GitHub CLI, always async: a synchronous gh call would stall every other request and poll loop for a network round trip.
 // stderr is captured so "gh auth login" / "Not Found" reach the UI instead of the terminal.
-export const ghAsync = (...rawArgs: string[] | [string[]]): Promise<string> => {
+export const ghAsync = async (...rawArgs: string[] | [string[]]): Promise<string> => {
   const args: string[] = Array.isArray(rawArgs[0]) ? rawArgs[0] : (rawArgs as string[]);
+  const env = await ghEnvFor(args);
   return new Promise((resolve, reject) => {
     // Two minutes covers a slow diff; a hung gh (proxy, credential helper) would otherwise pin the poll loops forever.
     // Own timer rather than spawn's timeout option: Node leaves that one armed when the binary is missing.
-    const p = spawn("gh", args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, env: ghEnv() });
+    const p = spawn("gh", args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, env });
     let out = "";
     let err = "";
     let timedOut = false;
@@ -182,12 +183,69 @@ export const repos = async (): Promise<string[]> => {
   return Array.isArray(saved) ? (saved as string[]) : REPO ? [REPO] : [];
 };
 let ghReposCache: Map<string, string[]> | null | undefined;
-export const forgetGithubRepos = () => { ghReposCache = null; };
+export const forgetGithubRepos = () => { ghReposCache = null; appTokens.clear(); };
 // A GitHub token saved in the app (Settings / Git providers, or onboarding) goes to gh calls only, as GH_TOKEN in that
 // child's environment, and takes precedence over one from the server's environment; without one, gh uses its own login.
 // It is never written to process.env, so model sidecars, pip and other children do not inherit it.
 let savedGithubToken = "";
 export const ghEnv = (): NodeJS.ProcessEnv => (savedGithubToken ? { ...process.env, GH_TOKEN: savedGithubToken, GITHUB_TOKEN: savedGithubToken } : process.env);
+// The repository owner a gh call acts on: -R owner/repo, an api path repos/owner/..., a github.com URL, a search
+// qualifier repo:owner/..., or the owner/repo operand of `gh repo view|list`. "" when the call names none.
+export function ghOwnerOf(args: string[]): string {
+  const name = /^[\w][\w.-]*$/;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    const m = (a === "-R" || a === "--repo" ? /^([\w][\w.-]*)\//.exec(args[i + 1] || "") : null)
+      || /^--repo=([\w][\w.-]*)\//.exec(a)
+      || /^\/?repos\/([\w][\w.-]*)\//.exec(a)
+      || /^https:\/\/github\.com\/([\w][\w.-]*)\//.exec(a)
+      || /[?&]q=repo:([\w][\w.-]*)\//.exec(a);
+    if (m) return m[1];
+  }
+  if (args[0] === "repo" && (args[1] === "view" || args[1] === "list") && args[2] && !args[2].startsWith("-")) {
+    const owner = args[2].split("/")[0];
+    if (name.test(owner)) return owner;
+  }
+  return "";
+}
+// gh's own login (`gh auth login` on this machine), checked once: when present it keeps acting as that user.
+let ghLoggedIn: Promise<boolean> | undefined;
+const ghHasLogin = () => (ghLoggedIn ||= new Promise<boolean>((resolve) => {
+  const p = spawn("gh", ["auth", "token"], { stdio: "ignore", windowsHide: true, env: { ...process.env, GH_TOKEN: "", GITHUB_TOKEN: "" } });
+  p.on("error", () => resolve(false));
+  p.on("close", (code) => resolve(code === 0));
+}));
+// With no token anywhere (a fresh hosted install that only created a GitHub App in onboarding), gh calls run as the
+// App: an installation token for the owner the call names, cached until five minutes before it expires (one hour).
+const appTokens = new Map<string, { token: string; expires: number }>();
+type AppInstallation = { id?: number; account?: { login?: string } };
+export async function appInstallationToken(owner: string): Promise<string> {
+  const app = (await store.getSetting("githubApp")) as GitHubAppConfig | null | undefined;
+  if (!app?.id || !app?.pem) return "";
+  const key = owner.toLowerCase();
+  const hit = appTokens.get(key);
+  if (hit && hit.expires - 300000 > Date.now()) return hit.token;
+  const headers = { authorization: `Bearer ${createGitHubAppJwt(app.id, app.pem)}`, accept: "application/vnd.github+json", "user-agent": "CodeOtter" };
+  const res = await fetch("https://api.github.com/app/installations?per_page=100", { headers, redirect: "error", signal: AbortSignal.timeout(10000) });
+  if (!res.ok) return "";
+  const list: unknown = await res.json();
+  const installs = Array.isArray(list) ? (list as AppInstallation[]) : [];
+  // a call that names no owner (gh api user, repo list) uses the only installation, never a guess between several
+  const inst = key ? installs.find((i) => i.account?.login?.toLowerCase() === key) : installs.length === 1 ? installs[0] : undefined;
+  if (!inst?.id) return "";
+  const tok = await fetch(`https://api.github.com/app/installations/${inst.id}/access_tokens`, { method: "POST", headers, redirect: "error", signal: AbortSignal.timeout(10000) });
+  if (!tok.ok) return "";
+  const data = (await tok.json()) as { token?: string; expires_at?: string };
+  if (!data.token) return "";
+  appTokens.set(key, { token: data.token, expires: Date.parse(data.expires_at || "") || Date.now() + 3600000 });
+  return data.token;
+}
+// The environment for one gh call: the saved token, else GH_TOKEN / GITHUB_TOKEN, else gh's own login, else the App.
+async function ghEnvFor(args: string[]): Promise<NodeJS.ProcessEnv> {
+  if (savedGithubToken || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || await ghHasLogin()) return ghEnv();
+  const token = await appInstallationToken(ghOwnerOf(args)).catch(() => "");
+  return token ? { ...process.env, GH_TOKEN: token, GITHUB_TOKEN: token } : process.env;
+}
 export function applyGithubToken(token: string | null | undefined): void {
   savedGithubToken = token || "";
   ghReposCache = null;
